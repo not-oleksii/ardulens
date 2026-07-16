@@ -1,0 +1,41 @@
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100svh;
+  text-align: left;
+}
+
+header {
+  padding: 20px 28px 0;
+}
+
+main {
+  padding: 20px 28px;
+}
+
+.tab-bar {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  padding: 8px 14px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.tab.active {
+  color: var(--text-h);
+  border-bottom-color: var(--accent);
+}
+
+.hint {
+  color: var(--text);
+  font-size: 13px;
+}
