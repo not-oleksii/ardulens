@@ -1,0 +1,24 @@
+{
+  "name": "ardulens",
+  "private": true,
+  "version": "0.1.0",
+  "description": "ArduPilot flight log viewer, analyzer and parameter explorer",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=@ardulens/app",
+    "build": "npm run build --workspace=@ardulens/core && npm run build --workspace=@ardulens/app",
+    "test": "npm run test --workspace=@ardulens/core && npm run test --workspace=@ardulens/app",
+    "test:coverage": "npm run test:coverage --workspace=@ardulens/core && npm run test:coverage --workspace=@ardulens/app",
+    "lint": "npm run lint --workspace=@ardulens/core && npm run lint --workspace=@ardulens/app",
+    "tauri": "npm run tauri --workspace=@ardulens/app"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,39 @@
+import js from "@eslint/js";
+import reactHooks from "eslint-plugin-react-hooks";
+import reactRefresh from "eslint-plugin-react-refresh";
+import globals from "globals";
+import tseslint from "typescript-eslint";
+
+export default tseslint.config(
+  { ignores: ["dist/**", "coverage/**", "src-tauri/target/**"] },
+  js.configs.recommended,
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    extends: [...tseslint.configs.recommendedTypeChecked],
+    plugins: {
+      "react-hooks": reactHooks,
+      "react-refresh": reactRefresh,
+    },
+    languageOptions: {
+      ecmaVersion: 2023,
+      globals: globals.browser,
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      ...reactHooks.configs.flat["recommended-latest"].rules,
+      ...reactRefresh.configs.vite.rules,
+      "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
+    },
+  },
+  {
+    files: ["**/*.test.ts", "**/*.test.tsx", "src/test/**"],
+    languageOptions: { globals: { ...globals.browser, ...globals.node } },
+  },
+  {
+    files: ["vite.config.ts", "eslint.config.js"],
+    languageOptions: { globals: globals.node },
+  },
+);

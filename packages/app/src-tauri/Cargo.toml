@@ -1,0 +1,26 @@
+[package]
+name = "ardulens"
+version = "0.1.0"
+description = "ArduLens - ArduPilot flight log viewer, analyzer and parameter explorer"
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "ardulens_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+tauri = { version = "2.11.5", features = [] }
+tauri-plugin-updater = "2.10.1"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
