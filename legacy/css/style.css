@@ -1,0 +1,151 @@
+:root {
+  --bg: #0f172a;
+  --card: #1e293b;
+  --card2: #273449;
+  --line: #334155;
+  --txt: #e2e8f0;
+  --muted: #94a3b8;
+  --accent: #38bdf8;
+  --accent2: #0ea5e9;
+  --ok: #22c55e;
+  --warn: #f59e0b;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 22px 28px;                 /* screen-edge margins */
+  font-family: "Segoe UI", Roboto, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--txt);
+  line-height: 1.5;
+}
+
+.wrap { max-width: none; }            /* stretch to full width (minus body padding) */
+
+h1 { font-size: 20px; margin: 0 0 4px; }
+
+.sub { max-width: 1000px; margin-bottom: 18px; color: var(--muted); font-size: 13px; }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 18px;
+  margin-bottom: 16px;
+}
+
+label { display: block; margin-bottom: 4px; font-size: 12px; color: var(--muted); }
+
+input {
+  width: 100%;
+  max-width: 340px;
+  padding: 9px 11px;
+  background: var(--card2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--txt);
+  font-size: 14px;
+  font-family: inherit;
+}
+input:focus { outline: none; border-color: var(--accent); }
+
+/* Collapsible help block */
+details.help { max-width: 1000px; }
+details.help summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  list-style: none;
+}
+details.help summary::-webkit-details-marker { display: none; }
+details.help summary::before { content: "▸ "; }
+details.help[open] summary::before { content: "▾ "; }
+details.help .body { margin-top: 10px; font-size: 13px; color: var(--txt); }
+details.help .body ol { margin: 6px 0 0; padding-left: 20px; }
+details.help .body li { margin-bottom: 4px; }
+
+#drop {
+  padding: 34px 18px;
+  border: 2px dashed var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  text-align: center;
+  cursor: pointer;
+  transition: .15s;
+}
+#drop.hover { border-color: var(--accent); background: var(--card2); }
+#drop .big { font-size: 15px; font-weight: 600; }
+#drop .small { margin-top: 6px; font-size: 13px; color: var(--muted); }
+
+button {
+  padding: 9px 15px;
+  background: var(--accent2);
+  border: none;
+  border-radius: 8px;
+  color: #04283a;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+button:hover { background: var(--accent); }
+button.ghost { background: transparent; border: 1px solid var(--line); color: var(--accent); }
+button.ghost:hover { border-color: var(--accent); }
+
+.row-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+
+/* Table + app-styled scrollbar */
+table {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  border-collapse: collapse;
+  overflow-x: auto;
+  font-size: 14px;
+  scrollbar-width: thin;                       /* Firefox */
+  scrollbar-color: var(--line) var(--card2);   /* Firefox: thumb / track */
+}
+table::-webkit-scrollbar { height: 10px; width: 10px; }
+table::-webkit-scrollbar-track { background: var(--card2); border-radius: 8px; }
+table::-webkit-scrollbar-thumb { background: var(--line); border-radius: 8px; }
+table::-webkit-scrollbar-thumb:hover { background: var(--accent2); }
+
+th, td {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+  font-size: 14px;
+}
+th { background: var(--card2); color: var(--muted); font-weight: 600; }
+td.board  { color: var(--accent); font-weight: 700; }
+td.manual { background: #3a2f16; color: #fcd34d; }
+td.ground { color: var(--muted); }
+tr:hover td { background: #1b2740; }
+
+.msg { margin-top: 10px; padding: 10px 12px; border-radius: 8px; font-size: 13px; }
+.msg.err  { background: #3b1d1d; color: #fca5a5; border: 1px solid #7f1d1d; }
+.msg.info { background: #1c2e3b; color: #7dd3fc; border: 1px solid #155e75; }
+.msg.warn { background: #3a2f16; color: #fcd34d; border: 1px solid #92610a; }
+
+.hint { margin-top: 8px; font-size: 12px; color: var(--muted); }
+code { padding: 1px 5px; background: var(--card2); border-radius: 4px; }
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  padding: 10px 18px;
+  background: var(--ok);
+  border-radius: 8px;
+  color: #052e16;
+  font-size: 14px;
+  font-weight: 600;
+  opacity: 0;
+  pointer-events: none;
+  transition: .25s;
+}
+.toast.show { opacity: 1; }

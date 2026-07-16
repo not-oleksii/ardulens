@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p \"/c/Users/us/Desktop/logs_summary_tool/js\" \"/c/Users/us/Desktop/logs_summary_tool/css\")",
+      "Read(//c/Users/us/Desktop//**)",
+      "Bash(cp \"/c/Users/us/Desktop/11.07.26 2553.BIN\" \"/c/Users/us/Desktop/logs_summary_tool/test.bin\" 2>&1; ls -la \"/c/Users/us/Desktop/logs_summary_tool/test.bin\")",
+      "Bash(pkill -f \"http.server 8791\")"
+    ]
+  }
+}
