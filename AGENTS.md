@@ -14,7 +14,8 @@ ardulens/
 │   └── src-tauri/       # the Tauri (Rust) desktop wrapper
 └── src/                # all React/TypeScript source
     ├── builders/        # test-data builders (fluent classes for constructing mock complex objects)
-    ├── pages/           # top-level views, one per app tab (Dashboard, Graphs, Parameters, Advisor, Compare)
+    ├── pages/           # top-level views, one per app tab (Logs, Graphs, Parameters, Advisor, Compare -
+    │                    #   see stores/uiStore's VISIBLE_TABS: a page only shows as a tab once it's real)
     ├── components/       # shared/reusable UI components
     │   └── ui/            # shadcn/ui primitives (Button, Tabs, Card, ...) - see exception below
     ├── lib/              # `utils.ts` re-exporting `cn` - see exception below

@@ -2,13 +2,13 @@ import { LanguageSwitcher } from "./components/LanguageSwitcher/LanguageSwitcher
 import { TabBar } from "./components/TabBar/TabBar";
 import { AdvisorView } from "./pages/AdvisorView/AdvisorView";
 import { CompareView } from "./pages/CompareView/CompareView";
-import { DashboardView } from "./pages/DashboardView/DashboardView";
 import { GraphsView } from "./pages/GraphsView/GraphsView";
+import { LogsView } from "./pages/LogsView/LogsView";
 import { ParametersView } from "./pages/ParametersView/ParametersView";
 import { useUiStore } from "./stores/uiStore/uiStore";
 
 const VIEWS = {
-  dashboard: DashboardView,
+  logs: LogsView,
   graphs: GraphsView,
   parameters: ParametersView,
   advisor: AdvisorView,

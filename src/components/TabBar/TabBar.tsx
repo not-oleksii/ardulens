@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { TABS, useUiStore, type Tab } from "../../stores/uiStore/uiStore";
+import { VISIBLE_TABS, useUiStore, type Tab } from "../../stores/uiStore/uiStore";
 
 export function TabBar() {
   const { t } = useTranslation();
@@ -10,7 +10,7 @@ export function TabBar() {
   return (
     <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as Tab)}>
       <TabsList>
-        {TABS.map((tab) => (
+        {VISIBLE_TABS.map((tab) => (
           <TabsTrigger key={tab} value={tab}>
             {t(`tabs.${tab}`)}
           </TabsTrigger>
