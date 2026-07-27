@@ -1,8 +1,11 @@
+import { useTranslation } from "react-i18next";
+
 export function AdvisorView() {
+  const { t } = useTranslation();
   return (
     <section>
-      <h2>Аналіз</h2>
-      <p>Автоматичні зауваження (просадка напруги, цілісність GPS тощо) - у розробці.</p>
+      <h2>{t("advisor.heading")}</h2>
+      <p>{t("advisor.description")}</p>
     </section>
   );
 }

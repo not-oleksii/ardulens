@@ -1,11 +1,13 @@
+import { useTranslation } from "react-i18next";
 import { COLUMNS } from "../../analysis/metrics/metrics";
 
 export function DashboardView() {
+  const { t } = useTranslation();
   return (
     <section>
-      <h2>Огляд</h2>
-      <p>Перетягніть .skylog/.bin, щоб побачити зведену таблицю по вильотах.</p>
-      <p className="hint">Колонки: {COLUMNS.length}</p>
+      <h2>{t("dashboard.heading")}</h2>
+      <p>{t("dashboard.description")}</p>
+      <p className="hint">{t("dashboard.columnsHint", { count: COLUMNS.length })}</p>
     </section>
   );
 }
