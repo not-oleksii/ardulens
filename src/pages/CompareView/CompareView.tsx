@@ -1,11 +1,14 @@
 import { useTranslation } from "react-i18next";
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export function CompareView() {
   const { t } = useTranslation();
   return (
-    <section>
-      <h2>{t("compare.heading")}</h2>
-      <p>{t("compare.description")}</p>
-    </section>
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("compare.heading")}</CardTitle>
+        <CardDescription>{t("compare.description")}</CardDescription>
+      </CardHeader>
+    </Card>
   );
 }

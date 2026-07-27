@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
-import { TABS, useUiStore } from "../../stores/uiStore/uiStore";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TABS, useUiStore, type Tab } from "../../stores/uiStore/uiStore";
 
 export function TabBar() {
   const { t } = useTranslation();
@@ -7,17 +8,14 @@ export function TabBar() {
   const setActiveTab = useUiStore((s) => s.setActiveTab);
 
   return (
-    <nav className="tab-bar">
-      {TABS.map((tab) => (
-        <button
-          key={tab}
-          type="button"
-          className={tab === activeTab ? "tab active" : "tab"}
-          onClick={() => setActiveTab(tab)}
-        >
-          {t(`tabs.${tab}`)}
-        </button>
-      ))}
-    </nav>
+    <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as Tab)}>
+      <TabsList>
+        {TABS.map((tab) => (
+          <TabsTrigger key={tab} value={tab}>
+            {t(`tabs.${tab}`)}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+    </Tabs>
   );
 }

@@ -1,13 +1,16 @@
 import { useTranslation } from "react-i18next";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { COLUMNS } from "../../analysis/metrics/metrics";
 
 export function DashboardView() {
   const { t } = useTranslation();
   return (
-    <section>
-      <h2>{t("dashboard.heading")}</h2>
-      <p>{t("dashboard.description")}</p>
-      <p className="hint">{t("dashboard.columnsHint", { count: COLUMNS.length })}</p>
-    </section>
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("dashboard.heading")}</CardTitle>
+        <CardDescription>{t("dashboard.description")}</CardDescription>
+      </CardHeader>
+      <CardContent>{t("dashboard.columnsHint", { count: COLUMNS.length })}</CardContent>
+    </Card>
   );
 }
