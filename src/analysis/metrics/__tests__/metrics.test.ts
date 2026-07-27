@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { COLUMNS, computeRow, isFlightSamples, landingVoltage, METRICS, sagVoltage } from "../metrics";
+import {
+  COLUMNS,
+  computeRow,
+  estimatedCapacityMah,
+  isFlightSamples,
+  landingVoltage,
+  METRICS,
+  modeChangeCount,
+  sagVoltage,
+  sagVoltagePercent,
+} from "../metrics";
 import type { Flight, Sample } from "../../../types";
 
 const BASE_T = 1_752_650_000_000;
@@ -34,6 +44,62 @@ describe("sagVoltage", () => {
   it("returns null when throttle never reaches 100% while airborne", () => {
     const samples: Sample[] = [{ t: 0, voltage: 25, throttle: 50, airspeed: 12 }];
     expect(sagVoltage(samples)).toBeNull();
+  });
+});
+
+describe("sagVoltagePercent", () => {
+  it("expresses the sag drop as a percentage of takeoff voltage", () => {
+    const samples: Sample[] = [
+      { t: 0, voltage: 25.0 },
+      { t: 1000, voltage: 22.5, throttle: 100, airspeed: 12 },
+    ];
+    expect(sagVoltagePercent(samples)).toBeCloseTo(10, 5); // (25-22.5)/25*100
+  });
+
+  it("returns null when there is no sag sample", () => {
+    expect(sagVoltagePercent([{ t: 0, voltage: 25, throttle: 50, airspeed: 12 }])).toBeNull();
+  });
+});
+
+describe("estimatedCapacityMah", () => {
+  it("trapezoidal-integrates current over elapsed time", () => {
+    const samples: Sample[] = [
+      { t: 0, current: 10 },
+      { t: 3_600_000, current: 10 }, // 1 hour at a constant 10A -> 10,000 mAh
+    ];
+    expect(estimatedCapacityMah(samples)).toBeCloseTo(10_000, 5);
+  });
+
+  it("returns null when no consecutive pair both report current", () => {
+    expect(estimatedCapacityMah([{ t: 0 }, { t: 1000 }])).toBeNull();
+  });
+});
+
+describe("modeChangeCount", () => {
+  it("counts transitions between consecutive defined modes", () => {
+    const samples: Sample[] = [
+      { t: 0, mode: 0 },
+      { t: 1, mode: 5 },
+      { t: 2, mode: 5 },
+      { t: 3, mode: 0 },
+    ];
+    expect(modeChangeCount(samples)).toBe(2);
+  });
+
+  it("is zero when the mode never changes", () => {
+    expect(modeChangeCount([{ t: 0, mode: 5 }, { t: 1, mode: 5 }])).toBe(0);
+  });
+});
+
+describe("METRICS metadata", () => {
+  it("gives every metric a translation key", () => {
+    for (const m of METRICS) expect(m.key).toBeTruthy();
+  });
+
+  it("keeps the four suggested metrics out of the default column selection", () => {
+    for (const key of ["sagPercent", "avgCurrent", "estimatedCapacityUsed", "modeChanges"]) {
+      expect(METRICS.find((m) => m.key === key)?.defaultVisible).toBe(false);
+    }
   });
 });
 

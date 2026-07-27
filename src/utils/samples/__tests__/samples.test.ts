@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { firstNum, isAirborne, isFlying, maxOf } from "../samples";
+import { avgOf, firstNum, isAirborne, isFlying, maxOf } from "../samples";
 import type { Sample } from "../../../types";
 
 describe("firstNum", () => {
@@ -21,6 +21,17 @@ describe("maxOf", () => {
 
   it("returns null when no sample has the key", () => {
     expect(maxOf([{ t: 0 }], "alt")).toBeNull();
+  });
+});
+
+describe("avgOf", () => {
+  it("returns the mean of the numeric values for the key", () => {
+    const samples: Sample[] = [{ t: 0, current: 10 }, { t: 1, current: 20 }, { t: 2, current: 30 }];
+    expect(avgOf(samples, "current")).toBe(20);
+  });
+
+  it("returns null when no sample has the key", () => {
+    expect(avgOf([{ t: 0 }], "current")).toBeNull();
   });
 });
 

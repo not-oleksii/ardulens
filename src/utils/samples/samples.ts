@@ -18,6 +18,19 @@ export function maxOf(samples: Sample[], key: keyof Sample): number | null {
   return m;
 }
 
+export function avgOf(samples: Sample[], key: keyof Sample): number | null {
+  let sum = 0;
+  let count = 0;
+  for (const s of samples) {
+    const v = s[key];
+    if (typeof v === "number") {
+      sum += v;
+      count++;
+    }
+  }
+  return count ? sum / count : null;
+}
+
 export function isFlying(s: Sample): boolean {
   return typeof s.airspeed === "number" && s.airspeed >= AIRBORNE_SPEED;
 }

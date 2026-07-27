@@ -1,8 +1,9 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FlightBinBuilder } from "../../../builders/FlightBinBuilder/FlightBinBuilder";
 import { SkylogFileBuilder } from "../../../builders/SkylogFileBuilder/SkylogFileBuilder";
+import i18n from "../../../i18n/i18n";
 import { copyText } from "../../../services/clipboard/clipboard";
 import { LogsView } from "../LogsView";
 
@@ -88,6 +89,101 @@ describe("LogsView", () => {
     await userEvent.upload(input, new File([buf], "raw.skylog"));
 
     expect(await screen.findByText(/Скористайтесь \.bin/)).toBeInTheDocument();
+  });
+
+  it("parses a file dropped onto the drop zone", async () => {
+    render(<LogsView />);
+    const buf = new FlightBinBuilder().build();
+    const file = new File([buf], "3570.bin", { type: "application/octet-stream" });
+    const dropzone = screen.getByTestId("log-dropzone");
+
+    fireEvent.drop(dropzone, { dataTransfer: { files: [file] } });
+
+    expect(await screen.findByText("?")).toBeInTheDocument(); // no board filter typed -> falls back to "?"
+  });
+
+  describe("customizable columns", () => {
+    it("shows every column by default, with no toggle for the board column", async () => {
+      const user = userEvent.setup();
+      render(<LogsView />);
+      await user.click(screen.getByRole("button", { name: "Приклад .bin" }));
+      await screen.findByRole("table");
+
+      expect(screen.getByRole("columnheader", { name: "Напруга при взльоті, В" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Серійний номер борта" })).not.toBeInTheDocument();
+    });
+
+    it("removes a column when its chip is clicked, and re-adds it at the end when clicked again", async () => {
+      const user = userEvent.setup();
+      render(<LogsView />);
+      await user.click(screen.getByRole("button", { name: "Приклад .bin" }));
+      await screen.findByRole("table");
+
+      await user.click(screen.getByRole("button", { name: "Напруга при взльоті, В" }));
+      expect(screen.queryByRole("columnheader", { name: "Напруга при взльоті, В" })).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Напруга при взльоті, В" }));
+      const headers = screen.getAllByRole("columnheader").map((h) => h.textContent);
+      expect(headers.at(-2)).toBe("Напруга при взльоті, В"); // last real column; final header cell is the copy-button spacer
+    });
+
+    it("restores the default columns when Reset is clicked", async () => {
+      const user = userEvent.setup();
+      render(<LogsView />);
+      await user.click(screen.getByRole("button", { name: "Приклад .bin" }));
+      await screen.findByRole("table");
+
+      await user.click(screen.getByRole("button", { name: "Напруга при взльоті, В" }));
+      await user.click(screen.getByRole("button", { name: "Скинути" }));
+
+      expect(screen.getByRole("columnheader", { name: "Напруга при взльоті, В" })).toBeInTheDocument();
+    });
+
+    it("shows the approximate-data note only while an approximate column is selected", async () => {
+      const user = userEvent.setup();
+      render(<LogsView />);
+      await user.click(screen.getByRole("button", { name: "Приклад .bin" }));
+      await screen.findByRole("table");
+
+      expect(screen.getByText(/приблизні або розрахункові значення/)).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: /^Максимальна відстань від бази, м/ }));
+      await user.click(screen.getByRole("button", { name: /^Пройдений шлях, км/ }));
+
+      expect(screen.queryByText(/приблизні або розрахункові значення/)).not.toBeInTheDocument();
+    });
+
+    it("offers the suggested metrics as chips but leaves them out of the table by default", async () => {
+      const user = userEvent.setup();
+      render(<LogsView />);
+      await user.click(screen.getByRole("button", { name: "Приклад .bin" }));
+      await screen.findByRole("table");
+
+      const chip = screen.getByRole("button", { name: "Просадка напруги, %" });
+      expect(chip).toBeInTheDocument();
+      expect(screen.queryByRole("columnheader", { name: "Просадка напруги, %" })).not.toBeInTheDocument();
+
+      await user.click(chip);
+      expect(screen.getByRole("columnheader", { name: "Просадка напруги, %" })).toBeInTheDocument();
+    });
+  });
+
+  describe("translated metric headers", () => {
+    afterEach(async () => {
+      await i18n.changeLanguage("uk"); // reset for other tests
+    });
+
+    it("shows metric column headers in English when the language switches", async () => {
+      const user = userEvent.setup();
+      render(<LogsView />);
+      await user.click(screen.getByRole("button", { name: "Приклад .bin" }));
+      await screen.findByRole("table");
+
+      await i18n.changeLanguage("en");
+
+      expect(await screen.findByRole("columnheader", { name: "Takeoff voltage, V" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Voltage sag, %" })).toBeInTheDocument();
+    });
   });
 
   describe("copy to clipboard", () => {

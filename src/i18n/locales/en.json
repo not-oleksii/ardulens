@@ -37,6 +37,12 @@
       "bin": "Sample .bin",
       "skylog": "Sample .skylog"
     },
+    "columns": {
+      "heading": "Table columns",
+      "hint": "Add or remove columns - changes apply to the table below immediately.",
+      "reset": "Reset",
+      "approximateNote": "Columns marked (≈) are approximate or estimated values (from the GPS track after rejecting suspicious points, or computed by integration) and may differ from the actual figures."
+    },
     "actions": {
       "copyAll": "Copy all rows",
       "copyAllWithHeader": "Copy with header",
@@ -56,6 +62,24 @@
       "footerHint": "Column 1 (blue) is the detected board. Gray rows are likely ground tests.",
       "footerHintBin": "Column 1 (blue) is the detected board. Yellow cells (time) are manual. Gray rows are likely ground tests."
     }
+  },
+  "metrics": {
+    "board": "Board serial number",
+    "takeoffVoltage": "Takeoff voltage, V",
+    "landingVoltage": "Landing voltage, V",
+    "sagVoltage": "Sag voltage at 100% throttle, V",
+    "maxCurrent": "Max current, A",
+    "maxAirspeed": "Max airspeed (arspd), m/s",
+    "takeoffTime": "Takeoff time (hh:mm)",
+    "landingTime": "Landing time (hh:mm)",
+    "flightDuration": "Flight duration (hh:mm)",
+    "maxAltitude": "Max altitude, m",
+    "maxDistance": "Max distance from base, m",
+    "pathTraveled": "Path traveled, km",
+    "sagPercent": "Voltage sag, %",
+    "avgCurrent": "Average current, A",
+    "estimatedCapacityUsed": "Estimated capacity used, mAh",
+    "modeChanges": "Flight mode changes"
   },
   "graphs": {
     "heading": "Graphs",
