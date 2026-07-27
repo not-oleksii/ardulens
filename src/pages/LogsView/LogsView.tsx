@@ -6,7 +6,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { COLUMNS, computeRow } from "../../analysis/metrics/metrics";
+import { cn } from "@/lib/utils";
+import { METRICS, computeRow } from "../../analysis/metrics/metrics";
 import { FlightBinBuilder } from "../../builders/FlightBinBuilder/FlightBinBuilder";
 import { SkylogFileBuilder } from "../../builders/SkylogFileBuilder/SkylogFileBuilder";
 import { copyText } from "../../services/clipboard/clipboard";
@@ -19,11 +20,16 @@ interface LoadedResult {
   result: ParseResult;
 }
 
+const DEFAULT_COLUMN_INDICES = METRICS.map((_, i) => i).filter((i) => METRICS[i]!.defaultVisible !== false);
+const BOARD_COLUMN_INDEX = 0; // always shown first, identifies the row - not toggleable
+
 export function LogsView() {
   const { t } = useTranslation();
   const [boardFilter, setBoardFilter] = useState("");
   const [loaded, setLoaded] = useState<LoadedResult | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [columnIndices, setColumnIndices] = useState<number[]>(DEFAULT_COLUMN_INDICES);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -65,6 +71,15 @@ export function LogsView() {
     copiedTimer.current = setTimeout(() => setCopiedKey(null), 1500);
   }
 
+  function toggleColumn(index: number) {
+    if (index === BOARD_COLUMN_INDEX) return;
+    setColumnIndices((prev) => (prev.includes(index) ? prev.filter((i) => i !== index) : [...prev, index]));
+  }
+
+  function resetColumns() {
+    setColumnIndices(DEFAULT_COLUMN_INDICES);
+  }
+
   const view = useMemo(() => {
     if (!loaded) return null;
     const { result } = loaded;
@@ -79,7 +94,16 @@ export function LogsView() {
   }, [loaded, boardFilter]);
 
   const computed = useMemo(() => (view ? view.flights.map((f) => ({ f, r: computeRow(f) })) : []), [view]);
-  const rows = useMemo(() => computed.map((x) => x.r.row), [computed]);
+
+  const displayedColumns = useMemo(
+    () => columnIndices.map((i) => t(`metrics.${METRICS[i]!.key}`)),
+    [columnIndices, t],
+  );
+  const displayedRows = useMemo(
+    () => computed.map((x) => columnIndices.map((i) => x.r.row[i]!)),
+    [computed, columnIndices],
+  );
+  const hasApproximateColumn = columnIndices.some((i) => METRICS[i]?.approximate);
 
   return (
     <div className="flex flex-col gap-4">
@@ -125,20 +149,40 @@ export function LogsView() {
 
       <Card>
         <CardContent className="flex flex-col gap-3">
-          <button
-            type="button"
+          <div
+            role="button"
+            tabIndex={0}
+            data-testid="log-dropzone"
             onClick={() => fileInputRef.current?.click()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                fileInputRef.current?.click();
+              }
+            }}
+            onDragEnter={(e) => {
+              e.preventDefault();
+              setIsDragging(true);
+            }}
             onDragOver={(e) => e.preventDefault()}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              setIsDragging(false);
+            }}
             onDrop={(e) => {
               e.preventDefault();
+              setIsDragging(false);
               const file = e.dataTransfer.files[0];
               if (file) void handleFile(file);
             }}
-            className="flex flex-col items-center gap-1 rounded-lg border-2 border-dashed border-border bg-card px-6 py-9 text-center transition-colors hover:border-primary hover:bg-accent"
+            className={cn(
+              "flex cursor-pointer flex-col items-center gap-1 rounded-lg border-2 border-dashed px-6 py-9 text-center transition-colors",
+              isDragging ? "border-primary bg-accent" : "border-border bg-card hover:border-primary hover:bg-accent",
+            )}
           >
             <span className="font-semibold">{t("logs.drop.title")}</span>
             <span className="text-sm text-muted-foreground">{t("logs.drop.subtitle")}</span>
-          </button>
+          </div>
           <input
             ref={fileInputRef}
             type="file"
@@ -216,10 +260,55 @@ export function LogsView() {
                 </Alert>
               )}
 
-              {rows.length > 0 && (
+              {view.all.length > 0 && (
+                <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium">{t("logs.columns.heading")}</p>
+                    <Button variant="ghost" size="sm" onClick={resetColumns}>
+                      {t("logs.columns.reset")}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{t("logs.columns.hint")}</p>
+                  <div className="flex flex-wrap gap-2">
+                    {METRICS.map((metric, i) => {
+                      if (i === BOARD_COLUMN_INDEX) return null;
+                      const isSelected = columnIndices.includes(i);
+                      return (
+                        <Button
+                          key={metric.key}
+                          type="button"
+                          variant={isSelected ? "secondary" : "outline"}
+                          size="sm"
+                          onClick={() => toggleColumn(i)}
+                          className="gap-1.5"
+                        >
+                          {isSelected && (
+                            <span
+                              aria-hidden
+                              className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-destructive/15 text-xs font-bold text-destructive"
+                            >
+                              −
+                            </span>
+                          )}
+                          {t(`metrics.${metric.key}`)}
+                          {metric.approximate && <span className="text-muted-foreground"> ≈</span>}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                  {hasApproximateColumn && (
+                    <p className="text-xs text-muted-foreground">{t("logs.columns.approximateNote")}</p>
+                  )}
+                </div>
+              )}
+
+              {displayedRows.length > 0 && (
                 <>
                   <div className="flex flex-wrap gap-2">
-                    <Button size="sm" onClick={() => void handleCopy("all", rows.map((r) => r.join("\t")).join("\n"))}>
+                    <Button
+                      size="sm"
+                      onClick={() => void handleCopy("all", displayedRows.map((r) => r.join("\t")).join("\n"))}
+                    >
                       {copiedKey === "all" ? t("logs.actions.copied") : t("logs.actions.copyAll")}
                     </Button>
                     <Button
@@ -228,7 +317,7 @@ export function LogsView() {
                       onClick={() =>
                         void handleCopy(
                           "allWithHeader",
-                          [COLUMNS.join("\t"), ...rows.map((r) => r.join("\t"))].join("\n"),
+                          [displayedColumns.join("\t"), ...displayedRows.map((r) => r.join("\t"))].join("\n"),
                         )
                       }
                     >
@@ -239,8 +328,11 @@ export function LogsView() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        {COLUMNS.map((col) => (
-                          <TableHead key={col}>{col}</TableHead>
+                        {displayedColumns.map((col, ci) => (
+                          <TableHead key={columnIndices[ci]}>
+                            {col}
+                            {METRICS[columnIndices[ci]!]?.approximate && <span> ≈</span>}
+                          </TableHead>
                         ))}
                         <TableHead />
                       </TableRow>
@@ -248,25 +340,29 @@ export function LogsView() {
                     <TableBody>
                       {computed.map((x, i) => (
                         <TableRow key={i} className={x.r.ground ? "text-muted-foreground" : undefined}>
-                          {x.r.row.map((v, ci) => (
-                            <TableCell
-                              key={ci}
-                              className={
-                                ci === 0
-                                  ? "font-bold text-primary"
-                                  : x.r.manualCols.includes(ci)
-                                    ? "bg-amber-500/10 text-amber-700 dark:text-amber-400"
-                                    : undefined
-                              }
-                            >
-                              {v || (x.r.manualCols.includes(ci) ? t("logs.table.manualValue") : "")}
-                            </TableCell>
-                          ))}
+                          {displayedRows[i]!.map((v, ci) => {
+                            const originalIndex = columnIndices[ci]!;
+                            const isManual = x.r.manualCols.includes(originalIndex);
+                            return (
+                              <TableCell
+                                key={ci}
+                                className={
+                                  ci === 0
+                                    ? "font-bold text-primary"
+                                    : isManual
+                                      ? "bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                                      : undefined
+                                }
+                              >
+                                {v || (isManual ? t("logs.table.manualValue") : "")}
+                              </TableCell>
+                            );
+                          })}
                           <TableCell>
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => void handleCopy(`row-${i}`, rows[i]!.join("\t"))}
+                              onClick={() => void handleCopy(`row-${i}`, displayedRows[i]!.join("\t"))}
                             >
                               {copiedKey === `row-${i}` ? t("logs.actions.copied") : t("logs.actions.copyRow")}
                             </Button>
