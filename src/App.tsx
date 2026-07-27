@@ -6,7 +6,6 @@ import { DashboardView } from "./pages/DashboardView/DashboardView";
 import { GraphsView } from "./pages/GraphsView/GraphsView";
 import { ParametersView } from "./pages/ParametersView/ParametersView";
 import { useUiStore } from "./stores/uiStore/uiStore";
-import "./App.css";
 
 const VIEWS = {
   dashboard: DashboardView,
@@ -21,15 +20,15 @@ function App() {
   const ActiveView = VIEWS[activeTab];
 
   return (
-    <div className="app-shell">
-      <header>
-        <div className="header-top">
-          <h1>ArduLens</h1>
+    <div className="flex min-h-svh flex-col text-left">
+      <header className="flex flex-col gap-3 px-7 pt-5">
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="m-0 text-3xl tracking-tight">ArduLens</h1>
           <LanguageSwitcher />
         </div>
         <TabBar />
       </header>
-      <main>
+      <main className="px-7 py-5">
         <ActiveView />
       </main>
     </div>

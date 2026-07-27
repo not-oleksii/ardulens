@@ -9,27 +9,27 @@ afterEach(async () => {
 });
 
 describe("LanguageSwitcher", () => {
-  it("defaults to Ukrainian and marks it active", () => {
+  it("defaults to Ukrainian and marks it pressed", () => {
     render(<LanguageSwitcher />);
-    expect(screen.getByRole("button", { name: "UA" })).toHaveClass("active");
-    expect(screen.getByRole("button", { name: "EN" })).not.toHaveClass("active");
+    expect(screen.getByRole("radio", { name: "UA" })).toHaveAttribute("data-state", "on");
+    expect(screen.getByRole("radio", { name: "EN" })).toHaveAttribute("data-state", "off");
   });
 
   it("switches the active i18next language when EN is clicked", async () => {
     const user = userEvent.setup();
     render(<LanguageSwitcher />);
 
-    await user.click(screen.getByRole("button", { name: "EN" }));
+    await user.click(screen.getByRole("radio", { name: "EN" }));
 
     expect(i18n.language).toBe("en");
-    expect(screen.getByRole("button", { name: "EN" })).toHaveClass("active");
+    expect(screen.getByRole("radio", { name: "EN" })).toHaveAttribute("data-state", "on");
   });
 
   it("persists the choice to localStorage", async () => {
     const user = userEvent.setup();
     render(<LanguageSwitcher />);
 
-    await user.click(screen.getByRole("button", { name: "EN" }));
+    await user.click(screen.getByRole("radio", { name: "EN" }));
 
     expect(localStorage.getItem("ardulens:lang")).toBe("en");
   });

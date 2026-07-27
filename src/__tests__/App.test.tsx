@@ -21,7 +21,7 @@ describe("App", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: "Графіки" }));
+    await user.click(screen.getByRole("tab", { name: "Графіки" }));
     expect(screen.getByRole("heading", { name: "Графіки" })).toBeInTheDocument();
   });
 
@@ -29,9 +29,9 @@ describe("App", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: "EN" }));
+    await user.click(screen.getByRole("radio", { name: "EN" }));
 
     expect(screen.getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Graphs" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Graphs" })).toBeInTheDocument();
   });
 });

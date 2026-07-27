@@ -36,6 +36,15 @@ export default tseslint.config(
     },
   },
   {
+    // shadcn/ui primitives (vendored, not hand-authored) routinely co-export a
+    // cva() variants function next to the component, which this rule doesn't
+    // recognize as a Fast-Refresh-safe constant. See AGENTS.md's ui/ exception.
+    files: ["src/components/ui/**"],
+    rules: {
+      "react-refresh/only-export-components": "off",
+    },
+  },
+  {
     files: ["vite.config.ts", "vitest.config.ts", "eslint.config.mjs"],
     languageOptions: { globals: globals.node },
   },
