@@ -1,0 +1,35 @@
+{
+  "language": {
+    "label": "Interface language",
+    "uk": "UA",
+    "en": "EN"
+  },
+  "tabs": {
+    "dashboard": "Dashboard",
+    "graphs": "Graphs",
+    "parameters": "Parameters",
+    "advisor": "Advisor",
+    "compare": "Compare"
+  },
+  "dashboard": {
+    "heading": "Dashboard",
+    "description": "Drop a .skylog/.bin file to see a summary table of all flights.",
+    "columnsHint": "Columns: {{count}}"
+  },
+  "graphs": {
+    "heading": "Graphs",
+    "description": "Synchronized time series (voltage, current, altitude, airspeed) - coming soon."
+  },
+  "parameters": {
+    "heading": "Parameters",
+    "description": "Full parameter list from .param/.bin (PARM) with descriptions - coming soon."
+  },
+  "advisor": {
+    "heading": "Advisor",
+    "description": "Automated findings (voltage sag, GPS integrity, etc.) - coming soon."
+  },
+  "compare": {
+    "heading": "Compare",
+    "description": "Side-by-side comparison of multiple flights - coming soon."
+  }
+}

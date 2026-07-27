@@ -1,14 +1,8 @@
+import { useTranslation } from "react-i18next";
 import { TABS, useUiStore } from "../../stores/uiStore/uiStore";
 
-const LABELS: Record<(typeof TABS)[number], string> = {
-  dashboard: "Огляд",
-  graphs: "Графіки",
-  parameters: "Параметри",
-  advisor: "Аналіз",
-  compare: "Порівняння",
-};
-
 export function TabBar() {
+  const { t } = useTranslation();
   const activeTab = useUiStore((s) => s.activeTab);
   const setActiveTab = useUiStore((s) => s.setActiveTab);
 
@@ -21,7 +15,7 @@ export function TabBar() {
           className={tab === activeTab ? "tab active" : "tab"}
           onClick={() => setActiveTab(tab)}
         >
-          {LABELS[tab]}
+          {t(`tabs.${tab}`)}
         </button>
       ))}
     </nav>

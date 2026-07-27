@@ -1,3 +1,4 @@
+import { LanguageSwitcher } from "./components/LanguageSwitcher/LanguageSwitcher";
 import { TabBar } from "./components/TabBar/TabBar";
 import { AdvisorView } from "./pages/AdvisorView/AdvisorView";
 import { CompareView } from "./pages/CompareView/CompareView";
@@ -22,7 +23,10 @@ function App() {
   return (
     <div className="app-shell">
       <header>
-        <h1>ArduLens</h1>
+        <div className="header-top">
+          <h1>ArduLens</h1>
+          <LanguageSwitcher />
+        </div>
         <TabBar />
       </header>
       <main>
