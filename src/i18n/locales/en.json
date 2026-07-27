@@ -5,16 +5,57 @@
     "en": "EN"
   },
   "tabs": {
-    "dashboard": "Dashboard",
+    "logs": "Logs",
     "graphs": "Graphs",
     "parameters": "Parameters",
     "advisor": "Advisor",
     "compare": "Compare"
   },
-  "dashboard": {
-    "heading": "Dashboard",
-    "description": "Drop a .skylog/.bin file to see a summary table of all flights.",
-    "columnsHint": "Columns: {{count}}"
+  "logs": {
+    "heading": "Log Data",
+    "description": "Drop a .skylog or .bin file. One skylog can contain several boards - the tool figures out each flight's board on its own. Everything is computed locally.",
+    "help": {
+      "summary": "How to enable the full skylog (-extended_log flag)",
+      "intro": "Without the -extended_log flag, Skyline only logs the raw {tlm:...} record, and the numbers can only be recovered from .bin. To get decoded telemetry:",
+      "steps": [
+        "Right-click the Skyline LRS shortcut → Properties.",
+        "In the Target field, after the closing quote, add a space and -extended_log.",
+        "Example: \"C:\\Skyline\\skyline.exe\" -extended_log",
+        "Save and launch Skyline through this shortcut - new logs will have full telemetry."
+      ]
+    },
+    "filter": {
+      "label": "Filter by board - optional (partial match, applies live)",
+      "placeholder": "e.g. 35 matches 3570, 3526, 3557...",
+      "hint": "Empty - shows all flights. Type part of a board number and the table filters live."
+    },
+    "drop": {
+      "title": "Drop a log: .skylog / .bin",
+      "subtitle": "or click to choose a file"
+    },
+    "sample": {
+      "bin": "Sample .bin",
+      "skylog": "Sample .skylog"
+    },
+    "actions": {
+      "copyAll": "Copy all rows",
+      "copyAllWithHeader": "Copy with header",
+      "copyRow": "Copy",
+      "copied": "Copied"
+    },
+    "messages": {
+      "summary": "File {{name}} ({{fmt}}): showing {{shown}} of {{total}} flights.",
+      "multiBoard": "The log has multiple boards: {{boards}}. Column 1 is the detected board for each flight.",
+      "noMatch": "No flights match \"{{filter}}\". Boards in the log: {{boards}}.",
+      "teleportRemoved": "Dropped {{count}} points as teleport/spoofing (EW).",
+      "binManualTime": ".bin: takeoff/landing time is manual (GPS time can be spoofed); duration comes from the onboard clock.",
+      "parseError": "Parse error: {{message}}"
+    },
+    "table": {
+      "manualValue": "manual",
+      "footerHint": "Column 1 (blue) is the detected board. Gray rows are likely ground tests.",
+      "footerHintBin": "Column 1 (blue) is the detected board. Yellow cells (time) are manual. Gray rows are likely ground tests."
+    }
   },
   "graphs": {
     "heading": "Graphs",

@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+/* Tailwind's Preflight resets button cursor to the browser default instead of
+   pointer - every clickable control in this app is a real <button>, so this
+   one rule covers all of them (Button, Tabs, Toggle, the drop zone, etc). */
+@layer base {
+  button:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
 :root {
   --background: #ffffff;
   --foreground: #08060d;
