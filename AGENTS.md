@@ -3,6 +3,11 @@
 This file is the guide for anyone changing this codebase — human contributors and AI
 coding agents alike. Read it before opening a PR.
 
+ArduLens is an ArduPilot flight log viewer/analyzer/parameter explorer (`.bin` DataFlash
+and `.skylog` files → a summarized flight table, advisories, parameters). See
+[README.md](README.md) for the full pitch, tech stack, and how to run the app - this file
+only covers conventions for changing the code.
+
 ## Project structure
 
 ```
@@ -44,6 +49,10 @@ To add a new primitive: `npx shadcn@latest add <component> --template vite --bas
 It will write to `src/components/ui/<name>.tsx` importing `cn` from `@/lib/utils` — that
 import path is a deliberate exception to the folder convention below (see next section).
 
+`app/src-tauri` is the desktop shell (Rust). You don't need Rust installed for normal
+`src/` work - `npm run dev`/`test`/`build`/`lint` never touch it. Rust is only required
+for `npm run tauri` (building/running the actual desktop binary).
+
 ### Folder convention exception: `src/components/ui/` and `src/lib/`
 
 shadcn/ui's own CLI and every generated component hardcode `src/components/ui/<kebab-name>.tsx`
@@ -73,6 +82,27 @@ SomeName/
   an empty one "just in case."
 - Component props types belong in that component's `types.ts`, not inline in the
   component file.
+
+### Translating UI text
+
+Every user-visible string goes through i18next (`uk`/`en` in `src/i18n/locales/`), never
+hardcoded in a component. Metric/column labels are the one non-obvious case: each entry
+in `analysis/metrics/metrics.ts`'s `METRICS` array carries a `key` (e.g. `takeoffVoltage`),
+and UI code resolves the label via `t(\`metrics.${metric.key}\`)` - add the same key to
+*both* locale files' `"metrics"` block when adding a new metric. `Metric.h` is only a
+Ukrainian fallback for non-UI code (tests, etc.) that doesn't go through i18next.
+
+### Testing with log data
+
+Never commit or use a real `.bin`/`.skylog` file in this repo - flight logs can contain
+GPS coordinates and other sensitive data. Use `FlightBinBuilder` and `SkylogFileBuilder`
+(`src/builders/`) instead: fluent builders that produce synthetic-but-realistic buffers
+(field names/format confirmed against real DataFlash FMT declarations and skylog
+telemetry lines, values entirely made up). They're used both in tests and as the
+in-app "Sample .bin/.skylog" buttons on the Logs page.
+
+Coverage thresholds (`vitest.config.ts`): 80% statements/functions/lines, 70% branches,
+enforced by `npm run test:coverage`.
 
 ## Branch naming
 
