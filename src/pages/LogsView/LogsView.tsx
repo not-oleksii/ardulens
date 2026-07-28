@@ -1,3 +1,4 @@
+import { Loader2, SlidersHorizontal } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -30,10 +31,13 @@ export function LogsView() {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [columnIndices, setColumnIndices] = useState<number[]>(DEFAULT_COLUMN_INDICES);
+  const [columnsOpen, setColumnsOpen] = useState(false);
+  const [isParsing, setIsParsing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   async function loadBuffer(name: string, buf: ArrayBuffer, boardOverride?: string) {
+    setIsParsing(true);
     try {
       const result = await getCoreWorker().parseFile(name, buf, boardOverride ?? boardFilter.trim());
       setLoaded({ name, result });
@@ -42,6 +46,8 @@ export function LogsView() {
         name,
         result: { error: t("logs.messages.parseError", { message: err instanceof Error ? err.message : String(err) }) },
       });
+    } finally {
+      setIsParsing(false);
     }
   }
 
@@ -106,33 +112,29 @@ export function LogsView() {
   const hasApproximateColumn = columnIndices.some((i) => METRICS[i]?.approximate);
 
   return (
-    <div className="flex flex-col gap-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("logs.heading")}</CardTitle>
-          <CardDescription>{t("logs.description")}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Collapsible>
-            <CollapsibleTrigger asChild>
-              <Button variant="link" className="h-auto p-0 text-sm">
-                {t("logs.help.summary")}
-              </Button>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="mt-2 flex flex-col gap-2 text-sm text-muted-foreground">
-              <p>{t("logs.help.intro")}</p>
-              <ol className="list-decimal space-y-1 pl-5">
-                {(t("logs.help.steps", { returnObjects: true }) as string[]).map((step, i) => (
-                  <li key={i}>{step}</li>
-                ))}
-              </ol>
-            </CollapsibleContent>
-          </Collapsible>
-        </CardContent>
-      </Card>
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("logs.heading")}</CardTitle>
+        <CardDescription>{t("logs.description")}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <Collapsible>
+          <CollapsibleTrigger asChild>
+            <Button variant="link" className="h-auto p-0 text-sm">
+              {t("logs.help.summary")}
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="mt-2 flex flex-col gap-2 text-sm text-muted-foreground">
+            <p>{t("logs.help.intro")}</p>
+            <ol className="list-decimal space-y-1 pl-5">
+              {(t("logs.help.steps", { returnObjects: true }) as string[]).map((step, i) => (
+                <li key={i}>{step}</li>
+              ))}
+            </ol>
+          </CollapsibleContent>
+        </Collapsible>
 
-      <Card>
-        <CardContent className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 border-t border-border pt-4">
           <label htmlFor="board-filter" className="text-xs text-muted-foreground">
             {t("logs.filter.label")}
           </label>
@@ -144,14 +146,13 @@ export function LogsView() {
             className="max-w-sm"
           />
           <p className="text-xs text-muted-foreground">{t("logs.filter.hint")}</p>
-        </CardContent>
-      </Card>
+        </div>
 
-      <Card>
-        <CardContent className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 border-t border-border pt-4">
           <div
             role="button"
-            tabIndex={0}
+            aria-disabled={isParsing}
+            tabIndex={isParsing ? -1 : 0}
             data-testid="log-dropzone"
             onClick={() => fileInputRef.current?.click()}
             onKeyDown={(e) => {
@@ -177,11 +178,21 @@ export function LogsView() {
             }}
             className={cn(
               "flex cursor-pointer flex-col items-center gap-1 rounded-lg border-2 border-dashed px-6 py-9 text-center transition-colors",
+              isParsing && "pointer-events-none opacity-60",
               isDragging ? "border-primary bg-accent" : "border-border bg-card hover:border-primary hover:bg-accent",
             )}
           >
-            <span className="font-semibold">{t("logs.drop.title")}</span>
-            <span className="text-sm text-muted-foreground">{t("logs.drop.subtitle")}</span>
+            {isParsing ? (
+              <>
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden />
+                <span className="font-semibold">{t("logs.drop.parsing")}</span>
+              </>
+            ) : (
+              <>
+                <span className="font-semibold">{t("logs.drop.title")}</span>
+                <span className="text-sm text-muted-foreground">{t("logs.drop.subtitle")}</span>
+              </>
+            )}
           </div>
           <input
             ref={fileInputRef}
@@ -189,6 +200,7 @@ export function LogsView() {
             accept=".skylog,.log,.txt,.bin,.BIN"
             className="sr-only"
             data-testid="log-file-input"
+            disabled={isParsing}
             onChange={(e) => {
               const file = e.target.files?.[0];
               if (file) void handleFile(file);
@@ -197,10 +209,10 @@ export function LogsView() {
           />
 
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={loadSampleBin}>
+            <Button variant="outline" size="sm" onClick={loadSampleBin} disabled={isParsing}>
               {t("logs.sample.bin")}
             </Button>
-            <Button variant="outline" size="sm" onClick={loadSampleSkylog}>
+            <Button variant="outline" size="sm" onClick={loadSampleSkylog} disabled={isParsing}>
               {t("logs.sample.skylog")}
             </Button>
           </div>
@@ -261,45 +273,59 @@ export function LogsView() {
               )}
 
               {view.all.length > 0 && (
-                <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-medium">{t("logs.columns.heading")}</p>
-                    <Button variant="ghost" size="sm" onClick={resetColumns}>
-                      {t("logs.columns.reset")}
-                    </Button>
+                <Collapsible open={columnsOpen} onOpenChange={setColumnsOpen}>
+                  <div className="flex items-center justify-end">
+                    <CollapsibleTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        aria-label={t("logs.columns.toggle")}
+                        aria-pressed={columnsOpen}
+                      >
+                        <SlidersHorizontal className="h-4 w-4" />
+                      </Button>
+                    </CollapsibleTrigger>
                   </div>
-                  <p className="text-xs text-muted-foreground">{t("logs.columns.hint")}</p>
-                  <div className="flex flex-wrap gap-2">
-                    {METRICS.map((metric, i) => {
-                      if (i === BOARD_COLUMN_INDEX) return null;
-                      const isSelected = columnIndices.includes(i);
-                      return (
-                        <Button
-                          key={metric.key}
-                          type="button"
-                          variant={isSelected ? "secondary" : "outline"}
-                          size="sm"
-                          onClick={() => toggleColumn(i)}
-                          className="gap-1.5"
-                        >
-                          {isSelected && (
-                            <span
-                              aria-hidden
-                              className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-destructive/15 text-xs font-bold text-destructive"
-                            >
-                              −
-                            </span>
-                          )}
-                          {t(`metrics.${metric.key}`)}
-                          {metric.approximate && <span className="text-muted-foreground"> ≈</span>}
-                        </Button>
-                      );
-                    })}
-                  </div>
-                  {hasApproximateColumn && (
-                    <p className="text-xs text-muted-foreground">{t("logs.columns.approximateNote")}</p>
-                  )}
-                </div>
+                  <CollapsibleContent className="mt-2 flex flex-col gap-2 rounded-lg border border-border p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium">{t("logs.columns.heading")}</p>
+                      <Button variant="ghost" size="sm" onClick={resetColumns}>
+                        {t("logs.columns.reset")}
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">{t("logs.columns.hint")}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {METRICS.map((metric, i) => {
+                        if (i === BOARD_COLUMN_INDEX) return null;
+                        const isSelected = columnIndices.includes(i);
+                        return (
+                          <Button
+                            key={metric.key}
+                            type="button"
+                            variant={isSelected ? "secondary" : "outline"}
+                            size="sm"
+                            onClick={() => toggleColumn(i)}
+                            className="gap-1.5"
+                          >
+                            {isSelected && (
+                              <span
+                                aria-hidden
+                                className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-destructive/15 text-xs font-bold text-destructive"
+                              >
+                                −
+                              </span>
+                            )}
+                            {t(`metrics.${metric.key}`)}
+                            {metric.approximate && <span className="text-muted-foreground"> ≈</span>}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                    {hasApproximateColumn && (
+                      <p className="text-xs text-muted-foreground">{t("logs.columns.approximateNote")}</p>
+                    )}
+                  </CollapsibleContent>
+                </Collapsible>
               )}
 
               {displayedRows.length > 0 && (
@@ -378,8 +404,8 @@ export function LogsView() {
               )}
             </div>
           )}
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

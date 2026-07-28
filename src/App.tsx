@@ -1,5 +1,4 @@
-import { LanguageSwitcher } from "./components/LanguageSwitcher/LanguageSwitcher";
-import { TabBar } from "./components/TabBar/TabBar";
+import { Sidebar } from "./components/Sidebar/Sidebar";
 import { AdvisorView } from "./pages/AdvisorView/AdvisorView";
 import { CompareView } from "./pages/CompareView/CompareView";
 import { GraphsView } from "./pages/GraphsView/GraphsView";
@@ -20,15 +19,9 @@ function App() {
   const ActiveView = VIEWS[activeTab];
 
   return (
-    <div className="flex min-h-svh flex-col text-left">
-      <header className="flex flex-col gap-3 px-7 pt-5">
-        <div className="flex items-center justify-between gap-3">
-          <h1 className="m-0 text-3xl tracking-tight">ArduLens</h1>
-          <LanguageSwitcher />
-        </div>
-        <TabBar />
-      </header>
-      <main className="px-7 py-5">
+    <div className="flex h-svh overflow-hidden text-left">
+      <Sidebar />
+      <main className="min-w-0 flex-1 overflow-y-auto px-7 py-5">
         <ActiveView />
       </main>
     </div>

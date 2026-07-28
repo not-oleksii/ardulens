@@ -11,6 +11,10 @@
     "advisor": "Advisor",
     "compare": "Compare"
   },
+  "sidebar": {
+    "collapse": "Collapse sidebar",
+    "expand": "Expand sidebar"
+  },
   "logs": {
     "heading": "Log Data",
     "description": "Drop a .skylog or .bin file. One skylog can contain several boards - the tool figures out each flight's board on its own. Everything is computed locally.",
@@ -31,13 +35,15 @@
     },
     "drop": {
       "title": "Drop a log: .skylog / .bin",
-      "subtitle": "or click to choose a file"
+      "subtitle": "or click to choose a file",
+      "parsing": "Parsing file..."
     },
     "sample": {
       "bin": "Sample .bin",
       "skylog": "Sample .skylog"
     },
     "columns": {
+      "toggle": "Show/hide table columns filter",
       "heading": "Table columns",
       "hint": "Add or remove columns - changes apply to the table below immediately.",
       "reset": "Reset",
