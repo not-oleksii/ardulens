@@ -16,7 +16,11 @@ function TabsList({ className, ...props }: React.ComponentProps<typeof TabsPrimi
   return (
     <TabsPrimitive.List
       data-slot="tabs-list"
-      className={cn("inline-flex w-fit items-center gap-1 border-b border-border", className)}
+      className={cn(
+        "inline-flex w-fit items-center gap-1 border-b border-border",
+        "data-[orientation=vertical]:w-full data-[orientation=vertical]:flex-col data-[orientation=vertical]:items-stretch data-[orientation=vertical]:border-b-0 data-[orientation=vertical]:gap-1",
+        className,
+      )}
       {...props}
     />
   );
@@ -27,11 +31,13 @@ function TabsTrigger({ className, ...props }: React.ComponentProps<typeof TabsPr
     <TabsPrimitive.Trigger
       data-slot="tabs-trigger"
       className={cn(
-        "inline-flex items-center justify-center whitespace-nowrap border-b-2 border-transparent px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors",
+        "inline-flex items-center justify-center gap-2 whitespace-nowrap border-b-2 border-transparent px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors",
         "hover:text-foreground",
         "disabled:pointer-events-none disabled:opacity-50",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         "data-[state=active]:border-primary data-[state=active]:text-foreground",
+        "data-[orientation=vertical]:justify-start data-[orientation=vertical]:rounded-md data-[orientation=vertical]:border-b-0 data-[orientation=vertical]:px-3",
+        "data-[orientation=vertical]:data-[state=active]:bg-secondary",
         className,
       )}
       {...props}

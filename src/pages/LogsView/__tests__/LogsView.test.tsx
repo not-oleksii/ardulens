@@ -10,6 +10,10 @@ import { LogsView } from "../LogsView";
 vi.mock("../../../services/clipboard/clipboard", () => ({ copyText: vi.fn().mockResolvedValue(undefined) }));
 const copyTextMock = vi.mocked(copyText);
 
+async function openColumnsFilter(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: "Показати/сховати фільтр стовпців таблиці" }));
+}
+
 describe("LogsView", () => {
   it("renders the heading and description", () => {
     render(<LogsView />);
@@ -118,6 +122,7 @@ describe("LogsView", () => {
       render(<LogsView />);
       await user.click(screen.getByRole("button", { name: "Приклад .bin" }));
       await screen.findByRole("table");
+      await openColumnsFilter(user);
 
       await user.click(screen.getByRole("button", { name: "Напруга при взльоті, В" }));
       expect(screen.queryByRole("columnheader", { name: "Напруга при взльоті, В" })).not.toBeInTheDocument();
@@ -132,6 +137,7 @@ describe("LogsView", () => {
       render(<LogsView />);
       await user.click(screen.getByRole("button", { name: "Приклад .bin" }));
       await screen.findByRole("table");
+      await openColumnsFilter(user);
 
       await user.click(screen.getByRole("button", { name: "Напруга при взльоті, В" }));
       await user.click(screen.getByRole("button", { name: "Скинути" }));
@@ -144,6 +150,7 @@ describe("LogsView", () => {
       render(<LogsView />);
       await user.click(screen.getByRole("button", { name: "Приклад .bin" }));
       await screen.findByRole("table");
+      await openColumnsFilter(user);
 
       expect(screen.getByText(/приблизні або розрахункові значення/)).toBeInTheDocument();
 
@@ -158,6 +165,7 @@ describe("LogsView", () => {
       render(<LogsView />);
       await user.click(screen.getByRole("button", { name: "Приклад .bin" }));
       await screen.findByRole("table");
+      await openColumnsFilter(user);
 
       const chip = screen.getByRole("button", { name: "Просадка напруги, %" });
       expect(chip).toBeInTheDocument();
@@ -178,6 +186,7 @@ describe("LogsView", () => {
       render(<LogsView />);
       await user.click(screen.getByRole("button", { name: "Приклад .bin" }));
       await screen.findByRole("table");
+      await openColumnsFilter(user);
 
       await i18n.changeLanguage("en");
 
