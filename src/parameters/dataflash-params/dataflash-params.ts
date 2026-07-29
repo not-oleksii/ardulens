@@ -7,7 +7,7 @@ import type { ParameterEntry } from "../types";
  * whenever a parameter changes in-flight - keep the last value per name.
  */
 export function extractParamsFromBin(buf: ArrayBuffer): ParameterEntry[] {
-  const tables = parseDataflash(buf);
+  const { tables } = parseDataflash(buf);
   const PARM = tables["PARM"] ?? [];
 
   const byName = new Map<string, ParameterEntry>();

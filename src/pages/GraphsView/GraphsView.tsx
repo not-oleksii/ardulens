@@ -1,14 +1,263 @@
+import { ChevronDown, RotateCcw, Trash2 } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { cn } from "@/lib/utils";
+import { buildRawLog, isRawLog, isRawLogError, isRawLogInfo, type RawLogResult } from "../../analysis/raw-log/raw-log";
+import { PRESETS, resolvePreset } from "../../analysis/raw-log/presets";
+import { FlightBinBuilder } from "../../builders/FlightBinBuilder/FlightBinBuilder";
+import { SkylogFileBuilder } from "../../builders/SkylogFileBuilder/SkylogFileBuilder";
+import { TimelineChart } from "../../components/TimelineChart/TimelineChart";
+import type { TimelineSeriesInput } from "../../components/TimelineChart/types";
+
+interface LoadedResult {
+  name: string;
+  result: RawLogResult;
+}
+
+const SERIES_COLORS = ["#3b82f6", "#f97316", "#22c55e", "#ef4444", "#a855f7", "#06b6d4", "#eab308", "#ec4899"];
 
 export function GraphsView() {
   const { t } = useTranslation();
+  const [loaded, setLoaded] = useState<LoadedResult | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isParsing, setIsParsing] = useState(false);
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function loadBuffer(name: string, buf: ArrayBuffer) {
+    setIsParsing(true);
+    try {
+      setLoaded({ name, result: buildRawLog(name, buf) });
+      setSelectedKeys([]);
+    } finally {
+      setIsParsing(false);
+    }
+  }
+
+  async function handleFile(file: File) {
+    loadBuffer(file.name, await file.arrayBuffer());
+  }
+
+  function loadSampleBin() {
+    const buf = new FlightBinBuilder().withVoltageCurve(25.2, 22.4, 23.0).build();
+    loadBuffer("sample-flight.bin", buf);
+  }
+
+  function loadSampleSkylog() {
+    const buf = new SkylogFileBuilder().addBoard({ board: 3570 }).build();
+    loadBuffer("sample-log.skylog", buf);
+  }
+
+  function toggleParam(key: string) {
+    setSelectedKeys((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+  }
+
+  function removeParam(key: string) {
+    setSelectedKeys((prev) => prev.filter((k) => k !== key));
+  }
+
+  function resetPlots() {
+    setSelectedKeys([]);
+  }
+
+  const rawLog = loaded && isRawLog(loaded.result) ? loaded.result : null;
+
+  function applyPreset(candidateKeys: string[]) {
+    setSelectedKeys((prev) => [...prev, ...candidateKeys.filter((k) => !prev.includes(k))]);
+  }
+
+  const applicablePresets = useMemo(() => {
+    if (!rawLog) return [];
+    return PRESETS.map((preset) => ({ preset, keys: resolvePreset(preset, rawLog.series) })).filter(
+      (p): p is { preset: (typeof PRESETS)[number]; keys: string[] } => p.keys !== null,
+    );
+  }, [rawLog]);
+
+  const series: TimelineSeriesInput[] = useMemo(() => {
+    if (!rawLog) return [];
+    return selectedKeys
+      .filter((key) => rawLog.series[key])
+      .map((key, i) => ({
+        key,
+        label: key,
+        color: SERIES_COLORS[i % SERIES_COLORS.length]!,
+        data: rawLog.series[key]!,
+      }));
+  }, [rawLog, selectedKeys]);
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>{t("graphs.heading")}</CardTitle>
         <CardDescription>{t("graphs.description")}</CardDescription>
       </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <div
+          role="button"
+          aria-disabled={isParsing}
+          tabIndex={isParsing ? -1 : 0}
+          data-testid="graphs-dropzone"
+          onClick={() => fileInputRef.current?.click()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              fileInputRef.current?.click();
+            }
+          }}
+          onDragEnter={(e) => {
+            e.preventDefault();
+            setIsDragging(true);
+          }}
+          onDragOver={(e) => e.preventDefault()}
+          onDragLeave={(e) => {
+            e.preventDefault();
+            setIsDragging(false);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDragging(false);
+            const file = e.dataTransfer.files[0];
+            if (file) void handleFile(file);
+          }}
+          className={cn(
+            "flex cursor-pointer flex-col items-center gap-1 rounded-lg border-2 border-dashed px-6 py-9 text-center transition-colors",
+            isParsing && "pointer-events-none opacity-60",
+            isDragging ? "border-primary bg-accent" : "border-border bg-card hover:border-primary hover:bg-accent",
+          )}
+        >
+          <span className="font-semibold">{t("graphs.drop.title")}</span>
+          <span className="text-sm text-muted-foreground">{t("graphs.drop.subtitle")}</span>
+        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".skylog,.log,.txt,.bin,.BIN"
+          className="sr-only"
+          data-testid="graphs-file-input"
+          disabled={isParsing}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void handleFile(file);
+            e.target.value = "";
+          }}
+        />
+
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={loadSampleBin} disabled={isParsing}>
+            {t("logs.sample.bin")}
+          </Button>
+          <Button variant="outline" size="sm" onClick={loadSampleSkylog} disabled={isParsing}>
+            {t("logs.sample.skylog")}
+          </Button>
+        </div>
+
+        {loaded && isRawLogError(loaded.result) && (
+          <Alert variant="destructive">
+            <AlertDescription>{loaded.result.error}</AlertDescription>
+          </Alert>
+        )}
+        {loaded && isRawLogInfo(loaded.result) && (
+          <Alert variant="info">
+            <AlertDescription>{loaded.result.info}</AlertDescription>
+          </Alert>
+        )}
+
+        {rawLog && (
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[300px_1fr]">
+            <div className="flex flex-col gap-4">
+              <section className="flex flex-col gap-2 rounded-lg border border-border p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-medium">{t("graphs.plotsSetup.heading")}</h3>
+                  {selectedKeys.length > 0 && (
+                    <Button variant="ghost" size="icon" aria-label={t("graphs.plotsSetup.reset")} onClick={resetPlots}>
+                      <RotateCcw className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+                {series.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">{t("graphs.plotsSetup.empty")}</p>
+                ) : (
+                  <ul className="flex flex-col gap-1">
+                    {series.map((s) => (
+                      <li key={s.key} className="flex items-center gap-2 text-sm">
+                        <span aria-hidden className="h-3 w-3 shrink-0 rounded-sm" style={{ background: s.color }} />
+                        <span className="flex-1 truncate">{s.label}</span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          aria-label={t("graphs.plotsSetup.remove", { param: s.label })}
+                          onClick={() => removeParam(s.key)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              {applicablePresets.length > 0 && (
+                <section className="flex flex-col gap-2 rounded-lg border border-border p-3">
+                  <h3 className="text-sm font-medium">{t("graphs.presets.heading")}</h3>
+                  <div className="flex flex-col gap-1">
+                    {applicablePresets.map(({ preset, keys }) => (
+                      <Button
+                        key={preset.key}
+                        variant="ghost"
+                        size="sm"
+                        className="justify-start"
+                        onClick={() => applyPreset(keys)}
+                      >
+                        {t(`graphs.presets.${preset.key}`)}
+                      </Button>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              <section className="flex flex-col gap-2 rounded-lg border border-border p-3">
+                <h3 className="text-sm font-medium">{t("graphs.params.heading")}</h3>
+                <div className="flex flex-col gap-1">
+                  {rawLog.categories.map((category) => (
+                    <Collapsible key={category.key}>
+                      <CollapsibleTrigger asChild>
+                        <Button variant="ghost" size="sm" className="w-full justify-between">
+                          {t(`graphs.categories.${category.key}`)}
+                          <ChevronDown className="h-4 w-4" />
+                        </Button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="flex flex-col gap-1 py-1 pl-3">
+                        {category.params.map((param) => {
+                          const isSelected = selectedKeys.includes(param.key);
+                          return (
+                            <Button
+                              key={param.key}
+                              type="button"
+                              variant={isSelected ? "secondary" : "ghost"}
+                              size="sm"
+                              className="justify-start"
+                              onClick={() => toggleParam(param.key)}
+                            >
+                              {param.label}
+                            </Button>
+                          );
+                        })}
+                      </CollapsibleContent>
+                    </Collapsible>
+                  ))}
+                </div>
+              </section>
+            </div>
+
+            <TimelineChart series={series} modeSegments={rawLog.modeSegments} timeRangeMs={rawLog.timeRangeMs} />
+          </div>
+        )}
+      </CardContent>
     </Card>
   );
 }

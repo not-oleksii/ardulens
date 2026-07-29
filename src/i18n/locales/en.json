@@ -89,7 +89,42 @@
   },
   "graphs": {
     "heading": "Graphs",
-    "description": "Synchronized time series (voltage, current, altitude, airspeed) - coming soon."
+    "description": "Drop a .skylog or .bin file to plot any parameter over time, with flight-mode bands in the background.",
+    "drop": {
+      "title": "Drop a log: .skylog / .bin",
+      "subtitle": "or click to choose a file"
+    },
+    "plotsSetup": {
+      "heading": "Plots setup",
+      "empty": "No parameters selected yet - pick a preset or a parameter below.",
+      "reset": "Clear all plots",
+      "remove": "Remove {{param}} from the chart"
+    },
+    "presets": {
+      "heading": "Presets",
+      "battery": "Battery (voltage & current)",
+      "airspeed": "Airspeed",
+      "attitude": "Attitude (roll/pitch/yaw)",
+      "rcInputs": "RC inputs",
+      "throttle": "Throttle output"
+    },
+    "params": {
+      "heading": "Individual parameters"
+    },
+    "categories": {
+      "attitude": "Attitude",
+      "sensors": "Sensors",
+      "servos": "Servos",
+      "rc": "RC",
+      "power": "Power",
+      "board": "Board",
+      "telemetry": "Telemetry",
+      "other": "Other"
+    },
+    "chart": {
+      "empty": "Select a preset or an individual parameter to plot it here.",
+      "zoomHint": "Drag to zoom in, double-click to reset"
+    }
   },
   "parameters": {
     "heading": "Parameters",

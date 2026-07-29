@@ -33,6 +33,7 @@
     "react-dom": "^19.2.7",
     "react-i18next": "^17.0.11",
     "tailwind-merge": "^3.6.0",
+    "uplot": "^1.6.32",
     "zustand": "^5.0.14"
   },
   "devDependencies": {
