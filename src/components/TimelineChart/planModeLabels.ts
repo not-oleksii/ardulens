@@ -9,11 +9,15 @@ export interface ModeLabelPlacement {
 const MIN_LABEL_GAP_PX = 46;
 
 /**
- * Anchors each label to the CENTER of its segment's currently-visible portion (not its
- * start) and drops labels that would land too close to the previous one. A segment that's
- * only a couple of seconds wide next to its neighbors (e.g. a brief TAKEOFF between two
- * long modes) would otherwise get its start-anchored label crammed against those
- * neighbors' labels and become illegible, even though the segment itself is real.
+ * Anchors each label to the START of its segment's currently-visible portion (clamped to
+ * the viewport's left edge if the segment begins off-screen), so it reads at the beginning
+ * of that mode's span rather than floating in the middle. Labels are placed in order of
+ * visible width (widest/most significant segment first); a candidate is dropped only if
+ * it would land within minGapPx of an already-placed label. Prioritizing by width (rather
+ * than by left-to-right position) matters here: a segment that's only a couple of seconds
+ * wide right next to a long dominant one (e.g. a brief TAKEOFF immediately before a
+ * multi-minute FBWA) would otherwise "win" the left-to-right race and crowd out the long
+ * segment's own label, even though the long segment is the one worth labeling.
  */
 export function planModeLabels(
   modeSegments: ModeSegment[],
@@ -30,16 +34,15 @@ export function planModeLabels(
       const visLeft = Math.max(x0, bboxLeft);
       const visRight = Math.min(x1, bboxRight);
       if (visRight <= visLeft) return null;
-      return { segment, xPx: (visLeft + visRight) / 2 };
+      return { segment, xPx: visLeft, visibleWidth: visRight - visLeft };
     })
-    .filter((c): c is ModeLabelPlacement => c !== null)
-    .sort((a, b) => a.xPx - b.xPx);
+    .filter((c): c is ModeLabelPlacement & { visibleWidth: number } => c !== null)
+    .sort((a, b) => b.visibleWidth - a.visibleWidth);
 
   const placed: ModeLabelPlacement[] = [];
   for (const c of candidates) {
-    const prev = placed[placed.length - 1];
-    if (prev && c.xPx - prev.xPx < minGapPx) continue;
-    placed.push(c);
+    if (placed.some((p) => Math.abs(p.xPx - c.xPx) < minGapPx)) continue;
+    placed.push({ segment: c.segment, xPx: c.xPx });
   }
-  return placed;
+  return placed.sort((a, b) => a.xPx - b.xPx);
 }

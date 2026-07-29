@@ -127,7 +127,7 @@
     },
     "chart": {
       "empty": "Select a preset or an individual parameter to plot it here.",
-      "zoomHint": "Drag to zoom in, double-click to reset"
+      "zoomHint": "Scroll or drag to zoom, double-click to reset"
     }
   },
   "parameters": {

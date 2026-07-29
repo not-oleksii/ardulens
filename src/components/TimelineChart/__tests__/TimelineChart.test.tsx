@@ -69,6 +69,36 @@ describe("TimelineChart", () => {
 });
 
 describe("planModeLabels", () => {
+  it("anchors a placed label at the START of its own segment, not its center", () => {
+    const segments = [
+      { startMs: 0, endMs: 100_000, mode: 0, label: "MANUAL" },
+      { startMs: 100_000, endMs: 600_000, mode: 5, label: "FBWA" },
+    ];
+    const toPx = (sec: number) => sec; // 1px/s
+
+    const placements = planModeLabels(segments, toPx, 0, 900);
+
+    expect(placements.find((p) => p.segment.label === "MANUAL")!.xPx).toBe(0);
+    // FBWA spans 100-600s; its center would be ~350, but it must be anchored at its own
+    // start (100), not the midpoint of its visible span.
+    expect(placements.find((p) => p.segment.label === "FBWA")!.xPx).toBe(100);
+  });
+
+  it("prioritizes the widest (most significant) segment when a narrow neighbor sits right at its start", () => {
+    // A brief mode sitting exactly at a long segment's start would, under naive left-to-right
+    // placement, "win" the spot and crowd out the long segment's own label. Placement must
+    // prioritize by visible width so the long segment keeps its label instead.
+    const segments = [
+      { startMs: 0, endMs: 2_000, mode: 0, label: "BRIEF" },
+      { startMs: 2_000, endMs: 500_000, mode: 5, label: "LONG" },
+    ];
+    const toPx = (sec: number) => sec * 2; // BRIEF and LONG start only 4px apart
+
+    const placements = planModeLabels(segments, toPx, 0, 1000, 46);
+
+    expect(placements.map((p) => p.segment.label)).toEqual(["LONG"]);
+  });
+
   it("keeps every label when segments are spread out with room to spare", () => {
     const segments = [
       { startMs: 0, endMs: 10_000, mode: 0, label: "MANUAL" },
@@ -121,5 +151,43 @@ describe("planModeLabels", () => {
     const placements = planModeLabels(segments, toPx, 4000, 3000);
 
     expect(placements.map((p) => p.segment.label)).toEqual(["VISIBLE"]);
+  });
+
+  it("returns an empty array for an empty segment list", () => {
+    expect(planModeLabels([], (sec) => sec, 0, 900)).toEqual([]);
+  });
+
+  it("returns an empty array when every segment is entirely off-screen", () => {
+    const segments = [
+      { startMs: 0, endMs: 1000, mode: 0, label: "LEFT" },
+      { startMs: 2_000_000, endMs: 2_001_000, mode: 5, label: "RIGHT" },
+    ];
+    const toPx = (sec: number) => sec;
+
+    expect(planModeLabels(segments, toPx, 5000, 1000)).toEqual([]);
+  });
+
+  it("keeps a single segment that exactly fills the visible range", () => {
+    const segments = [{ startMs: 0, endMs: 300_000, mode: 5, label: "FBWA" }];
+    const toPx = (sec: number) => sec * 3;
+
+    const placements = planModeLabels(segments, toPx, 0, 900);
+
+    expect(placements).toHaveLength(1);
+    expect(placements[0]!.xPx).toBe(0);
+  });
+
+  it("breaks a tie in visible width by keeping array order (stable sort)", () => {
+    const segments = [
+      { startMs: 0, endMs: 10_000, mode: 0, label: "FIRST" },
+      { startMs: 200_000, endMs: 210_000, mode: 5, label: "SECOND" },
+    ];
+    const toPx = (sec: number) => sec; // both segments are exactly 10px wide -> a genuine tie
+
+    const placements = planModeLabels(segments, toPx, 0, 900);
+
+    // Both are far enough apart (190px) that neither is dropped for proximity - this just
+    // confirms a width tie doesn't throw or silently drop one of them.
+    expect(placements.map((p) => p.segment.label)).toEqual(["FIRST", "SECOND"]);
   });
 });
