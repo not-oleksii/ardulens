@@ -3,6 +3,7 @@ import "uplot/dist/uPlot.min.css";
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { ModeSegment } from "@/analysis/raw-log/raw-log";
+import { planModeLabels } from "./planModeLabels";
 import type { TimelineChartProps, TimelineSeriesInput } from "./types";
 
 const MODE_BAND_COLORS = ["#e5484d", "#f76b15", "#ffd60a", "#30a46c", "#3b82f6", "#a855f7", "#ec4899", "#64748b"];
@@ -43,20 +44,40 @@ function drawModeBands(modeSegments: ModeSegment[]) {
   };
 }
 
+/**
+ * Picks black or white text for a given hex background so it's always readable against
+ * it - computed from the color itself (perceived luminance), never from the page theme.
+ * A CSS-variable-based text color previously looked fine in isolation but still read as
+ * "dark on dark" once combined with a dark-themed chart background in practice.
+ */
+function contrastingTextColor(hex: string): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.6 ? "#000000" : "#ffffff";
+}
+
 function drawModeLabels(modeSegments: ModeSegment[]) {
   return (u: uPlot) => {
     const ctx = u.ctx;
+    const placements = planModeLabels(modeSegments, (sec) => u.valToPos(sec, "x", true), u.bbox.left, u.bbox.width);
+
     ctx.save();
-    ctx.font = "11px sans-serif";
-    ctx.textBaseline = "bottom";
-    for (const seg of modeSegments) {
-      const x0 = u.valToPos(seg.startMs / 1000, "x", true);
-      if (x0 < u.bbox.left - 20 || x0 > u.bbox.left + u.bbox.width) continue;
-      ctx.fillStyle = modeColor(seg.mode);
+    ctx.font = "bold 11px sans-serif";
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "left";
+    for (const { segment, xPx } of placements) {
+      const chipColor = modeColor(segment.mode);
+      const textColor = contrastingTextColor(chipColor);
+      const textWidth = ctx.measureText(segment.label).width;
       ctx.save();
-      ctx.translate(x0 + 12, u.bbox.top + u.bbox.height - 6);
+      ctx.translate(xPx, u.bbox.top + u.bbox.height - 6);
       ctx.rotate(-Math.PI / 2);
-      ctx.fillText(seg.label, 0, 0);
+      ctx.fillStyle = chipColor;
+      ctx.fillRect(-3, -8, textWidth + 6, 16);
+      ctx.fillStyle = textColor;
+      ctx.fillText(segment.label, 0, 0);
       ctx.restore();
     }
     ctx.restore();
