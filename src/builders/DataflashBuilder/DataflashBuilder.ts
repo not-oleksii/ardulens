@@ -63,7 +63,7 @@ export class DataflashBuilder {
     fields.forEach((f, i) => {
       const v = values[i]!;
       switch (f) {
-        case "Q": dv.setBigUint64(off, typeof v === "bigint" ? v : BigInt(v), true); break;
+        case "Q": dv.setBigUint64(off, typeof v === "bigint" ? v : BigInt(Math.round(Number(v))), true); break;
         case "f": dv.setFloat32(off, Number(v), true); break;
         case "d": dv.setFloat64(off, Number(v), true); break;
         case "B": dv.setUint8(off, Number(v)); break;

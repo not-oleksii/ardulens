@@ -17,6 +17,9 @@ const ARM = 4;
 const MODE = 5;
 const POS = 6;
 const PARM = 7;
+const ATT = 8;
+const RCIN = 9;
+const IMU = 10;
 
 const AIR_MODE_NUM = 5; // matches AIR_MODES in constants.ts (FBWA)
 
@@ -105,7 +108,15 @@ export class FlightBinBuilder {
       .defineFormat(ARM, "ARM", ["Q", "B"], ["TimeUS", "ArmState"])
       .defineFormat(MODE, "MODE", ["Q", "B"], ["TimeUS", "ModeNum"])
       .defineFormat(POS, "POS", ["Q", "d", "d", "f"], ["TimeUS", "Lat", "Lng", "RelHomeAlt"])
-      .defineFormat(PARM, "PARM", ["Q", "N", "f"], ["TimeUS", "Name", "Value"]);
+      .defineFormat(PARM, "PARM", ["Q", "N", "f"], ["TimeUS", "Name", "Value"])
+      .defineFormat(ATT, "ATT", ["Q", "f", "f", "f"], ["TimeUS", "Roll", "Pitch", "Yaw"])
+      .defineFormat(RCIN, "RCIN", ["Q", "f", "f", "f", "f"], ["TimeUS", "C1", "C2", "C3", "C4"])
+      .defineFormat(
+        IMU,
+        "IMU",
+        ["Q", "f", "f", "f", "f", "f", "f"],
+        ["TimeUS", "GyrX", "GyrY", "GyrZ", "AccX", "AccY", "AccZ"],
+      );
 
     const durationUS = this.durationSec * 1e6;
     b.addRecord(ARM, [0, 1]).addRecord(ARM, [durationUS, 0]);
@@ -134,7 +145,8 @@ export class FlightBinBuilder {
       const t = frac * durationUS;
 
       b.addRecord(BAT, [t, piecewise(voltageCurve, frac), this.maxCurrent * Math.sin(Math.PI * frac)]);
-      b.addRecord(CTUN, [t, piecewise(throttleCurve, frac)]);
+      const throttlePct = piecewise(throttleCurve, frac);
+      b.addRecord(CTUN, [t, throttlePct]);
 
       const airspeed =
         frac < 0.1 ? (frac / 0.1) * maxAirspeed : frac > 0.9 ? ((1 - frac) / 0.1) * maxAirspeed : maxAirspeed;
@@ -142,6 +154,21 @@ export class FlightBinBuilder {
 
       const mode = frac < 0.02 || frac > 0.98 ? 0 : AIR_MODE_NUM;
       b.addRecord(MODE, [t, mode]);
+
+      const roll = 15 * Math.sin(frac * Math.PI * 4);
+      const pitch = 5 * Math.sin(frac * Math.PI * 2);
+      const yaw = (frac * 360) % 360;
+      b.addRecord(ATT, [t, roll, pitch, yaw]);
+      b.addRecord(RCIN, [t, 1500 + roll * 10, 1500 + pitch * 10, 1000 + throttlePct * 10, 1500]);
+      b.addRecord(IMU, [
+        t,
+        Math.sin(frac * Math.PI * 6) * 0.05,
+        Math.cos(frac * Math.PI * 6) * 0.05,
+        0.02,
+        Math.sin(frac * Math.PI * 3) * 0.3,
+        Math.cos(frac * Math.PI * 3) * 0.3,
+        -9.81,
+      ]);
     }
 
     // POS needs much finer sampling than the other streams: holdMerge holds the

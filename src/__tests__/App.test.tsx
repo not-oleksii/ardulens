@@ -20,7 +20,7 @@ describe("App", () => {
   it("only shows tabs with real functionality, hiding work-in-progress pages", () => {
     render(<App />);
     expect(screen.getByRole("tab", { name: "Логи" })).toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: "Графіки" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Графіки" })).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Параметри" })).not.toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Аналіз" })).not.toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Порівняння" })).not.toBeInTheDocument();

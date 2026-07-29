@@ -37,15 +37,23 @@ function readField(dv: DataView, off: number, ch: string): [number | string, num
   }
 }
 
-const WANTED_MESSAGES = new Set(["GPS", "BAT", "CTUN", "ARSP", "ARM", "MODE", "POS", "STAT", "PARM"]);
+export interface ParsedDataflash {
+  /** Every message type actually present, keyed by message name (e.g. "BAT", "ATT"). */
+  tables: DataflashTables;
+  /** Format metadata (field order/types) for every message type seen, keyed by message name. */
+  formats: Record<string, FormatDef>;
+}
 
-/** Self-describing DataFlash: FMT messages (type 128) define every other message. */
-export function parseDataflash(buf: ArrayBuffer): DataflashTables {
+/** Self-describing DataFlash: FMT messages (type 128) define every other message. Every
+ *  message type present is captured (not just the fields the flight-summary metrics use),
+ *  so the Graphs page can offer arbitrary parameters. */
+export function parseDataflash(buf: ArrayBuffer): ParsedDataflash {
   const dv = new DataView(buf);
   const u8 = new Uint8Array(buf);
   const n = u8.length;
-  const formats: Record<number, FormatDef> = {};
-  const out: DataflashTables = {};
+  const formatsByType: Record<number, FormatDef> = {};
+  const formats: Record<string, FormatDef> = {};
+  const tables: DataflashTables = {};
   let p = 0;
 
   while (p + 3 <= n) {
@@ -59,29 +67,29 @@ export function parseDataflash(buf: ArrayBuffer): DataflashTables {
       const name = readStr(dv, p + 5, 4);
       const fmt = readStr(dv, p + 9, 16);
       const labels = readStr(dv, p + 25, 64).split(",");
-      formats[t] = { name, fmt, labels, len };
+      const def = { name, fmt, labels, len };
+      formatsByType[t] = def;
+      formats[name] = def;
       p += 89;
       continue;
     }
 
-    const d = formats[type];
+    const d = formatsByType[type];
     if (!d) { p++; continue; }
     const size = d.len - 3;
     if (p + 3 + size > n) break;
 
-    if (WANTED_MESSAGES.has(d.name)) {
-      let off = p + 3;
-      const rec: DataflashRecord = {};
-      for (let k = 0; k < d.fmt.length; k++) {
-        const [value, byteSize] = readField(dv, off, d.fmt[k]!);
-        rec[d.labels[k]!] = value;
-        off += byteSize;
-      }
-      (out[d.name] ??= []).push(rec);
+    let off = p + 3;
+    const rec: DataflashRecord = {};
+    for (let k = 0; k < d.fmt.length; k++) {
+      const [value, byteSize] = readField(dv, off, d.fmt[k]!);
+      rec[d.labels[k]!] = value;
+      off += byteSize;
     }
+    (tables[d.name] ??= []).push(rec);
     p += 3 + size;
   }
-  return out;
+  return { tables, formats };
 }
 
 /** Under spoofing there can be two GPS units; the real one has the most stable latitude. */
@@ -167,7 +175,7 @@ function holdMerge(s: number, e: number, streams: Record<string, TimedValue[]>):
 }
 
 export function parseBin(buf: ArrayBuffer, board?: string): ParseResult {
-  const m = parseDataflash(buf);
+  const { tables: m } = parseDataflash(buf);
   const wins = binWindows(m);
   if (!wins.length) return { info: "У .bin не вдалося визначити виліт (немає ані пари ARM, ані STAT.Armed)." };
 
