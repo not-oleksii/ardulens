@@ -1,17 +1,21 @@
-import { ChevronDown, RotateCcw, Trash2 } from "lucide-react";
+import { ChevronDown, Loader2, RotateCcw, Trash2 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { buildRawLog, isRawLog, isRawLogError, isRawLogInfo, type RawLogResult } from "../../analysis/raw-log/raw-log";
+import { getParamDoc } from "../../analysis/param-docs/param-docs";
+import { isRawLog, isRawLogError, isRawLogInfo, type RawLogResult } from "../../analysis/raw-log/raw-log";
 import { PRESETS, resolvePreset } from "../../analysis/raw-log/presets";
 import { FlightBinBuilder } from "../../builders/FlightBinBuilder/FlightBinBuilder";
 import { SkylogFileBuilder } from "../../builders/SkylogFileBuilder/SkylogFileBuilder";
 import { TimelineChart } from "../../components/TimelineChart/TimelineChart";
 import type { TimelineSeriesInput } from "../../components/TimelineChart/types";
+import { getCoreWorker } from "../../services/coreWorkerClient/coreWorkerClient";
 
 interface LoadedResult {
   name: string;
@@ -26,30 +30,35 @@ export function GraphsView() {
   const [isDragging, setIsDragging] = useState(false);
   const [isParsing, setIsParsing] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+  const [paramFilter, setParamFilter] = useState("");
+  const [openCategories, setOpenCategories] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  function loadBuffer(name: string, buf: ArrayBuffer) {
+  async function loadBuffer(name: string, buf: ArrayBuffer) {
     setIsParsing(true);
     try {
-      setLoaded({ name, result: buildRawLog(name, buf) });
+      const result = await getCoreWorker().buildRawLog(name, buf);
+      setLoaded({ name, result });
       setSelectedKeys([]);
+      setParamFilter("");
+      setOpenCategories(new Set());
     } finally {
       setIsParsing(false);
     }
   }
 
   async function handleFile(file: File) {
-    loadBuffer(file.name, await file.arrayBuffer());
+    await loadBuffer(file.name, await file.arrayBuffer());
   }
 
   function loadSampleBin() {
     const buf = new FlightBinBuilder().withVoltageCurve(25.2, 22.4, 23.0).build();
-    loadBuffer("sample-flight.bin", buf);
+    void loadBuffer("sample-flight.bin", buf);
   }
 
   function loadSampleSkylog() {
     const buf = new SkylogFileBuilder().addBoard({ board: 3570 }).build();
-    loadBuffer("sample-log.skylog", buf);
+    void loadBuffer("sample-log.skylog", buf);
   }
 
   function toggleParam(key: string) {
@@ -64,11 +73,33 @@ export function GraphsView() {
     setSelectedKeys([]);
   }
 
+  function toggleCategoryOpen(key: string, open: boolean) {
+    setOpenCategories((prev) => {
+      const next = new Set(prev);
+      if (open) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }
+
   const rawLog = loaded && isRawLog(loaded.result) ? loaded.result : null;
 
   function applyPreset(candidateKeys: string[]) {
     setSelectedKeys((prev) => [...prev, ...candidateKeys.filter((k) => !prev.includes(k))]);
   }
+
+  const isFiltering = paramFilter.trim().length > 0;
+  const filteredCategories = useMemo(() => {
+    if (!rawLog) return [];
+    const needle = paramFilter.trim().toLowerCase();
+    if (!needle) return rawLog.categories;
+    return rawLog.categories
+      .map((category) => ({
+        ...category,
+        params: category.params.filter((p) => p.label.toLowerCase().includes(needle)),
+      }))
+      .filter((category) => category.params.length > 0);
+  }, [rawLog, paramFilter]);
 
   const applicablePresets = useMemo(() => {
     if (!rawLog) return [];
@@ -129,8 +160,17 @@ export function GraphsView() {
             isDragging ? "border-primary bg-accent" : "border-border bg-card hover:border-primary hover:bg-accent",
           )}
         >
-          <span className="font-semibold">{t("graphs.drop.title")}</span>
-          <span className="text-sm text-muted-foreground">{t("graphs.drop.subtitle")}</span>
+          {isParsing ? (
+            <>
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden />
+              <span className="font-semibold">{t("graphs.drop.parsing")}</span>
+            </>
+          ) : (
+            <>
+              <span className="font-semibold">{t("graphs.drop.title")}</span>
+              <span className="text-sm text-muted-foreground">{t("graphs.drop.subtitle")}</span>
+            </>
+          )}
         </div>
         <input
           ref={fileInputRef}
@@ -222,35 +262,69 @@ export function GraphsView() {
 
               <section className="flex flex-col gap-2 rounded-lg border border-border p-3">
                 <h3 className="text-sm font-medium">{t("graphs.params.heading")}</h3>
-                <div className="flex flex-col gap-1">
-                  {rawLog.categories.map((category) => (
-                    <Collapsible key={category.key}>
-                      <CollapsibleTrigger asChild>
-                        <Button variant="ghost" size="sm" className="w-full justify-between">
-                          {t(`graphs.categories.${category.key}`)}
-                          <ChevronDown className="h-4 w-4" />
-                        </Button>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent className="flex flex-col gap-1 py-1 pl-3">
-                        {category.params.map((param) => {
-                          const isSelected = selectedKeys.includes(param.key);
-                          return (
-                            <Button
-                              key={param.key}
-                              type="button"
-                              variant={isSelected ? "secondary" : "ghost"}
-                              size="sm"
-                              className="justify-start"
-                              onClick={() => toggleParam(param.key)}
-                            >
-                              {param.label}
-                            </Button>
-                          );
-                        })}
-                      </CollapsibleContent>
-                    </Collapsible>
-                  ))}
-                </div>
+                <Input
+                  value={paramFilter}
+                  onChange={(e) => setParamFilter(e.target.value)}
+                  placeholder={t("graphs.params.filterPlaceholder")}
+                  aria-label={t("graphs.params.filterPlaceholder")}
+                />
+                {isFiltering && filteredCategories.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">{t("graphs.params.noMatches")}</p>
+                ) : (
+                  <div className="flex flex-col gap-1">
+                    {filteredCategories.map((category) => (
+                      <Collapsible
+                        key={category.key}
+                        open={isFiltering || openCategories.has(category.key)}
+                        onOpenChange={(open) => toggleCategoryOpen(category.key, open)}
+                      >
+                        <CollapsibleTrigger asChild>
+                          <Button variant="ghost" size="sm" className="w-full justify-between">
+                            {t(`graphs.categories.${category.key}`)}
+                            <ChevronDown className="h-4 w-4" />
+                          </Button>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent className="flex flex-col gap-1 py-1 pl-3">
+                          {category.params.map((param) => {
+                            const isSelected = selectedKeys.includes(param.key);
+                            const doc = getParamDoc(param.key);
+                            const button = (
+                              <Button
+                                type="button"
+                                variant={isSelected ? "secondary" : "ghost"}
+                                size="sm"
+                                className="justify-start"
+                                onClick={() => toggleParam(param.key)}
+                              >
+                                {param.label}
+                              </Button>
+                            );
+                            if (!doc) return <span key={param.key}>{button}</span>;
+                            return (
+                              <HoverCard key={param.key}>
+                                <HoverCardTrigger asChild>{button}</HoverCardTrigger>
+                                <HoverCardContent>
+                                  <p className="font-medium">{param.label}</p>
+                                  <p className="mt-1 text-muted-foreground">{doc.text}</p>
+                                  {doc.url && (
+                                    <a
+                                      href={doc.url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="mt-2 inline-block text-primary underline-offset-4 hover:underline"
+                                    >
+                                      {t("graphs.params.readMore")}
+                                    </a>
+                                  )}
+                                </HoverCardContent>
+                              </HoverCard>
+                            );
+                          })}
+                        </CollapsibleContent>
+                      </Collapsible>
+                    ))}
+                  </div>
+                )}
               </section>
             </div>
 

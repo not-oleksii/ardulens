@@ -92,7 +92,8 @@
     "description": "Drop a .skylog or .bin file to plot any parameter over time, with flight-mode bands in the background.",
     "drop": {
       "title": "Drop a log: .skylog / .bin",
-      "subtitle": "or click to choose a file"
+      "subtitle": "or click to choose a file",
+      "parsing": "Parsing file..."
     },
     "plotsSetup": {
       "heading": "Plots setup",
@@ -109,7 +110,10 @@
       "throttle": "Throttle output"
     },
     "params": {
-      "heading": "Individual parameters"
+      "heading": "Individual parameters",
+      "filterPlaceholder": "Search parameters...",
+      "noMatches": "No parameters match your search.",
+      "readMore": "Read more →"
     },
     "categories": {
       "attitude": "Attitude",
@@ -123,7 +127,7 @@
     },
     "chart": {
       "empty": "Select a preset or an individual parameter to plot it here.",
-      "zoomHint": "Drag to zoom in, double-click to reset"
+      "zoomHint": "Scroll or drag to zoom, double-click to reset"
     }
   },
   "parameters": {

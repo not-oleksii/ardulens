@@ -106,7 +106,10 @@ function buildRawLogFromBin(buf: ArrayBuffer): RawLogResult {
   }
 
   const modeRecords = (tables["MODE"] ?? [])
-    .map((rec) => ({ t: (rec["TimeUS"] as number) - originUs, mode: (rec["ModeNum"] ?? rec["Mode"]) as number }))
+    .map((rec) => ({
+      t: ((rec["TimeUS"] as number) - originUs) / 1000,
+      mode: (rec["ModeNum"] ?? rec["Mode"]) as number,
+    }))
     .filter((r) => typeof r.mode === "number");
 
   return {

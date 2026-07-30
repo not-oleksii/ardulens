@@ -17,17 +17,16 @@ if (typeof ResizeObserver === "undefined") {
 // jsdom has no window.matchMedia - uPlot reads it at module-load time (to pick
 // a device pixel ratio), so just importing it crashes without this stub.
 if (typeof window.matchMedia !== "function") {
-  window.matchMedia = (query: string) =>
-    ({
-      matches: false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }) as unknown as MediaQueryList;
+  window.matchMedia = (query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  });
 }
 
 afterEach(() => {

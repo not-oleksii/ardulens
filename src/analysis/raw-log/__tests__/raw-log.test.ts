@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DataflashBuilder } from "../../../builders/DataflashBuilder/DataflashBuilder";
 import { FlightBinBuilder } from "../../../builders/FlightBinBuilder/FlightBinBuilder";
 import { SkylogFileBuilder } from "../../../builders/SkylogFileBuilder/SkylogFileBuilder";
 import { PRESETS, resolvePreset } from "../presets";
@@ -40,6 +41,50 @@ describe("buildRawLog (.bin)", () => {
     expect(log.modeSegments.map((s) => s.label)).toEqual(["MANUAL", "FBWA", "MANUAL"]);
     expect(log.modeSegments[0]!.startMs).toBe(0);
     expect(log.modeSegments[log.modeSegments.length - 1]!.endMs).toBeCloseTo(60_000, -2);
+  });
+
+  it("scales mode-segment times to milliseconds, same as series/timeRangeMs (not raw TimeUS microseconds)", () => {
+    // Regression test: modeRecords once forgot to divide by 1000, so every segment after
+    // the first landed ~1000x past the end of the timeline and got culled off-chart -
+    // only the first segment (which stayed numerically small enough by coincidence)
+    // ever rendered. A middle segment's absolute value is what catches that class of bug;
+    // asserting only the first (trivially 0) or last (taken from the already-correct
+    // timeRangeMs, not from modeRecords) segment would not have caught it.
+    const buf = new FlightBinBuilder().withDurationSeconds(60).build();
+    const log = buildRawLog("sample.bin", buf);
+    if (!isRawLog(log)) throw new Error("expected a RawLog");
+
+    const fbwaSegment = log.modeSegments[1]!;
+    expect(fbwaSegment.label).toBe("FBWA");
+    // Mode switches to FBWA at 5% into a 60s flight (see FlightBinBuilder) -> ~3000ms.
+    expect(fbwaSegment.startMs).toBeGreaterThan(0);
+    expect(fbwaSegment.startMs).toBeLessThan(log.timeRangeMs[1]);
+    expect(fbwaSegment.startMs).toBeCloseTo(3000, -2);
+  });
+
+  it("falls back to the Mode field when a message defines no ModeNum field", () => {
+    // Some firmware/log variants only log a "Mode" field, not "ModeNum" - raw-log.ts
+    // must still resolve the active mode from whichever one is present.
+    const MODE = 1;
+    const buf = new DataflashBuilder()
+      .defineFormat(MODE, "MODE", ["Q", "B"], ["TimeUS", "Mode"])
+      .addRecord(MODE, [0, 5])
+      .addRecord(MODE, [10_000_000, 15])
+      .build();
+
+    const log = buildRawLog("sample.bin", buf);
+    if (!isRawLog(log)) throw new Error("expected a RawLog");
+
+    expect(log.modeSegments.map((s) => s.label)).toEqual(["FBWA", "GUIDED"]);
+  });
+
+  it("reports info when no message in the buffer has a TimeUS field at all", () => {
+    const FOO = 1;
+    const buf = new DataflashBuilder().defineFormat(FOO, "FOO", ["f"], ["Value"]).addRecord(FOO, [1.5]).build();
+
+    const log = buildRawLog("sample.bin", buf);
+
+    expect(isRawLogInfo(log)).toBe(true);
   });
 
   it("excludes non-numeric/meta message types (PARM, FMT) from the parameter tree", () => {

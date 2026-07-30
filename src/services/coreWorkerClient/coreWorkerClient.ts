@@ -1,6 +1,7 @@
 import * as Comlink from "comlink";
 import { runAdvisors } from "../../analysis/advisors/registry/registry";
 import { computeRow } from "../../analysis/metrics/metrics";
+import { buildRawLog } from "../../analysis/raw-log/raw-log";
 import { extractParamsFromBin } from "../../parameters/dataflash-params/dataflash-params";
 import { parseParamFile } from "../../parameters/param-file/param-file";
 import { parseFile } from "../../parsers/registry/registry";
@@ -19,6 +20,7 @@ const localApi: AsyncCoreWorkerApi = {
   computeRow: (...args) => Promise.resolve(computeRow(...args)),
   extractParamsFromBin: (...args) => Promise.resolve(extractParamsFromBin(...args)),
   parseParamFile: (...args) => Promise.resolve(parseParamFile(...args)),
+  buildRawLog: (...args) => Promise.resolve(buildRawLog(...args)),
 };
 
 let client: AsyncCoreWorkerApi | null = null;
