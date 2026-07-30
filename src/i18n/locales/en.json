@@ -64,10 +64,20 @@
       "parseError": "Parse error: {{message}}"
     },
     "table": {
+      "issuesHeading": "Issues",
       "manualValue": "manual",
       "footerHint": "Column 1 (blue) is the detected board. Gray rows are likely ground tests.",
       "footerHintBin": "Column 1 (blue) is the detected board. Yellow cells (time) are manual. Gray rows are likely ground tests."
     }
+  },
+  "findings": {
+    "ok": "No issues found",
+    "ariaLabel": "{{count}} issues found - click for details",
+    "voltageSagCritical": "Critical voltage sag under load: {{drop}}% below takeoff ({{takeoff}} V -> {{sag}} V).",
+    "voltageSagWarning": "Noticeable voltage sag under load: {{drop}}% below takeoff ({{takeoff}} V -> {{sag}} V).",
+    "landingVoltageLow": "Low landing voltage: {{drop}}% below takeoff ({{takeoff}} V -> {{landing}} V).",
+    "gpsIntegrityCritical": "Rejected {{removed}} track points ({{fraction}}%) as teleport/spoofing - possible EW jamming for a large part of the flight.",
+    "gpsIntegrityWarning": "Rejected {{removed}} track points as teleport/spoofing (EW)."
   },
   "metrics": {
     "board": "Board serial number",
@@ -128,6 +138,9 @@
     "chart": {
       "empty": "Select a preset or an individual parameter to plot it here.",
       "zoomHint": "Scroll or drag to zoom, double-click to reset"
+    },
+    "findings": {
+      "heading": "Anomalies:"
     }
   },
   "parameters": {

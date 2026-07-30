@@ -43,6 +43,32 @@ describe("LogsView", () => {
     expect(screen.getByText("3570")).toBeInTheDocument();
   });
 
+  it("flags an anomaly for a flight with a real voltage sag, via a per-row findings badge", async () => {
+    // The sample .bin's voltage curve (25.2V -> 22.4V under load) is an ~11% sag,
+    // above the advisor's warning threshold - the row should get a findings badge.
+    const user = userEvent.setup();
+    render(<LogsView />);
+    await user.click(screen.getByRole("button", { name: "Приклад .bin" }));
+    await screen.findByRole("table");
+
+    const badge = screen.getByRole("button", { name: "Знайдено зауважень: 1 - натисніть для деталей" });
+    expect(badge).toHaveTextContent("1");
+
+    await user.click(badge);
+    expect(await screen.findByText(/Помітна просадка напруги під газом/)).toBeInTheDocument();
+  });
+
+  it("shows a quiet 'no issues' indicator for a clean flight", async () => {
+    render(<LogsView />);
+    const buf = new FlightBinBuilder().build(); // default voltages: no sag, no GPS teleports
+    const input = screen.getByTestId("log-file-input");
+    await userEvent.upload(input, new File([buf], "clean.bin"));
+
+    await screen.findByRole("table");
+    expect(screen.getByText("Проблем не знайдено")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Знайдено зауважень/ })).not.toBeInTheDocument();
+  });
+
   it("loads a sample .skylog and warns about multiple boards", async () => {
     const user = userEvent.setup();
     render(<LogsView />);

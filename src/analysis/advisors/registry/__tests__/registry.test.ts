@@ -7,10 +7,10 @@ const EMPTY_FLIGHT: Flight = { board: "1", timeReliable: true, fmt: "skylog", sa
 
 describe("runAdvisors", () => {
   it("flattens findings from every registered advisor by default", () => {
-    const alwaysOne: Advisor = (): Finding[] => [{ id: "a", severity: "info", message: "one" }];
+    const alwaysOne: Advisor = (): Finding[] => [{ id: "a", severity: "info", messageKey: "test.one" }];
     const alwaysTwo: Advisor = (): Finding[] => [
-      { id: "b", severity: "info", message: "two" },
-      { id: "c", severity: "info", message: "three" },
+      { id: "b", severity: "info", messageKey: "test.two" },
+      { id: "c", severity: "info", messageKey: "test.three" },
     ];
     expect(runAdvisors(EMPTY_FLIGHT, [alwaysOne, alwaysTwo])).toHaveLength(3);
   });

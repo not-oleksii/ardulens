@@ -46,6 +46,29 @@ describe("GraphsView", () => {
     expect(screen.getByTestId("timeline-chart-empty")).toBeInTheDocument();
   });
 
+  it("shows a whole-file findings badge summarizing anomalies across the flights in the loaded file", async () => {
+    // The sample .bin's voltage curve (25.2V -> 22.4V under load) is an ~11% sag,
+    // above the advisor's warning threshold.
+    const user = userEvent.setup();
+    render(<GraphsView />);
+
+    await user.click(screen.getByRole("button", { name: "Приклад .bin" }));
+
+    const badge = await screen.findByRole("button", { name: "Знайдено зауважень: 1 - натисніть для деталей" });
+    await user.click(badge);
+    expect(await screen.findByText(/Помітна просадка напруги під газом/)).toBeInTheDocument();
+  });
+
+  it("shows a quiet 'no issues' indicator when the loaded file's flights are clean", async () => {
+    const user = userEvent.setup();
+    render(<GraphsView />);
+
+    await user.click(screen.getByRole("button", { name: "Приклад .skylog" }));
+
+    await screen.findByRole("button", { name: "Телеметрія" });
+    expect(screen.getByText("Проблем не знайдено")).toBeInTheDocument();
+  });
+
   it("shows a loading spinner and disables the loaders while a file is being parsed", async () => {
     const user = userEvent.setup();
     let resolveBuild!: (value: ReturnType<typeof buildRawLog>) => void;
@@ -54,6 +77,7 @@ describe("GraphsView", () => {
     });
     vi.mocked(getCoreWorker).mockReturnValueOnce({
       buildRawLog: () => pending,
+      parseFile: () => Promise.resolve({ flights: [], boards: [], fmt: "bin" }),
     } as unknown as ReturnType<typeof getCoreWorker>);
 
     render(<GraphsView />);

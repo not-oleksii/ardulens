@@ -19,18 +19,13 @@ export const gpsIntegrityAdvisor: Advisor = (flight: Flight): Finding[] => {
       {
         id: "gps-integrity-critical",
         severity: "critical",
-        message: `Відкинуто ${removed} точок треку (${(fraction * 100).toFixed(0)}%) як телепорт/спуфінг - можливий вплив РЕБ протягом значної частини польоту.`,
+        messageKey: "findings.gpsIntegrityCritical",
+        params: { removed, fraction: (fraction * 100).toFixed(0) },
       },
     ];
   }
   if (removed >= WARN_REMOVED_COUNT) {
-    return [
-      {
-        id: "gps-integrity-warning",
-        severity: "warning",
-        message: `Відкинуто ${removed} точок треку як телепорт/спуфінг (РЕБ).`,
-      },
-    ];
+    return [{ id: "gps-integrity-warning", severity: "warning", messageKey: "findings.gpsIntegrityWarning", params: { removed } }];
   }
   return [];
 };
