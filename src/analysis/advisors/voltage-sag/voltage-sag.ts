@@ -14,23 +14,12 @@ export const voltageSagAdvisor: Advisor = (flight: Flight): Finding[] => {
   if (takeoff === null || sag === null || takeoff <= 0) return [];
 
   const drop = (takeoff - sag) / takeoff;
+  const params = { drop: (drop * 100).toFixed(0), takeoff: takeoff.toFixed(2), sag: sag.toFixed(2) };
   if (drop >= CRITICAL_DROP_FRACTION) {
-    return [
-      {
-        id: "voltage-sag-critical",
-        severity: "critical",
-        message: `Критична просадка напруги під газом: ${(drop * 100).toFixed(0)}% від злітної (${takeoff.toFixed(2)} В -> ${sag.toFixed(2)} В).`,
-      },
-    ];
+    return [{ id: "voltage-sag-critical", severity: "critical", messageKey: "findings.voltageSagCritical", params }];
   }
   if (drop >= WARN_DROP_FRACTION) {
-    return [
-      {
-        id: "voltage-sag-warning",
-        severity: "warning",
-        message: `Помітна просадка напруги під газом: ${(drop * 100).toFixed(0)}% від злітної (${takeoff.toFixed(2)} В -> ${sag.toFixed(2)} В).`,
-      },
-    ];
+    return [{ id: "voltage-sag-warning", severity: "warning", messageKey: "findings.voltageSagWarning", params }];
   }
   return [];
 };
@@ -48,7 +37,8 @@ export const landingVoltageAdvisor: Advisor = (flight: Flight): Finding[] => {
       {
         id: "landing-voltage-low",
         severity: "warning",
-        message: `Низька напруга при посадці: ${(drop * 100).toFixed(0)}% нижче злітної (${takeoff.toFixed(2)} В -> ${landing.toFixed(2)} В).`,
+        messageKey: "findings.landingVoltageLow",
+        params: { drop: (drop * 100).toFixed(0), takeoff: takeoff.toFixed(2), landing: landing.toFixed(2) },
       },
     ];
   }

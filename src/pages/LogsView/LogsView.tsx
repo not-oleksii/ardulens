@@ -8,7 +8,9 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { runAdvisors } from "../../analysis/advisors/registry/registry";
 import { METRICS, computeRow } from "../../analysis/metrics/metrics";
+import { FindingsBadge } from "../../components/FindingsBadge/FindingsBadge";
 import { FlightBinBuilder } from "../../builders/FlightBinBuilder/FlightBinBuilder";
 import { SkylogFileBuilder } from "../../builders/SkylogFileBuilder/SkylogFileBuilder";
 import { copyText } from "../../services/clipboard/clipboard";
@@ -100,6 +102,7 @@ export function LogsView() {
   }, [loaded, boardFilter]);
 
   const computed = useMemo(() => (view ? view.flights.map((f) => ({ f, r: computeRow(f) })) : []), [view]);
+  const rowFindings = useMemo(() => computed.map((x) => runAdvisors(x.f)), [computed]);
 
   const displayedColumns = useMemo(
     () => columnIndices.map((i) => t(`metrics.${METRICS[i]!.key}`)),
@@ -354,6 +357,7 @@ export function LogsView() {
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        <TableHead>{t("logs.table.issuesHeading")}</TableHead>
                         {displayedColumns.map((col, ci) => (
                           <TableHead key={columnIndices[ci]}>
                             {col}
@@ -366,6 +370,9 @@ export function LogsView() {
                     <TableBody>
                       {computed.map((x, i) => (
                         <TableRow key={i} className={x.r.ground ? "text-muted-foreground" : undefined}>
+                          <TableCell>
+                            <FindingsBadge findings={rowFindings[i]!} />
+                          </TableCell>
                           {displayedRows[i]!.map((v, ci) => {
                             const originalIndex = columnIndices[ci]!;
                             const isManual = x.r.manualCols.includes(originalIndex);

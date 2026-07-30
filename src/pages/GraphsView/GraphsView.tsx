@@ -8,18 +8,23 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { runAdvisors } from "../../analysis/advisors/registry/registry";
+import type { Finding } from "../../analysis/advisors/types";
 import { getParamDoc } from "../../analysis/param-docs/param-docs";
 import { isRawLog, isRawLogError, isRawLogInfo, type RawLogResult } from "../../analysis/raw-log/raw-log";
 import { PRESETS, resolvePreset } from "../../analysis/raw-log/presets";
 import { FlightBinBuilder } from "../../builders/FlightBinBuilder/FlightBinBuilder";
 import { SkylogFileBuilder } from "../../builders/SkylogFileBuilder/SkylogFileBuilder";
+import { FindingsBadge } from "../../components/FindingsBadge/FindingsBadge";
 import { TimelineChart } from "../../components/TimelineChart/TimelineChart";
 import type { TimelineSeriesInput } from "../../components/TimelineChart/types";
 import { getCoreWorker } from "../../services/coreWorkerClient/coreWorkerClient";
+import { isParsedFlights } from "../../types";
 
 interface LoadedResult {
   name: string;
   result: RawLogResult;
+  findings: Finding[];
 }
 
 const SERIES_COLORS = ["#3b82f6", "#f97316", "#22c55e", "#ef4444", "#a855f7", "#06b6d4", "#eab308", "#ec4899"];
@@ -37,8 +42,14 @@ export function GraphsView() {
   async function loadBuffer(name: string, buf: ArrayBuffer) {
     setIsParsing(true);
     try {
-      const result = await getCoreWorker().buildRawLog(name, buf);
-      setLoaded({ name, result });
+      const worker = getCoreWorker();
+      // Two independent parses of the same buffer: buildRawLog() for the chart/param
+      // tree, parseFile() for the per-flight Sample model the advisors already know how
+      // to check. A bit of duplicated work for .bin files, but keeps the advisors on the
+      // same simple Flight model the Logs page uses instead of a second detection path.
+      const [result, parseResult] = await Promise.all([worker.buildRawLog(name, buf), worker.parseFile(name, buf)]);
+      const findings = isParsedFlights(parseResult) ? parseResult.flights.flatMap((f) => runAdvisors(f)) : [];
+      setLoaded({ name, result, findings });
       setSelectedKeys([]);
       setParamFilter("");
       setOpenCategories(new Set());
@@ -204,6 +215,13 @@ export function GraphsView() {
           <Alert variant="info">
             <AlertDescription>{loaded.result.info}</AlertDescription>
           </Alert>
+        )}
+
+        {loaded && rawLog && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-muted-foreground">{t("graphs.findings.heading")}</span>
+            <FindingsBadge findings={loaded.findings} />
+          </div>
         )}
 
         {rawLog && (

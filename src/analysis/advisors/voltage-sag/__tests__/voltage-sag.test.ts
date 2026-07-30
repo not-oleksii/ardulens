@@ -15,12 +15,15 @@ describe("voltageSagAdvisor", () => {
     const findings = voltageSagAdvisor(sagFlight(21.0)); // 16% drop
     expect(findings).toHaveLength(1);
     expect(findings[0]?.severity).toBe("critical");
+    expect(findings[0]?.messageKey).toBe("findings.voltageSagCritical");
+    expect(findings[0]?.params).toEqual({ drop: "16", takeoff: "25.00", sag: "21.00" });
   });
 
   it("reports a warning for an 8-15% drop", () => {
     const findings = voltageSagAdvisor(sagFlight(22.5)); // 10% drop
     expect(findings).toHaveLength(1);
     expect(findings[0]?.severity).toBe("warning");
+    expect(findings[0]?.messageKey).toBe("findings.voltageSagWarning");
   });
 
   it("reports nothing for a normal drop under 8%", () => {
