@@ -20,6 +20,7 @@ const PARM = 7;
 const ATT = 8;
 const RCIN = 9;
 const IMU = 10;
+const GPS = 11;
 
 const AIR_MODE_NUM = 5; // matches AIR_MODES in constants.ts (FBWA)
 
@@ -48,6 +49,7 @@ export class FlightBinBuilder {
   private base = { lat: 50.0, lon: 30.0 };
   private teleportCount = 0;
   private grounded = false;
+  private gpsSpoofWindow: [number, number] | null = null;
   private params: Array<{ name: string; value: number }> = [];
 
   withDurationSeconds(seconds: number): this {
@@ -89,6 +91,16 @@ export class FlightBinBuilder {
     return this;
   }
 
+  /**
+   * Simulates raw-GPS spoofing between startSec/endSec: the raw GPS message reports a
+   * position ~500km away with a degraded fix status, while POS (the fused/EKF position)
+   * keeps tracking the real flight path unaffected - mirroring a real spoofed flight.
+   */
+  withGpsSpoofing(startSec: number, endSec: number): this {
+    this.gpsSpoofWindow = [startSec, endSec];
+    return this;
+  }
+
   /** Never crosses the airborne threshold - parseBin should report no flight. */
   groundedOnly(): this {
     this.grounded = true;
@@ -108,6 +120,12 @@ export class FlightBinBuilder {
       .defineFormat(ARM, "ARM", ["Q", "B"], ["TimeUS", "ArmState"])
       .defineFormat(MODE, "MODE", ["Q", "B"], ["TimeUS", "ModeNum"])
       .defineFormat(POS, "POS", ["Q", "d", "d", "f"], ["TimeUS", "Lat", "Lng", "RelHomeAlt"])
+      .defineFormat(
+        GPS,
+        "GPS",
+        ["Q", "B", "B", "f", "d", "d", "f"],
+        ["TimeUS", "Status", "NSats", "HDop", "Lat", "Lng", "Alt"],
+      )
       .defineFormat(PARM, "PARM", ["Q", "N", "f"], ["TimeUS", "Name", "Value"])
       .defineFormat(ATT, "ATT", ["Q", "f", "f", "f"], ["TimeUS", "Roll", "Pitch", "Yaw"])
       .defineFormat(RCIN, "RCIN", ["Q", "f", "f", "f", "f"], ["TimeUS", "C1", "C2", "C3", "C4"])
@@ -181,7 +199,18 @@ export class FlightBinBuilder {
       const alt =
         frac < 0.15 ? (frac / 0.15) * maxAlt : frac > 0.85 ? ((1 - frac) / 0.15) * maxAlt : maxAlt;
       const bearingFrac = Math.sin(frac * Math.PI); // walk away from base and back
-      b.addRecord(POS, [t, this.base.lat + bearingFrac * 0.01, this.base.lon + bearingFrac * 0.015, Math.max(0, alt)]);
+      const realLat = this.base.lat + bearingFrac * 0.01;
+      const realLon = this.base.lon + bearingFrac * 0.015;
+      b.addRecord(POS, [t, realLat, realLon, Math.max(0, alt)]);
+
+      const [spoofStart, spoofEnd] = this.gpsSpoofWindow ?? [Infinity, -Infinity];
+      const isSpoofed = sec >= spoofStart && sec <= spoofEnd;
+      b.addRecord(
+        GPS,
+        isSpoofed
+          ? [t, 1, 0, 99.99, this.base.lat + 5, this.base.lon + 5, alt]
+          : [t, 3, 15, 1.0, realLat, realLon, alt],
+      );
     }
 
     // A far-away spike exactly on a 1-second tick - the per-second POS record

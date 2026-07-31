@@ -1,4 +1,4 @@
-import { ChevronsLeft, ChevronsRight, FileText, GitCompare, LineChart, Settings2, Stethoscope } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, FileText, GitCompare, LineChart, Map, Settings2, Stethoscope } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher/LanguageSwitcher";
@@ -10,6 +10,7 @@ import { VISIBLE_TABS, useUiStore, type Tab } from "../../stores/uiStore/uiStore
 const TAB_ICONS = {
   logs: FileText,
   graphs: LineChart,
+  map: Map,
   parameters: Settings2,
   advisor: Stethoscope,
   compare: GitCompare,
