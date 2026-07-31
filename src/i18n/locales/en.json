@@ -7,6 +7,7 @@
   "tabs": {
     "logs": "Logs",
     "graphs": "Graphs",
+    "map": "Map",
     "parameters": "Parameters",
     "advisor": "Advisor",
     "compare": "Compare"
@@ -141,6 +142,23 @@
     },
     "findings": {
       "heading": "Anomalies:"
+    }
+  },
+  "map": {
+    "heading": "Map",
+    "description": "Drop a .bin file to see the flight track on a map - the fused (GCS) position, the raw GPS position, and where raw GPS was rejected as spoofing/teleport.",
+    "drop": {
+      "title": "Drop a log: .bin",
+      "subtitle": "or click to choose a file",
+      "parsing": "Parsing file..."
+    },
+    "noGpsData": "This file has no separate GPS/POS position messages to map (skylog telemetry only has one merged position).",
+    "legend": {
+      "heading": "Tracks",
+      "gcsTrack": "GCS track (fused position)",
+      "gpsTrack": "Raw GPS track",
+      "cleanedTrack": "Cleaned GPS track",
+      "gpsLoss": "GPS loss / spoofing regions"
     }
   },
   "parameters": {
