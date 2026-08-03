@@ -5,6 +5,7 @@ import { buildRawLog } from "../../../analysis/raw-log/raw-log";
 import { FlightBinBuilder } from "../../../builders/FlightBinBuilder/FlightBinBuilder";
 import { SkylogFileBuilder } from "../../../builders/SkylogFileBuilder/SkylogFileBuilder";
 import { getCoreWorker } from "../../../services/coreWorkerClient/coreWorkerClient";
+import { dropFile } from "../../../test/dropFile";
 import { GraphsView } from "../GraphsView";
 
 vi.mock("../../../services/coreWorkerClient/coreWorkerClient", async () => {
@@ -28,17 +29,45 @@ const { MockUplot } = vi.hoisted(() => {
 });
 vi.mock("uplot", () => ({ default: MockUplot }));
 
+function getView() {
+  const user = userEvent.setup();
+  render(<GraphsView />);
+
+  const getFileInput = () => screen.getByTestId("graphs-file-input");
+  const getParamSearchInput = () => screen.getByPlaceholderText("Пошук параметрів...");
+
+  const clickSampleBin = () => user.click(screen.getByRole("button", { name: "Приклад .bin" }));
+  const clickSampleSkylog = () => user.click(screen.getByRole("button", { name: "Приклад .skylog" }));
+  const uploadFile = (file: File) => user.upload(getFileInput(), file);
+  const dropFileOnZone = (file: File) => dropFile("graphs-dropzone", file);
+  const clickButton = (name: string | RegExp) => user.click(screen.getByRole("button", { name }));
+  const typeParamSearch = (text: string) => user.type(getParamSearchInput(), text);
+  const hoverButton = (name: string | RegExp) => user.hover(screen.getByRole("button", { name }));
+
+  return {
+    user,
+    getFileInput,
+    getParamSearchInput,
+    clickSampleBin,
+    clickSampleSkylog,
+    uploadFile,
+    dropFileOnZone,
+    clickButton,
+    typeParamSearch,
+    hoverButton,
+  };
+}
+
 describe("GraphsView", () => {
   it("renders the heading and description", () => {
-    render(<GraphsView />);
+    getView();
     expect(screen.getByRole("heading", { name: "Графіки" })).toBeInTheDocument();
   });
 
   it("loading a sample .bin shows plots setup, presets, and the parameter tree, with an empty chart placeholder", async () => {
-    const user = userEvent.setup();
-    render(<GraphsView />);
+    const { clickSampleBin } = getView();
 
-    await user.click(screen.getByRole("button", { name: "Приклад .bin" }));
+    await clickSampleBin();
 
     expect(await screen.findByText("Ще не обрано жодного параметра - оберіть пресет або параметр нижче.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Батарея (напруга і струм)" })).toBeInTheDocument();
@@ -49,10 +78,9 @@ describe("GraphsView", () => {
   it("shows a whole-file findings badge summarizing anomalies across the flights in the loaded file", async () => {
     // The sample .bin's voltage curve (25.2V -> 22.4V under load) is an ~11% sag,
     // above the advisor's warning threshold.
-    const user = userEvent.setup();
-    render(<GraphsView />);
+    const { clickSampleBin, user } = getView();
 
-    await user.click(screen.getByRole("button", { name: "Приклад .bin" }));
+    await clickSampleBin();
 
     const badge = await screen.findByRole("button", { name: "Знайдено зауважень: 1 - натисніть для деталей" });
     await user.click(badge);
@@ -60,17 +88,15 @@ describe("GraphsView", () => {
   });
 
   it("shows a quiet 'no issues' indicator when the loaded file's flights are clean", async () => {
-    const user = userEvent.setup();
-    render(<GraphsView />);
+    const { clickSampleSkylog } = getView();
 
-    await user.click(screen.getByRole("button", { name: "Приклад .skylog" }));
+    await clickSampleSkylog();
 
     await screen.findByRole("button", { name: "Телеметрія" });
     expect(screen.getByText("Проблем не знайдено")).toBeInTheDocument();
   });
 
   it("shows a loading spinner and disables the loaders while a file is being parsed", async () => {
-    const user = userEvent.setup();
     let resolveBuild!: (value: ReturnType<typeof buildRawLog>) => void;
     const pending = new Promise<ReturnType<typeof buildRawLog>>((resolve) => {
       resolveBuild = resolve;
@@ -80,8 +106,8 @@ describe("GraphsView", () => {
       parseFile: () => Promise.resolve({ flights: [], boards: [], fmt: "bin" }),
     } as unknown as ReturnType<typeof getCoreWorker>);
 
-    render(<GraphsView />);
-    const clickPromise = user.click(screen.getByRole("button", { name: "Приклад .bin" }));
+    const { clickSampleBin } = getView();
+    const clickPromise = clickSampleBin();
 
     expect(await screen.findByText("Розбір файлу...")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Приклад .bin" })).toBeDisabled();
@@ -95,12 +121,11 @@ describe("GraphsView", () => {
   });
 
   it("clicking a preset adds all its params to Plots Setup and renders the chart", async () => {
-    const user = userEvent.setup();
-    render(<GraphsView />);
-    await user.click(screen.getByRole("button", { name: "Приклад .bin" }));
+    const { clickSampleBin, clickButton } = getView();
+    await clickSampleBin();
     await screen.findByRole("button", { name: "Батарея (напруга і струм)" });
 
-    await user.click(screen.getByRole("button", { name: "Батарея (напруга і струм)" }));
+    await clickButton("Батарея (напруга і струм)");
 
     expect(screen.getByText("BAT.Volt")).toBeInTheDocument();
     expect(screen.getByText("BAT.Curr")).toBeInTheDocument();
@@ -109,50 +134,46 @@ describe("GraphsView", () => {
   });
 
   it("toggles an individual parameter on and off via the category tree", async () => {
-    const user = userEvent.setup();
-    render(<GraphsView />);
-    await user.click(screen.getByRole("button", { name: "Приклад .bin" }));
+    const { clickSampleBin, clickButton } = getView();
+    await clickSampleBin();
     await screen.findByRole("button", { name: "Орієнтація" });
 
-    await user.click(screen.getByRole("button", { name: "Орієнтація" }));
-    await user.click(screen.getByRole("button", { name: "ATT.Roll" }));
+    await clickButton("Орієнтація");
+    await clickButton("ATT.Roll");
 
     expect(within(screen.getByRole("list")).getByText("ATT.Roll")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "ATT.Roll" }));
+    await clickButton("ATT.Roll");
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
   });
 
   it("removes a plotted parameter via its trash button", async () => {
-    const user = userEvent.setup();
-    render(<GraphsView />);
-    await user.click(screen.getByRole("button", { name: "Приклад .bin" }));
+    const { clickSampleBin, clickButton, user } = getView();
+    await clickSampleBin();
     await user.click(await screen.findByRole("button", { name: "Швидкість польоту" }));
     expect(screen.getByText("ARSP.Airspeed")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Прибрати ARSP.Airspeed з графіка" }));
+    await clickButton("Прибрати ARSP.Airspeed з графіка");
 
     expect(screen.queryByText("ARSP.Airspeed")).not.toBeInTheDocument();
   });
 
   it("clears every plotted parameter with the reset button", async () => {
-    const user = userEvent.setup();
-    render(<GraphsView />);
-    await user.click(screen.getByRole("button", { name: "Приклад .bin" }));
+    const { clickSampleBin, clickButton, user } = getView();
+    await clickSampleBin();
     await user.click(await screen.findByRole("button", { name: "Батарея (напруга і струм)" }));
     expect(screen.getByText("BAT.Volt")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Очистити всі графіки" }));
+    await clickButton("Очистити всі графіки");
 
     expect(screen.queryByText("BAT.Volt")).not.toBeInTheDocument();
     expect(screen.getByTestId("timeline-chart-empty")).toBeInTheDocument();
   });
 
   it("loading a sample .skylog only offers its fixed telemetry fields and matching presets", async () => {
-    const user = userEvent.setup();
-    render(<GraphsView />);
+    const { clickSampleSkylog } = getView();
 
-    await user.click(screen.getByRole("button", { name: "Приклад .skylog" }));
+    await clickSampleSkylog();
 
     expect(await screen.findByRole("button", { name: "Телеметрія" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Батарея (напруга і струм)" })).toBeInTheDocument();
@@ -161,12 +182,11 @@ describe("GraphsView", () => {
   });
 
   it("filters the individual-parameter tree by search text and auto-expands matching categories", async () => {
-    const user = userEvent.setup();
-    render(<GraphsView />);
-    await user.click(screen.getByRole("button", { name: "Приклад .bin" }));
+    const { clickSampleBin, typeParamSearch } = getView();
+    await clickSampleBin();
     await screen.findByRole("button", { name: "Орієнтація" });
 
-    await user.type(screen.getByPlaceholderText("Пошук параметрів..."), "Roll");
+    await typeParamSearch("Roll");
 
     // The Attitude category auto-expands and shows only the matching param...
     expect(screen.getByRole("button", { name: "ATT.Roll" })).toBeInTheDocument();
@@ -176,23 +196,21 @@ describe("GraphsView", () => {
   });
 
   it("shows a no-matches message when the parameter search finds nothing", async () => {
-    const user = userEvent.setup();
-    render(<GraphsView />);
-    await user.click(screen.getByRole("button", { name: "Приклад .bin" }));
+    const { clickSampleBin, typeParamSearch } = getView();
+    await clickSampleBin();
     await screen.findByRole("button", { name: "Орієнтація" });
 
-    await user.type(screen.getByPlaceholderText("Пошук параметрів..."), "zzz-no-such-param");
+    await typeParamSearch("zzz-no-such-param");
 
     expect(screen.getByText("Немає параметрів за цим запитом.")).toBeInTheDocument();
   });
 
   it("shows a description and a Read More link when hovering a documented parameter", async () => {
-    const user = userEvent.setup();
-    render(<GraphsView />);
-    await user.click(screen.getByRole("button", { name: "Приклад .bin" }));
+    const { clickSampleBin, user, hoverButton } = getView();
+    await clickSampleBin();
     await user.click(await screen.findByRole("button", { name: "Орієнтація" }));
 
-    await user.hover(screen.getByRole("button", { name: "ATT.Roll" }));
+    await hoverButton("ATT.Roll");
 
     expect(await screen.findByText(/roll/i)).toBeInTheDocument();
     const link = await screen.findByRole("link", { name: "Детальніше →" });
@@ -201,38 +219,30 @@ describe("GraphsView", () => {
   });
 
   it("shows a description without a Read More link for .skylog's synthesized telemetry fields", async () => {
-    const user = userEvent.setup();
-    render(<GraphsView />);
-    await user.click(screen.getByRole("button", { name: "Приклад .skylog" }));
+    const { clickSampleSkylog, user, hoverButton } = getView();
+    await clickSampleSkylog();
     await user.click(await screen.findByRole("button", { name: "Телеметрія" }));
 
-    await user.hover(screen.getByRole("button", { name: "telemetry.voltage" }));
+    await hoverButton("telemetry.voltage");
 
     expect(await screen.findByText(/voltage/i)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Детальніше →" })).not.toBeInTheDocument();
   });
 
   it("surfaces the parser's error for a skylog missing -extended_log", async () => {
-    render(<GraphsView />);
+    const { uploadFile } = getView();
     const buf = new SkylogFileBuilder().addBoard({ board: 1001 }).withoutExtendedLog().build();
-    const input = screen.getByTestId("graphs-file-input");
-    await userEvent.upload(input, new File([buf], "raw.skylog"));
+    await uploadFile(new File([buf], "raw.skylog"));
 
     expect(await screen.findByText(/Скористайтесь \.bin/)).toBeInTheDocument();
   });
 
   it("parses a file dropped onto the drop zone", async () => {
-    render(<GraphsView />);
+    const { dropFileOnZone } = getView();
     const buf = new SkylogFileBuilder().addBoard({ board: 3570 }).build();
     const file = new File([buf], "sample.skylog");
-    const dropzone = screen.getByTestId("graphs-dropzone");
 
-    const dataTransfer = { files: [file] };
-    const dropEvent = new Event("drop", { bubbles: true, cancelable: true }) as unknown as Event & {
-      dataTransfer: typeof dataTransfer;
-    };
-    dropEvent.dataTransfer = dataTransfer;
-    dropzone.dispatchEvent(dropEvent);
+    dropFileOnZone(file);
 
     expect(await within(document.body).findByRole("button", { name: "Телеметрія" })).toBeInTheDocument();
   });

@@ -37,6 +37,7 @@
     "drop": {
       "title": "Drop a log: .skylog / .bin",
       "subtitle": "or click to choose a file",
+      "reading": "Reading file...",
       "parsing": "Parsing file..."
     },
     "sample": {
@@ -104,6 +105,7 @@
     "drop": {
       "title": "Drop a log: .skylog / .bin",
       "subtitle": "or click to choose a file",
+      "reading": "Reading file...",
       "parsing": "Parsing file..."
     },
     "plotsSetup": {
@@ -150,6 +152,7 @@
     "drop": {
       "title": "Drop a log: .bin",
       "subtitle": "or click to choose a file",
+      "reading": "Reading file...",
       "parsing": "Parsing file..."
     },
     "noGpsData": "This file has no separate GPS/POS position messages to map (skylog telemetry only has one merged position).",

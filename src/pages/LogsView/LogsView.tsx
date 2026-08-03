@@ -1,4 +1,4 @@
-import { Loader2, SlidersHorizontal } from "lucide-react";
+import { SlidersHorizontal } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -7,12 +7,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { cn } from "@/lib/utils";
 import { runAdvisors } from "../../analysis/advisors/registry/registry";
 import { METRICS, computeRow } from "../../analysis/metrics/metrics";
+import { FileDropzone } from "../../components/FileDropzone/FileDropzone";
 import { FindingsBadge } from "../../components/FindingsBadge/FindingsBadge";
 import { FlightBinBuilder } from "../../builders/FlightBinBuilder/FlightBinBuilder";
 import { SkylogFileBuilder } from "../../builders/SkylogFileBuilder/SkylogFileBuilder";
+import { useFileLoader } from "../../hooks/useFileLoader/useFileLoader";
 import { copyText } from "../../services/clipboard/clipboard";
 import { getCoreWorker } from "../../services/coreWorkerClient/coreWorkerClient";
 import { isParsedError, isParsedFlights, isParsedInfo, type Flight, type ParseResult } from "../../types";
@@ -31,37 +32,35 @@ export function LogsView() {
   const [boardFilter, setBoardFilter] = useState("");
   const [loaded, setLoaded] = useState<LoadedResult | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
   const [columnIndices, setColumnIndices] = useState<number[]>(DEFAULT_COLUMN_INDICES);
   const [columnsOpen, setColumnsOpen] = useState(false);
-  const [isParsing, setIsParsing] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  async function loadBuffer(name: string, buf: ArrayBuffer, boardOverride?: string) {
-    setIsParsing(true);
-    try {
-      const result = await getCoreWorker().parseFile(name, buf, boardOverride ?? boardFilter.trim());
-      setLoaded({ name, result });
-    } catch (err) {
-      setLoaded({
-        name,
-        result: { error: t("logs.messages.parseError", { message: err instanceof Error ? err.message : String(err) }) },
-      });
-    } finally {
-      setIsParsing(false);
-    }
-  }
+  const { isParsing, stage, load, loadBuffer } = useFileLoader<LoadedResult, string>(
+    async (name, buf, boardOverride) => {
+      try {
+        const result = await getCoreWorker().parseFile(name, buf, boardOverride ?? boardFilter.trim());
+        return { name, result };
+      } catch (err) {
+        return {
+          name,
+          result: {
+            error: t("logs.messages.parseError", { message: err instanceof Error ? err.message : String(err) }),
+          },
+        };
+      }
+    },
+  );
 
-  async function handleFile(file: File) {
-    await loadBuffer(file.name, await file.arrayBuffer());
+  function handleFile(file: File) {
+    void load(file).then(setLoaded);
   }
 
   function loadSampleBin() {
     // .bin has no board id of its own - a real user types it into the filter
     // field first; the sample button fills in a sensible default instead.
     const buf = new FlightBinBuilder().withVoltageCurve(25.2, 22.4, 23.0).withGpsTeleports(4).build();
-    void loadBuffer("sample-flight.bin", buf, "3570");
+    void loadBuffer("sample-flight.bin", buf, "3570").then(setLoaded);
   }
 
   function loadSampleSkylog() {
@@ -69,7 +68,7 @@ export function LogsView() {
       .addBoard({ board: 3570, takeoffVoltage: 25.1, landingVoltage: 23.6 })
       .addBoard({ board: 3526, takeoffVoltage: 24.9, landingVoltage: 23.2 })
       .build();
-    void loadBuffer("sample-log.skylog", buf);
+    void loadBuffer("sample-log.skylog", buf).then(setLoaded);
   }
 
   async function handleCopy(key: string, text: string) {
@@ -152,63 +151,16 @@ export function LogsView() {
         </div>
 
         <div className="flex flex-col gap-3 border-t border-border pt-4">
-          <div
-            role="button"
-            aria-disabled={isParsing}
-            tabIndex={isParsing ? -1 : 0}
-            data-testid="log-dropzone"
-            onClick={() => fileInputRef.current?.click()}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                fileInputRef.current?.click();
-              }
-            }}
-            onDragEnter={(e) => {
-              e.preventDefault();
-              setIsDragging(true);
-            }}
-            onDragOver={(e) => e.preventDefault()}
-            onDragLeave={(e) => {
-              e.preventDefault();
-              setIsDragging(false);
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              setIsDragging(false);
-              const file = e.dataTransfer.files[0];
-              if (file) void handleFile(file);
-            }}
-            className={cn(
-              "flex cursor-pointer flex-col items-center gap-1 rounded-lg border-2 border-dashed px-6 py-9 text-center transition-colors",
-              isParsing && "pointer-events-none opacity-60",
-              isDragging ? "border-primary bg-accent" : "border-border bg-card hover:border-primary hover:bg-accent",
-            )}
-          >
-            {isParsing ? (
-              <>
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden />
-                <span className="font-semibold">{t("logs.drop.parsing")}</span>
-              </>
-            ) : (
-              <>
-                <span className="font-semibold">{t("logs.drop.title")}</span>
-                <span className="text-sm text-muted-foreground">{t("logs.drop.subtitle")}</span>
-              </>
-            )}
-          </div>
-          <input
-            ref={fileInputRef}
-            type="file"
+          <FileDropzone
+            testId="log"
             accept=".skylog,.log,.txt,.bin,.BIN"
-            className="sr-only"
-            data-testid="log-file-input"
-            disabled={isParsing}
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) void handleFile(file);
-              e.target.value = "";
-            }}
+            isParsing={isParsing}
+            stage={stage}
+            onFile={handleFile}
+            title={t("logs.drop.title")}
+            subtitle={t("logs.drop.subtitle")}
+            readingText={t("logs.drop.reading")}
+            parsingText={t("logs.drop.parsing")}
           />
 
           <div className="flex flex-wrap gap-2">
