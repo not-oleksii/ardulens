@@ -3,8 +3,10 @@ import { AdvisorView } from "./pages/AdvisorView/AdvisorView";
 import { CesiumMapView } from "./pages/CesiumMapView/CesiumMapView";
 import { CompareView } from "./pages/CompareView/CompareView";
 import { GraphsView } from "./pages/GraphsView/GraphsView";
+import { HomeView } from "./pages/HomeView/HomeView";
 import { LogsView } from "./pages/LogsView/LogsView";
 import { ParametersView } from "./pages/ParametersView/ParametersView";
+import { useFileStore } from "./stores/fileStore/fileStore";
 import { useUiStore } from "./stores/uiStore/uiStore";
 
 const VIEWS = {
@@ -17,8 +19,13 @@ const VIEWS = {
 } as const;
 
 function App() {
+  const file = useFileStore((s) => s.file);
   const activeTab = useUiStore((s) => s.activeTab);
   const ActiveView = VIEWS[activeTab];
+
+  if (!file) {
+    return <HomeView />;
+  }
 
   return (
     <div className="flex h-svh overflow-hidden text-left">

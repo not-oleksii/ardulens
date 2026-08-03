@@ -9,67 +9,33 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { runAdvisors } from "../../analysis/advisors/registry/registry";
 import { METRICS, computeRow } from "../../analysis/metrics/metrics";
-import { FileDropzone } from "../../components/FileDropzone/FileDropzone";
 import { FindingsBadge } from "../../components/FindingsBadge/FindingsBadge";
-import { FlightBinBuilder } from "../../builders/FlightBinBuilder/FlightBinBuilder";
-import { SkylogFileBuilder } from "../../builders/SkylogFileBuilder/SkylogFileBuilder";
-import { useFileLoader } from "../../hooks/useFileLoader/useFileLoader";
+import { useDerivedFromFile } from "../../hooks/useDerivedFromFile/useDerivedFromFile";
 import { copyText } from "../../services/clipboard/clipboard";
 import { getCoreWorker } from "../../services/coreWorkerClient/coreWorkerClient";
+import { useFileStore } from "../../stores/fileStore/fileStore";
 import { isParsedError, isParsedFlights, isParsedInfo, type Flight, type ParseResult } from "../../types";
 import { trackStats } from "../../utils/geo/geo";
-
-interface LoadedResult {
-  name: string;
-  result: ParseResult;
-}
 
 const DEFAULT_COLUMN_INDICES = METRICS.map((_, i) => i).filter((i) => METRICS[i]!.defaultVisible !== false);
 const BOARD_COLUMN_INDEX = 0; // always shown first, identifies the row - not toggleable
 
 export function LogsView() {
   const { t } = useTranslation();
+  const file = useFileStore((s) => s.file);
   const [boardFilter, setBoardFilter] = useState("");
-  const [loaded, setLoaded] = useState<LoadedResult | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [columnIndices, setColumnIndices] = useState<number[]>(DEFAULT_COLUMN_INDICES);
   const [columnsOpen, setColumnsOpen] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  const { isParsing, stage, load, loadBuffer } = useFileLoader<LoadedResult, string>(
-    async (name, buf, boardOverride) => {
-      try {
-        const result = await getCoreWorker().parseFile(name, buf, boardOverride ?? boardFilter.trim());
-        return { name, result };
-      } catch (err) {
-        return {
-          name,
-          result: {
-            error: t("logs.messages.parseError", { message: err instanceof Error ? err.message : String(err) }),
-          },
-        };
-      }
-    },
-  );
-
-  function handleFile(file: File) {
-    void load(file).then(setLoaded);
-  }
-
-  function loadSampleBin() {
-    // .bin has no board id of its own - a real user types it into the filter
-    // field first; the sample button fills in a sensible default instead.
-    const buf = new FlightBinBuilder().withVoltageCurve(25.2, 22.4, 23.0).withGpsTeleports(4).build();
-    void loadBuffer("sample-flight.bin", buf, "3570").then(setLoaded);
-  }
-
-  function loadSampleSkylog() {
-    const buf = new SkylogFileBuilder()
-      .addBoard({ board: 3570, takeoffVoltage: 25.1, landingVoltage: 23.6 })
-      .addBoard({ board: 3526, takeoffVoltage: 24.9, landingVoltage: 23.2 })
-      .build();
-    void loadBuffer("sample-log.skylog", buf).then(setLoaded);
-  }
+  const { data: result, isLoading } = useDerivedFromFile<ParseResult>(file, async (name, buf) => {
+    try {
+      return await getCoreWorker().parseFile(name, buf);
+    } catch (err) {
+      return { error: t("logs.messages.parseError", { message: err instanceof Error ? err.message : String(err) }) };
+    }
+  });
 
   async function handleCopy(key: string, text: string) {
     await copyText(text);
@@ -88,8 +54,7 @@ export function LogsView() {
   }
 
   const view = useMemo(() => {
-    if (!loaded) return null;
-    const { result } = loaded;
+    if (!result) return null;
     if (isParsedError(result) || isParsedInfo(result)) {
       return { flights: [] as Flight[], boards: [] as string[], fmt: null, all: [] as Flight[] };
     }
@@ -98,7 +63,7 @@ export function LogsView() {
     const all = result.flights;
     const flights = filter ? all.filter((f) => String(f.board).includes(filter)) : all;
     return { flights, boards: result.boards, fmt: result.fmt, all };
-  }, [loaded, boardFilter]);
+  }, [result, boardFilter]);
 
   const computed = useMemo(() => (view ? view.flights.map((f) => ({ f, r: computeRow(f) })) : []), [view]);
   const rowFindings = useMemo(() => computed.map((x) => runAdvisors(x.f)), [computed]);
@@ -151,44 +116,25 @@ export function LogsView() {
         </div>
 
         <div className="flex flex-col gap-3 border-t border-border pt-4">
-          <FileDropzone
-            testId="log"
-            accept=".skylog,.log,.txt,.bin,.BIN"
-            isParsing={isParsing}
-            stage={stage}
-            onFile={handleFile}
-            title={t("logs.drop.title")}
-            subtitle={t("logs.drop.subtitle")}
-            readingText={t("logs.drop.reading")}
-            parsingText={t("logs.drop.parsing")}
-          />
+          {isLoading && <p className="text-sm text-muted-foreground">{t("logs.drop.parsing")}</p>}
 
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={loadSampleBin} disabled={isParsing}>
-              {t("logs.sample.bin")}
-            </Button>
-            <Button variant="outline" size="sm" onClick={loadSampleSkylog} disabled={isParsing}>
-              {t("logs.sample.skylog")}
-            </Button>
-          </div>
-
-          {loaded && isParsedError(loaded.result) && (
+          {result && isParsedError(result) && (
             <Alert variant="destructive">
-              <AlertDescription>{loaded.result.error}</AlertDescription>
+              <AlertDescription>{result.error}</AlertDescription>
             </Alert>
           )}
-          {loaded && isParsedInfo(loaded.result) && (
+          {result && isParsedInfo(result) && (
             <Alert variant="info">
-              <AlertDescription>{loaded.result.info}</AlertDescription>
+              <AlertDescription>{result.info}</AlertDescription>
             </Alert>
           )}
 
-          {loaded && view && isParsedFlights(loaded.result) && (
+          {result && view && isParsedFlights(result) && (
             <div className="flex flex-col gap-3">
               <Alert variant="info">
                 <AlertDescription>
                   {t("logs.messages.summary", {
-                    name: loaded.name,
+                    name: file?.name,
                     fmt: view.fmt,
                     shown: view.flights.length,
                     total: view.all.length,

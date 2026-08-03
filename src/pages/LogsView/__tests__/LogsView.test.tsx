@@ -5,50 +5,68 @@ import { FlightBinBuilder } from "../../../builders/FlightBinBuilder/FlightBinBu
 import { SkylogFileBuilder } from "../../../builders/SkylogFileBuilder/SkylogFileBuilder";
 import i18n from "../../../i18n/i18n";
 import { copyText } from "../../../services/clipboard/clipboard";
-import { dropFile } from "../../../test/dropFile";
+import { getCoreWorker } from "../../../services/coreWorkerClient/coreWorkerClient";
+import { useFileStore } from "../../../stores/fileStore/fileStore";
 import { LogsView } from "../LogsView";
 
 vi.mock("../../../services/clipboard/clipboard", () => ({ copyText: vi.fn().mockResolvedValue(undefined) }));
 const copyTextMock = vi.mocked(copyText);
 
+vi.mock("../../../services/coreWorkerClient/coreWorkerClient", async () => {
+  const actual = await vi.importActual<typeof import("../../../services/coreWorkerClient/coreWorkerClient")>(
+    "../../../services/coreWorkerClient/coreWorkerClient",
+  );
+  return { getCoreWorker: vi.fn(actual.getCoreWorker) };
+});
+
+function loadFile(name: string, buf: ArrayBuffer) {
+  useFileStore.getState().setFile({ name, buf });
+}
+
+function sampleBinBuf() {
+  return new FlightBinBuilder().withVoltageCurve(25.2, 22.4, 23.0).withGpsTeleports(4).build();
+}
+
+function sampleSkylogBuf() {
+  return new SkylogFileBuilder()
+    .addBoard({ board: 3570, takeoffVoltage: 25.1, landingVoltage: 23.6 })
+    .addBoard({ board: 3526, takeoffVoltage: 24.9, landingVoltage: 23.2 })
+    .build();
+}
+
 function getView() {
   const user = userEvent.setup();
   render(<LogsView />);
 
-  const getFileInput = () => screen.getByTestId("log-file-input");
   const getBoardFilterInput = () => screen.getByLabelText(/Фільтр за бортом/);
   const getTable = () => screen.findByRole("table");
   const getColumnsToggleButton = () => screen.getByRole("button", { name: "Показати/сховати фільтр стовпців таблиці" });
   const getColumnChip = (name: string | RegExp) => screen.getByRole("button", { name });
   const getColumnHeader = (name: string | RegExp) => screen.getByRole("columnheader", { name });
 
-  const uploadFile = (file: File) => user.upload(getFileInput(), file);
-  const dropFileOnZone = (file: File) => dropFile("log-dropzone", file);
   const typeBoardFilter = (text: string) => user.type(getBoardFilterInput(), text);
-  const clickSampleBin = () => user.click(screen.getByRole("button", { name: "Приклад .bin" }));
-  const clickSampleSkylog = () => user.click(screen.getByRole("button", { name: "Приклад .skylog" }));
   const openColumnsFilter = () => user.click(getColumnsToggleButton());
   const clickColumnChip = (name: string | RegExp) => user.click(getColumnChip(name));
   const clickReset = () => user.click(screen.getByRole("button", { name: "Скинути" }));
 
   return {
     user,
-    getFileInput,
     getBoardFilterInput,
     getTable,
     getColumnsToggleButton,
     getColumnChip,
     getColumnHeader,
-    uploadFile,
-    dropFileOnZone,
     typeBoardFilter,
-    clickSampleBin,
-    clickSampleSkylog,
     openColumnsFilter,
     clickColumnChip,
     clickReset,
   };
 }
+
+afterEach(() => {
+  useFileStore.getState().clearFile();
+  vi.mocked(getCoreWorker).mockRestore();
+});
 
 describe("LogsView", () => {
   it("renders the heading and description", () => {
@@ -56,31 +74,43 @@ describe("LogsView", () => {
     expect(screen.getByRole("heading", { name: "Дані з логів" })).toBeInTheDocument();
   });
 
-  it("parses a real .bin file dropped through the file input, using the typed board id", async () => {
-    const { typeBoardFilter, uploadFile } = getView();
-    const buf = new FlightBinBuilder().build();
-    const file = new File([buf], "3570.bin", { type: "application/octet-stream" });
+  it("shows a loading message while the shared file is being derived", async () => {
+    let resolveParse!: (value: unknown) => void;
+    const pending = new Promise((resolve) => {
+      resolveParse = resolve;
+    });
+    vi.mocked(getCoreWorker).mockReturnValueOnce({ parseFile: () => pending } as unknown as ReturnType<
+      typeof getCoreWorker
+    >);
+    loadFile("sample-flight.bin", sampleBinBuf());
 
-    await typeBoardFilter("3570");
-    await uploadFile(file);
+    getView();
 
-    expect(await screen.findByText("3570")).toBeInTheDocument();
+    expect(await screen.findByText("Розбір файлу...")).toBeInTheDocument();
+    resolveParse({ flights: [], boards: [], fmt: "bin" });
+    await waitFor(() => expect(screen.queryByText("Розбір файлу...")).not.toBeInTheDocument());
+  });
+
+  it("parses a boardless .bin and shows '?' since a .bin has no board id of its own", async () => {
+    loadFile("3570.bin", new FlightBinBuilder().build());
+    getView();
+
+    expect(await screen.findByText("?")).toBeInTheDocument();
   });
 
   it("loads a sample .bin and shows a results table", async () => {
-    const { clickSampleBin, getTable } = getView();
-
-    await clickSampleBin();
+    loadFile("sample-flight.bin", sampleBinBuf());
+    const { getTable } = getView();
 
     expect(await getTable()).toBeInTheDocument();
-    expect(screen.getByText("3570")).toBeInTheDocument();
+    expect(screen.getByText("?")).toBeInTheDocument(); // .bin has no board id of its own
   });
 
   it("flags an anomaly for a flight with a real voltage sag, via a per-row findings badge", async () => {
     // The sample .bin's voltage curve (25.2V -> 22.4V under load) is an ~11% sag,
     // above the advisor's warning threshold - the row should get a findings badge.
-    const { clickSampleBin, getTable, user } = getView();
-    await clickSampleBin();
+    loadFile("sample-flight.bin", sampleBinBuf());
+    const { getTable, user } = getView();
     await getTable();
 
     const badge = screen.getByRole("button", { name: "Знайдено зауважень: 1 - натисніть для деталей" });
@@ -91,9 +121,8 @@ describe("LogsView", () => {
   });
 
   it("shows a quiet 'no issues' indicator for a clean flight", async () => {
-    const { uploadFile, getTable } = getView();
-    const buf = new FlightBinBuilder().build(); // default voltages: no sag, no GPS teleports
-    await uploadFile(new File([buf], "clean.bin"));
+    loadFile("clean.bin", new FlightBinBuilder().build()); // default voltages: no sag, no GPS teleports
+    const { getTable } = getView();
 
     await getTable();
     expect(screen.getByText("Проблем не знайдено")).toBeInTheDocument();
@@ -101,9 +130,8 @@ describe("LogsView", () => {
   });
 
   it("loads a sample .skylog and warns about multiple boards", async () => {
-    const { clickSampleSkylog } = getView();
-
-    await clickSampleSkylog();
+    loadFile("sample-log.skylog", sampleSkylogBuf());
+    getView();
 
     expect(await screen.findByText(/У лозі кілька бортів/)).toBeInTheDocument();
     expect(screen.getByText("3570")).toBeInTheDocument();
@@ -111,8 +139,8 @@ describe("LogsView", () => {
   });
 
   it("live-filters the table by board as the filter input changes", async () => {
-    const { clickSampleSkylog, typeBoardFilter } = getView();
-    await clickSampleSkylog();
+    loadFile("sample-log.skylog", sampleSkylogBuf());
+    const { typeBoardFilter } = getView();
     await screen.findByText("3570");
 
     await typeBoardFilter("3526");
@@ -122,8 +150,8 @@ describe("LogsView", () => {
   });
 
   it("shows a no-match warning when the filter matches no board", async () => {
-    const { clickSampleBin, getTable, typeBoardFilter } = getView();
-    await clickSampleBin();
+    loadFile("sample-flight.bin", sampleBinBuf());
+    const { getTable, typeBoardFilter } = getView();
     await getTable();
 
     await typeBoardFilter("9999");
@@ -132,35 +160,23 @@ describe("LogsView", () => {
   });
 
   it("shows an info message when the board never got airborne", async () => {
-    const { uploadFile } = getView();
-    const buf = new FlightBinBuilder().groundedOnly().build();
-    await uploadFile(new File([buf], "ground.bin"));
+    loadFile("ground.bin", new FlightBinBuilder().groundedOnly().build());
+    getView();
 
     expect(await screen.findByText(/не піднявся в повітря/)).toBeInTheDocument();
   });
 
   it("shows an error message for a skylog missing -extended_log", async () => {
-    const { uploadFile } = getView();
-    const buf = new SkylogFileBuilder().addBoard({ board: 1001 }).withoutExtendedLog().build();
-    await uploadFile(new File([buf], "raw.skylog"));
+    loadFile("raw.skylog", new SkylogFileBuilder().addBoard({ board: 1001 }).withoutExtendedLog().build());
+    getView();
 
     expect(await screen.findByText(/Скористайтесь \.bin/)).toBeInTheDocument();
   });
 
-  it("parses a file dropped onto the drop zone", async () => {
-    const { dropFileOnZone } = getView();
-    const buf = new FlightBinBuilder().build();
-    const file = new File([buf], "3570.bin", { type: "application/octet-stream" });
-
-    dropFileOnZone(file);
-
-    expect(await screen.findByText("?")).toBeInTheDocument(); // no board filter typed -> falls back to "?"
-  });
-
   describe("customizable columns", () => {
     it("shows every column by default, with no toggle for the board column", async () => {
-      const { clickSampleBin, getTable, getColumnHeader } = getView();
-      await clickSampleBin();
+      loadFile("sample-flight.bin", sampleBinBuf());
+      const { getTable, getColumnHeader } = getView();
       await getTable();
 
       expect(getColumnHeader("Напруга при взльоті, В")).toBeInTheDocument();
@@ -168,8 +184,8 @@ describe("LogsView", () => {
     });
 
     it("removes a column when its chip is clicked, and re-adds it at the end when clicked again", async () => {
-      const { clickSampleBin, getTable, openColumnsFilter, clickColumnChip } = getView();
-      await clickSampleBin();
+      loadFile("sample-flight.bin", sampleBinBuf());
+      const { getTable, openColumnsFilter, clickColumnChip } = getView();
       await getTable();
       await openColumnsFilter();
 
@@ -182,8 +198,8 @@ describe("LogsView", () => {
     });
 
     it("restores the default columns when Reset is clicked", async () => {
-      const { clickSampleBin, getTable, openColumnsFilter, clickColumnChip, clickReset, getColumnHeader } = getView();
-      await clickSampleBin();
+      loadFile("sample-flight.bin", sampleBinBuf());
+      const { getTable, openColumnsFilter, clickColumnChip, clickReset, getColumnHeader } = getView();
       await getTable();
       await openColumnsFilter();
 
@@ -194,8 +210,8 @@ describe("LogsView", () => {
     });
 
     it("shows the approximate-data note only while an approximate column is selected", async () => {
-      const { clickSampleBin, getTable, openColumnsFilter, clickColumnChip } = getView();
-      await clickSampleBin();
+      loadFile("sample-flight.bin", sampleBinBuf());
+      const { getTable, openColumnsFilter, clickColumnChip } = getView();
       await getTable();
       await openColumnsFilter();
 
@@ -208,8 +224,8 @@ describe("LogsView", () => {
     });
 
     it("offers the suggested metrics as chips but leaves them out of the table by default", async () => {
-      const { clickSampleBin, getTable, openColumnsFilter, getColumnChip, clickColumnChip } = getView();
-      await clickSampleBin();
+      loadFile("sample-flight.bin", sampleBinBuf());
+      const { getTable, openColumnsFilter, getColumnChip, clickColumnChip } = getView();
       await getTable();
       await openColumnsFilter();
 
@@ -228,8 +244,8 @@ describe("LogsView", () => {
     });
 
     it("shows metric column headers in English when the language switches", async () => {
-      const { clickSampleBin, getTable, openColumnsFilter } = getView();
-      await clickSampleBin();
+      loadFile("sample-flight.bin", sampleBinBuf());
+      const { getTable, openColumnsFilter } = getView();
       await getTable();
       await openColumnsFilter();
 
@@ -246,8 +262,8 @@ describe("LogsView", () => {
     });
 
     it("copies every row (tab-separated, no header) and shows a confirmation", async () => {
-      const { clickSampleBin, getTable, user } = getView();
-      await clickSampleBin();
+      loadFile("sample-flight.bin", sampleBinBuf());
+      const { getTable, user } = getView();
       await getTable();
 
       await user.click(screen.getByRole("button", { name: "Копіювати всі рядки" }));
@@ -258,8 +274,8 @@ describe("LogsView", () => {
     });
 
     it("copies a single row via its row button", async () => {
-      const { clickSampleBin, getTable, user } = getView();
-      await clickSampleBin();
+      loadFile("sample-log.skylog", sampleSkylogBuf());
+      const { getTable, user } = getView();
       const table = await getTable();
 
       const row = within(table).getByText("3570").closest("tr")!;

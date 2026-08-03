@@ -1,10 +1,21 @@
-import { ChevronsLeft, ChevronsRight, FileText, GitCompare, LineChart, Map, Settings2, Stethoscope } from "lucide-react";
+import {
+  ChevronsLeft,
+  ChevronsRight,
+  FileText,
+  GitCompare,
+  LineChart,
+  Map,
+  Settings2,
+  Stethoscope,
+  Upload,
+} from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher/LanguageSwitcher";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { useFileStore } from "../../stores/fileStore/fileStore";
 import { VISIBLE_TABS, useUiStore, type Tab } from "../../stores/uiStore/uiStore";
 
 const TAB_ICONS = {
@@ -20,6 +31,7 @@ export function Sidebar() {
   const { t } = useTranslation();
   const activeTab = useUiStore((s) => s.activeTab);
   const setActiveTab = useUiStore((s) => s.setActiveTab);
+  const clearFile = useFileStore((s) => s.clearFile);
   const [collapsed, setCollapsed] = useState(false);
 
   return (
@@ -64,6 +76,16 @@ export function Sidebar() {
           })}
         </TabsList>
       </Tabs>
+      <Button
+        variant="ghost"
+        aria-label={t("sidebar.changeFile")}
+        title={collapsed ? t("sidebar.changeFile") : undefined}
+        className={cn("gap-2", collapsed ? "justify-center px-0" : "justify-start")}
+        onClick={clearFile}
+      >
+        <Upload className="h-4 w-4 shrink-0" />
+        {!collapsed && <span>{t("sidebar.changeFile")}</span>}
+      </Button>
       <LanguageSwitcher compact={collapsed} />
     </aside>
   );

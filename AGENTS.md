@@ -19,13 +19,18 @@ ardulens/
 │   └── src-tauri/       # the Tauri (Rust) desktop wrapper
 └── src/                # all React/TypeScript source
     ├── builders/        # test-data builders (fluent classes for constructing mock complex objects)
-    ├── pages/           # top-level views, one per app tab (Logs, Graphs, Parameters, Advisor, Compare -
-    │                    #   see stores/uiStore's VISIBLE_TABS: a page only shows as a tab once it's real)
+    ├── pages/           # top-level views: HomeView (the landing/upload screen, shown when no
+    │                    #   file is loaded) plus one per app tab (Logs, Graphs, Map, Parameters,
+    │                    #   Advisor, Compare - see stores/uiStore's VISIBLE_TABS: a page only
+    │                    #   shows as a tab once it's real)
     ├── components/       # shared/reusable UI components
     │   └── ui/            # shadcn/ui primitives (Button, Tabs, Card, ...) - see exception below
     ├── lib/              # `utils.ts` re-exporting `cn` - see exception below
     ├── i18n/             # i18next setup + uk/en dictionaries
-    ├── stores/          # Zustand stores (UI state)
+    ├── hooks/           # shared React hooks (e.g. useDerivedFromFile - lazily derive a page's
+    │                    #   view-model from the shared loaded file)
+    ├── stores/          # Zustand stores (fileStore holds the one shared loaded file; uiStore
+    │                    #   holds UI state like the active tab)
     ├── services/         # thin wrappers around browser/worker APIs
     ├── workers/          # Web Worker entry points
     ├── parsers/          # log-file format parsers (.bin / .skylog)
@@ -92,6 +97,18 @@ and UI code resolves the label via `t(\`metrics.${metric.key}\`)` - add the same
 *both* locale files' `"metrics"` block when adding a new metric. `Metric.h` is only a
 Ukrainian fallback for non-UI code (tests, etc.) that doesn't go through i18next.
 
+### Loading a file
+
+A file is loaded exactly once, on `HomeView` (the screen shown when no file is loaded
+yet) - not per-tab. `HomeView` does a quick validating parse, then stores `{name, buf}`
+in the shared `useFileStore` (`src/stores/fileStore/`). `App.tsx` renders `HomeView`
+while that store's `file` is `null`, and the Sidebar + tab views otherwise. Each tab page
+(Logs/Graphs/Map) derives its own, potentially heavier view-model from that same shared
+buffer lazily, the first time it's opened, via `useDerivedFromFile`
+(`src/hooks/useDerivedFromFile/`) - don't add another per-page dropzone/file-input. The
+Sidebar's "Change file" button just calls `useFileStore.getState().clearFile()`, which
+sends the user back to `HomeView`.
+
 ### Testing with log data
 
 Never commit or use a real `.bin`/`.skylog` file in this repo - flight logs can contain
@@ -99,7 +116,7 @@ GPS coordinates and other sensitive data. Use `FlightBinBuilder` and `SkylogFile
 (`src/builders/`) instead: fluent builders that produce synthetic-but-realistic buffers
 (field names/format confirmed against real DataFlash FMT declarations and skylog
 telemetry lines, values entirely made up). They're used both in tests and as the
-in-app "Sample .bin/.skylog" buttons on the Logs page.
+in-app "Sample .bin/.skylog" buttons on the Home page.
 
 Coverage thresholds (`vitest.config.ts`): 80% statements/functions/lines, 70% branches,
 enforced by `npm run test:coverage`.

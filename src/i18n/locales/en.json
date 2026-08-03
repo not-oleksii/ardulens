@@ -14,7 +14,18 @@
   },
   "sidebar": {
     "collapse": "Collapse sidebar",
-    "expand": "Expand sidebar"
+    "expand": "Expand sidebar",
+    "changeFile": "Change file"
+  },
+  "home": {
+    "title": "ArduLens",
+    "description": "Drop a .skylog or .bin file to get a summarized flight table, graphs, automated flight-health advisories, and a 3D flight map - everything runs locally, nothing leaves your computer.",
+    "drop": {
+      "title": "Drop a log: .skylog / .bin",
+      "subtitle": "or click to choose a file",
+      "reading": "Reading file...",
+      "parsing": "Parsing file..."
+    }
   },
   "logs": {
     "heading": "Log Data",
