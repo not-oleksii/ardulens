@@ -26,13 +26,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { isFlightMapData, isFlightMapError, isFlightMapInfo, type FlightMapResult } from "../../analysis/flight-map/types";
 import type { TrackPoint } from "../../analysis/flight-map/types";
-import { FlightBinBuilder } from "../../builders/FlightBinBuilder/FlightBinBuilder";
-import { FileDropzone } from "../../components/FileDropzone/FileDropzone";
-import { useFileLoader } from "../../hooks/useFileLoader/useFileLoader";
+import { useDerivedFromFile } from "../../hooks/useDerivedFromFile/useDerivedFromFile";
 import { getCoreWorker } from "../../services/coreWorkerClient/coreWorkerClient";
+import { useFileStore } from "../../stores/fileStore/fileStore";
 
 const TOKEN_STORAGE_KEY = "ardulens.cesiumIonToken";
-const TARGET_PLAYBACK_SECONDS = 20; // aim for the whole flight to animate in about this long
 
 // Colors distinguishing the fused/GCS, raw GPS, and cleaned tracks - matching the legend
 // swatches and the GPS-loss marker color below.
@@ -139,8 +137,7 @@ function computeHeadings(track: TrackPoint[]): Array<{ tMs: number; heading: num
   return headings;
 }
 
-interface LoadedResult {
-  name: string;
+interface Derived {
   result: FlightMapResult;
 }
 
@@ -167,22 +164,22 @@ const EMPTY_LAYERS: MapLayers = { gcsTrack: null, gpsTrack: null, cleanedTrack: 
  */
 export function CesiumMapView() {
   const { t } = useTranslation();
+  const file = useFileStore((s) => s.file);
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_STORAGE_KEY) ?? "");
   const [tokenInput, setTokenInput] = useState("");
-  const [loaded, setLoaded] = useState<LoadedResult | null>(null);
   const [showGcsTrack, setShowGcsTrack] = useState(true);
   const [showGpsTrack, setShowGpsTrack] = useState(true);
   const [showCleanedTrack, setShowCleanedTrack] = useState(true);
   const [showCurrentPosition, setShowCurrentPosition] = useState(true);
   const [showGpsLoss, setShowGpsLoss] = useState(true);
 
-  const { isParsing, stage, load, loadBuffer } = useFileLoader<LoadedResult>(async (name, buf) => {
+  // Only start deriving once a token exists too - the map can't render without one anyway.
+  const { data, isLoading } = useDerivedFromFile<Derived>(token ? file : null, async (name, buf) => {
     try {
       const result = await getCoreWorker().buildFlightMapDataFromBin(name, buf);
-      return { name, result };
+      return { result };
     } catch (err) {
       return {
-        name,
         result: { error: t("logs.messages.parseError", { message: err instanceof Error ? err.message : String(err) }) },
       };
     }
@@ -214,21 +211,6 @@ export function CesiumMapView() {
     setTokenInput("");
   }
 
-  function handleFile(file: File) {
-    void load(file).then(setLoaded);
-  }
-
-  function loadSample() {
-    // Yosemite Valley - real relief (cliffs around a flat valley floor). A short spoofing
-    // window (a clear minority of the flight) demonstrates the GPS-loss markers too.
-    const buf = new FlightBinBuilder()
-      .withDurationSeconds(300)
-      .withBase(37.745, -119.593)
-      .withGpsSpoofing(120, 150)
-      .build();
-    void loadBuffer("sample-flight.bin", buf).then(setLoaded);
-  }
-
   // Create the viewer once a token is available.
   useEffect(() => {
     if (!token || !containerRef.current) return;
@@ -250,7 +232,7 @@ export function CesiumMapView() {
   // extent is actually loaded.
   useEffect(() => {
     const viewer = viewerRef.current;
-    const mapData = loaded && isFlightMapData(loaded.result) ? loaded.result : null;
+    const mapData = data && isFlightMapData(data.result) ? data.result : null;
     if (!viewer || !mapData) return;
     const framingTrack = mapData.gcsTrack.length
       ? mapData.gcsTrack
@@ -260,13 +242,13 @@ export function CesiumMapView() {
     const rectangle = computeFramingRectangle(framingTrack);
     if (!rectangle) return;
     viewer.camera.flyTo({ destination: rectangle });
-  }, [loaded]);
+  }, [data]);
 
   // Rebuild every track layer + the animated "current position" marker whenever the
   // loaded data changes.
   useEffect(() => {
     const viewer = viewerRef.current;
-    const mapData = loaded && isFlightMapData(loaded.result) ? loaded.result : null;
+    const mapData = data && isFlightMapData(data.result) ? data.result : null;
     if (!viewer || !mapData || !mapData.gcsTrack.length) return;
 
     let cancelled = false;
@@ -384,7 +366,7 @@ export function CesiumMapView() {
       viewer.clock.stopTime = stopTime.clone();
       viewer.clock.currentTime = startTime.clone();
       viewer.clock.clockRange = ClockRange.LOOP_STOP;
-      viewer.clock.multiplier = Math.max(1, Math.round(durationSec / TARGET_PLAYBACK_SECONDS));
+      viewer.clock.multiplier = 1;
       viewer.clock.shouldAnimate = true;
       viewer.timeline?.zoomTo(startTime, stopTime);
 
@@ -427,7 +409,7 @@ export function CesiumMapView() {
     return () => {
       cancelled = true;
     };
-  }, [loaded, t]);
+  }, [data, t]);
 
   function toggleGcsTrackVisible() {
     setShowGcsTrack((v) => {
@@ -503,7 +485,7 @@ export function CesiumMapView() {
     );
   }
 
-  const hasNoMapData = Boolean(loaded && loaded.result === null);
+  const hasNoMapData = Boolean(data && data.result === null);
 
   return (
     <Card>
@@ -512,35 +494,22 @@ export function CesiumMapView() {
         <CardDescription>{t("map.description")}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <FileDropzone
-          testId="cesium"
-          accept=".bin,.BIN"
-          isParsing={isParsing}
-          stage={stage}
-          onFile={handleFile}
-          title={t("map.drop.title")}
-          subtitle={t("map.drop.subtitle")}
-          readingText={t("map.drop.reading")}
-          parsingText={t("map.drop.parsing")}
-        />
-
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" onClick={loadSample} disabled={isParsing}>
-            {t("logs.sample.bin")}
-          </Button>
           <Button variant="ghost" size="sm" onClick={clearToken}>
             {t("map.token.clear")}
           </Button>
         </div>
 
-        {loaded && isFlightMapError(loaded.result) && (
+        {isLoading && <p className="text-sm text-muted-foreground">{t("map.drop.parsing")}</p>}
+
+        {data && isFlightMapError(data.result) && (
           <Alert variant="destructive">
-            <AlertDescription>{loaded.result.error}</AlertDescription>
+            <AlertDescription>{data.result.error}</AlertDescription>
           </Alert>
         )}
-        {loaded && isFlightMapInfo(loaded.result) && (
+        {data && isFlightMapInfo(data.result) && (
           <Alert variant="info">
-            <AlertDescription>{loaded.result.info}</AlertDescription>
+            <AlertDescription>{data.result.info}</AlertDescription>
           </Alert>
         )}
         {hasNoMapData && (

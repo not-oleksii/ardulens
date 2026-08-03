@@ -12,18 +12,15 @@ import type { Finding } from "../../analysis/advisors/types";
 import { getParamDoc } from "../../analysis/param-docs/param-docs";
 import { isRawLog, isRawLogError, isRawLogInfo, type RawLogResult } from "../../analysis/raw-log/raw-log";
 import { PRESETS, resolvePreset } from "../../analysis/raw-log/presets";
-import { FlightBinBuilder } from "../../builders/FlightBinBuilder/FlightBinBuilder";
-import { SkylogFileBuilder } from "../../builders/SkylogFileBuilder/SkylogFileBuilder";
-import { FileDropzone } from "../../components/FileDropzone/FileDropzone";
 import { FindingsBadge } from "../../components/FindingsBadge/FindingsBadge";
 import { TimelineChart } from "../../components/TimelineChart/TimelineChart";
 import type { TimelineSeriesInput } from "../../components/TimelineChart/types";
-import { useFileLoader } from "../../hooks/useFileLoader/useFileLoader";
+import { useDerivedFromFile } from "../../hooks/useDerivedFromFile/useDerivedFromFile";
 import { getCoreWorker } from "../../services/coreWorkerClient/coreWorkerClient";
+import { useFileStore } from "../../stores/fileStore/fileStore";
 import { isParsedFlights } from "../../types";
 
-interface LoadedResult {
-  name: string;
+interface Derived {
   result: RawLogResult;
   findings: Finding[];
 }
@@ -32,12 +29,12 @@ const SERIES_COLORS = ["#3b82f6", "#f97316", "#22c55e", "#ef4444", "#a855f7", "#
 
 export function GraphsView() {
   const { t } = useTranslation();
-  const [loaded, setLoaded] = useState<LoadedResult | null>(null);
+  const file = useFileStore((s) => s.file);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [paramFilter, setParamFilter] = useState("");
   const [openCategories, setOpenCategories] = useState<Set<string>>(new Set());
 
-  const { isParsing, stage, load, loadBuffer } = useFileLoader<LoadedResult>(async (name, buf) => {
+  const { data: loaded, isLoading } = useDerivedFromFile<Derived>(file, async (name, buf) => {
     const worker = getCoreWorker();
     try {
       // Two independent parses of the same buffer: buildRawLog() for the chart/param
@@ -46,35 +43,23 @@ export function GraphsView() {
       // same simple Flight model the Logs page uses instead of a second detection path.
       const [result, parseResult] = await Promise.all([worker.buildRawLog(name, buf), worker.parseFile(name, buf)]);
       const findings = isParsedFlights(parseResult) ? parseResult.flights.flatMap((f) => runAdvisors(f)) : [];
-      return { name, result, findings };
+      return { result, findings };
     } catch (err) {
       return {
-        name,
         result: { error: t("logs.messages.parseError", { message: err instanceof Error ? err.message : String(err) }) },
         findings: [],
       };
     }
   });
 
-  function applyLoaded(result: LoadedResult) {
-    setLoaded(result);
+  // Reset the per-file UI selections whenever a different file is loaded, using the
+  // "adjust state during render" pattern (see React docs) instead of an effect.
+  const [resetKeyFile, setResetKeyFile] = useState(file);
+  if (file !== resetKeyFile) {
+    setResetKeyFile(file);
     setSelectedKeys([]);
     setParamFilter("");
     setOpenCategories(new Set());
-  }
-
-  function handleFile(file: File) {
-    void load(file).then(applyLoaded);
-  }
-
-  function loadSampleBin() {
-    const buf = new FlightBinBuilder().withVoltageCurve(25.2, 22.4, 23.0).build();
-    void loadBuffer("sample-flight.bin", buf).then(applyLoaded);
-  }
-
-  function loadSampleSkylog() {
-    const buf = new SkylogFileBuilder().addBoard({ board: 3570 }).build();
-    void loadBuffer("sample-log.skylog", buf).then(applyLoaded);
   }
 
   function toggleParam(key: string) {
@@ -143,26 +128,7 @@ export function GraphsView() {
         <CardDescription>{t("graphs.description")}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <FileDropzone
-          testId="graphs"
-          accept=".skylog,.log,.txt,.bin,.BIN"
-          isParsing={isParsing}
-          stage={stage}
-          onFile={handleFile}
-          title={t("graphs.drop.title")}
-          subtitle={t("graphs.drop.subtitle")}
-          readingText={t("graphs.drop.reading")}
-          parsingText={t("graphs.drop.parsing")}
-        />
-
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={loadSampleBin} disabled={isParsing}>
-            {t("logs.sample.bin")}
-          </Button>
-          <Button variant="outline" size="sm" onClick={loadSampleSkylog} disabled={isParsing}>
-            {t("logs.sample.skylog")}
-          </Button>
-        </div>
+        {isLoading && <p className="text-sm text-muted-foreground">{t("graphs.drop.parsing")}</p>}
 
         {loaded && isRawLogError(loaded.result) && (
           <Alert variant="destructive">
