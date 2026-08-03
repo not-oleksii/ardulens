@@ -5,7 +5,16 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["**/dist/**", "coverage/**", "app/src-tauri/target/**", "legacy/**", "app/public/maplibre/**"] },
+  {
+    ignores: [
+      "**/dist/**",
+      "coverage/**",
+      "app/src-tauri/target/**",
+      "legacy/**",
+      "app/public/maplibre/**",
+      "app/public/cesium/**",
+    ],
+  },
   js.configs.recommended,
   {
     files: ["src/**/*.{ts,tsx}"],

@@ -1,4 +1,4 @@
-import { ChevronsLeft, ChevronsRight, FileText, GitCompare, LineChart, Map, Settings2, Stethoscope } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, FileText, GitCompare, Globe, LineChart, Map, Settings2, Stethoscope } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher/LanguageSwitcher";
@@ -11,6 +11,7 @@ const TAB_ICONS = {
   logs: FileText,
   graphs: LineChart,
   map: Map,
+  cesium3d: Globe,
   parameters: Settings2,
   advisor: Stethoscope,
   compare: GitCompare,
