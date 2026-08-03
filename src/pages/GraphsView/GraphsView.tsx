@@ -1,5 +1,5 @@
-import { ChevronDown, Loader2, RotateCcw, Trash2 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { ChevronDown, RotateCcw, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -7,7 +7,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
 import { runAdvisors } from "../../analysis/advisors/registry/registry";
 import type { Finding } from "../../analysis/advisors/types";
 import { getParamDoc } from "../../analysis/param-docs/param-docs";
@@ -15,9 +14,11 @@ import { isRawLog, isRawLogError, isRawLogInfo, type RawLogResult } from "../../
 import { PRESETS, resolvePreset } from "../../analysis/raw-log/presets";
 import { FlightBinBuilder } from "../../builders/FlightBinBuilder/FlightBinBuilder";
 import { SkylogFileBuilder } from "../../builders/SkylogFileBuilder/SkylogFileBuilder";
+import { FileDropzone } from "../../components/FileDropzone/FileDropzone";
 import { FindingsBadge } from "../../components/FindingsBadge/FindingsBadge";
 import { TimelineChart } from "../../components/TimelineChart/TimelineChart";
 import type { TimelineSeriesInput } from "../../components/TimelineChart/types";
+import { useFileLoader } from "../../hooks/useFileLoader/useFileLoader";
 import { getCoreWorker } from "../../services/coreWorkerClient/coreWorkerClient";
 import { isParsedFlights } from "../../types";
 
@@ -32,44 +33,48 @@ const SERIES_COLORS = ["#3b82f6", "#f97316", "#22c55e", "#ef4444", "#a855f7", "#
 export function GraphsView() {
   const { t } = useTranslation();
   const [loaded, setLoaded] = useState<LoadedResult | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [isParsing, setIsParsing] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [paramFilter, setParamFilter] = useState("");
   const [openCategories, setOpenCategories] = useState<Set<string>>(new Set());
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  async function loadBuffer(name: string, buf: ArrayBuffer) {
-    setIsParsing(true);
+  const { isParsing, stage, load, loadBuffer } = useFileLoader<LoadedResult>(async (name, buf) => {
+    const worker = getCoreWorker();
     try {
-      const worker = getCoreWorker();
       // Two independent parses of the same buffer: buildRawLog() for the chart/param
       // tree, parseFile() for the per-flight Sample model the advisors already know how
       // to check. A bit of duplicated work for .bin files, but keeps the advisors on the
       // same simple Flight model the Logs page uses instead of a second detection path.
       const [result, parseResult] = await Promise.all([worker.buildRawLog(name, buf), worker.parseFile(name, buf)]);
       const findings = isParsedFlights(parseResult) ? parseResult.flights.flatMap((f) => runAdvisors(f)) : [];
-      setLoaded({ name, result, findings });
-      setSelectedKeys([]);
-      setParamFilter("");
-      setOpenCategories(new Set());
-    } finally {
-      setIsParsing(false);
+      return { name, result, findings };
+    } catch (err) {
+      return {
+        name,
+        result: { error: t("logs.messages.parseError", { message: err instanceof Error ? err.message : String(err) }) },
+        findings: [],
+      };
     }
+  });
+
+  function applyLoaded(result: LoadedResult) {
+    setLoaded(result);
+    setSelectedKeys([]);
+    setParamFilter("");
+    setOpenCategories(new Set());
   }
 
-  async function handleFile(file: File) {
-    await loadBuffer(file.name, await file.arrayBuffer());
+  function handleFile(file: File) {
+    void load(file).then(applyLoaded);
   }
 
   function loadSampleBin() {
     const buf = new FlightBinBuilder().withVoltageCurve(25.2, 22.4, 23.0).build();
-    void loadBuffer("sample-flight.bin", buf);
+    void loadBuffer("sample-flight.bin", buf).then(applyLoaded);
   }
 
   function loadSampleSkylog() {
     const buf = new SkylogFileBuilder().addBoard({ board: 3570 }).build();
-    void loadBuffer("sample-log.skylog", buf);
+    void loadBuffer("sample-log.skylog", buf).then(applyLoaded);
   }
 
   function toggleParam(key: string) {
@@ -138,63 +143,16 @@ export function GraphsView() {
         <CardDescription>{t("graphs.description")}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <div
-          role="button"
-          aria-disabled={isParsing}
-          tabIndex={isParsing ? -1 : 0}
-          data-testid="graphs-dropzone"
-          onClick={() => fileInputRef.current?.click()}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              fileInputRef.current?.click();
-            }
-          }}
-          onDragEnter={(e) => {
-            e.preventDefault();
-            setIsDragging(true);
-          }}
-          onDragOver={(e) => e.preventDefault()}
-          onDragLeave={(e) => {
-            e.preventDefault();
-            setIsDragging(false);
-          }}
-          onDrop={(e) => {
-            e.preventDefault();
-            setIsDragging(false);
-            const file = e.dataTransfer.files[0];
-            if (file) void handleFile(file);
-          }}
-          className={cn(
-            "flex cursor-pointer flex-col items-center gap-1 rounded-lg border-2 border-dashed px-6 py-9 text-center transition-colors",
-            isParsing && "pointer-events-none opacity-60",
-            isDragging ? "border-primary bg-accent" : "border-border bg-card hover:border-primary hover:bg-accent",
-          )}
-        >
-          {isParsing ? (
-            <>
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden />
-              <span className="font-semibold">{t("graphs.drop.parsing")}</span>
-            </>
-          ) : (
-            <>
-              <span className="font-semibold">{t("graphs.drop.title")}</span>
-              <span className="text-sm text-muted-foreground">{t("graphs.drop.subtitle")}</span>
-            </>
-          )}
-        </div>
-        <input
-          ref={fileInputRef}
-          type="file"
+        <FileDropzone
+          testId="graphs"
           accept=".skylog,.log,.txt,.bin,.BIN"
-          className="sr-only"
-          data-testid="graphs-file-input"
-          disabled={isParsing}
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) void handleFile(file);
-            e.target.value = "";
-          }}
+          isParsing={isParsing}
+          stage={stage}
+          onFile={handleFile}
+          title={t("graphs.drop.title")}
+          subtitle={t("graphs.drop.subtitle")}
+          readingText={t("graphs.drop.reading")}
+          parsingText={t("graphs.drop.parsing")}
         />
 
         <div className="flex flex-wrap gap-2">

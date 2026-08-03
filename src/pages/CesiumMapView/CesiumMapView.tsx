@@ -23,11 +23,12 @@ import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { isFlightMapData, isFlightMapError, isFlightMapInfo, type FlightMapResult } from "../../analysis/flight-map/types";
 import type { TrackPoint } from "../../analysis/flight-map/types";
 import { FlightBinBuilder } from "../../builders/FlightBinBuilder/FlightBinBuilder";
+import { FileDropzone } from "../../components/FileDropzone/FileDropzone";
+import { useFileLoader } from "../../hooks/useFileLoader/useFileLoader";
 import { getCoreWorker } from "../../services/coreWorkerClient/coreWorkerClient";
 
 const TOKEN_STORAGE_KEY = "ardulens.cesiumIonToken";
@@ -169,15 +170,24 @@ export function CesiumMapView() {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_STORAGE_KEY) ?? "");
   const [tokenInput, setTokenInput] = useState("");
   const [loaded, setLoaded] = useState<LoadedResult | null>(null);
-  const [isParsing, setIsParsing] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
   const [showGcsTrack, setShowGcsTrack] = useState(true);
   const [showGpsTrack, setShowGpsTrack] = useState(true);
   const [showCleanedTrack, setShowCleanedTrack] = useState(true);
   const [showCurrentPosition, setShowCurrentPosition] = useState(true);
   const [showGpsLoss, setShowGpsLoss] = useState(true);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { isParsing, stage, load, loadBuffer } = useFileLoader<LoadedResult>(async (name, buf) => {
+    try {
+      const result = await getCoreWorker().buildFlightMapDataFromBin(name, buf);
+      return { name, result };
+    } catch (err) {
+      return {
+        name,
+        result: { error: t("logs.messages.parseError", { message: err instanceof Error ? err.message : String(err) }) },
+      };
+    }
+  });
+
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
   const showGcsTrackRef = useRef(true);
@@ -204,19 +214,8 @@ export function CesiumMapView() {
     setTokenInput("");
   }
 
-  async function loadBuffer(name: string, buf: ArrayBuffer) {
-    setIsParsing(true);
-    try {
-      const worker = getCoreWorker();
-      const result = await worker.buildFlightMapDataFromBin(name, buf);
-      setLoaded({ name, result });
-    } finally {
-      setIsParsing(false);
-    }
-  }
-
-  async function handleFile(file: File) {
-    await loadBuffer(file.name, await file.arrayBuffer());
+  function handleFile(file: File) {
+    void load(file).then(setLoaded);
   }
 
   function loadSample() {
@@ -227,7 +226,7 @@ export function CesiumMapView() {
       .withBase(37.745, -119.593)
       .withGpsSpoofing(120, 150)
       .build();
-    void loadBuffer("sample-flight.bin", buf);
+    void loadBuffer("sample-flight.bin", buf).then(setLoaded);
   }
 
   // Create the viewer once a token is available.
@@ -513,60 +512,16 @@ export function CesiumMapView() {
         <CardDescription>{t("map.description")}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <div
-          role="button"
-          aria-disabled={isParsing}
-          tabIndex={isParsing ? -1 : 0}
-          data-testid="cesium-dropzone"
-          onClick={() => fileInputRef.current?.click()}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              fileInputRef.current?.click();
-            }
-          }}
-          onDragEnter={(e) => {
-            e.preventDefault();
-            setIsDragging(true);
-          }}
-          onDragOver={(e) => e.preventDefault()}
-          onDragLeave={(e) => {
-            e.preventDefault();
-            setIsDragging(false);
-          }}
-          onDrop={(e) => {
-            e.preventDefault();
-            setIsDragging(false);
-            const file = e.dataTransfer.files[0];
-            if (file) void handleFile(file);
-          }}
-          className={cn(
-            "flex cursor-pointer flex-col items-center gap-1 rounded-lg border-2 border-dashed px-6 py-9 text-center transition-colors",
-            isParsing && "pointer-events-none opacity-60",
-            isDragging ? "border-primary bg-accent" : "border-border bg-card hover:border-primary hover:bg-accent",
-          )}
-        >
-          {isParsing ? (
-            <span className="font-semibold">{t("map.drop.parsing")}</span>
-          ) : (
-            <>
-              <span className="font-semibold">{t("map.drop.title")}</span>
-              <span className="text-sm text-muted-foreground">{t("map.drop.subtitle")}</span>
-            </>
-          )}
-        </div>
-        <input
-          ref={fileInputRef}
-          type="file"
+        <FileDropzone
+          testId="cesium"
           accept=".bin,.BIN"
-          className="sr-only"
-          data-testid="cesium-file-input"
-          disabled={isParsing}
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) void handleFile(file);
-            e.target.value = "";
-          }}
+          isParsing={isParsing}
+          stage={stage}
+          onFile={handleFile}
+          title={t("map.drop.title")}
+          subtitle={t("map.drop.subtitle")}
+          readingText={t("map.drop.reading")}
+          parsingText={t("map.drop.parsing")}
         />
 
         <div className="flex flex-wrap items-center gap-2">
