@@ -8,6 +8,7 @@
     "logs": "Logs",
     "graphs": "Graphs",
     "map": "Map",
+    "cesium3d": "3D (experimental)",
     "parameters": "Parameters",
     "advisor": "Advisor",
     "compare": "Compare"

@@ -17,7 +17,7 @@ describe("uiStore", () => {
   });
 
   it("only exposes tabs with real functionality as visible", () => {
-    expect(VISIBLE_TABS).toEqual(["logs", "graphs", "map"]);
+    expect(VISIBLE_TABS).toEqual(["logs", "graphs", "map", "cesium3d"]);
     for (const tab of VISIBLE_TABS) expect(TABS).toContain(tab);
   });
 });

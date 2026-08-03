@@ -1,5 +1,6 @@
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { AdvisorView } from "./pages/AdvisorView/AdvisorView";
+import { CesiumMapView } from "./pages/CesiumMapView/CesiumMapView";
 import { CompareView } from "./pages/CompareView/CompareView";
 import { GraphsView } from "./pages/GraphsView/GraphsView";
 import { LogsView } from "./pages/LogsView/LogsView";
@@ -11,6 +12,7 @@ const VIEWS = {
   logs: LogsView,
   graphs: GraphsView,
   map: MapView,
+  cesium3d: CesiumMapView,
   parameters: ParametersView,
   advisor: AdvisorView,
   compare: CompareView,

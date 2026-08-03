@@ -6,9 +6,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { buildFlightMapData } from "../../analysis/flight-map/flight-map";
-import type { FlightMapData } from "../../analysis/flight-map/types";
-import { isRawLog, isRawLogError, isRawLogInfo, type RawLogResult } from "../../analysis/raw-log/raw-log";
+import { isFlightMapData, isFlightMapError, isFlightMapInfo, type FlightMapResult } from "../../analysis/flight-map/types";
 import { FlightBinBuilder } from "../../builders/FlightBinBuilder/FlightBinBuilder";
 import { getCoreWorker } from "../../services/coreWorkerClient/coreWorkerClient";
 import { computeBounds, ensureFlightMapLayers, TRACK_KEYS, updateFlightMapData, updateFlightMapVisibility } from "./mapLayers";
@@ -34,8 +32,7 @@ const BLANK_STYLE = {
 
 interface LoadedResult {
   name: string;
-  result: RawLogResult;
-  mapData: FlightMapData | null;
+  result: FlightMapResult;
 }
 
 export function MapView() {
@@ -58,9 +55,8 @@ export function MapView() {
     setIsParsing(true);
     try {
       const worker = getCoreWorker();
-      const result = await worker.buildRawLog(name, buf);
-      const mapData = isRawLog(result) ? buildFlightMapData(result.series) : null;
-      setLoaded({ name, result, mapData });
+      const result = await worker.buildFlightMapDataFromBin(name, buf);
+      setLoaded({ name, result });
     } finally {
       setIsParsing(false);
     }
@@ -92,11 +88,12 @@ export function MapView() {
       const map = mapRef.current;
       if (!map || !layersReadyRef.current) return;
 
-      updateFlightMapData(map, loaded?.mapData ?? null);
+      const mapData = loaded && isFlightMapData(loaded.result) ? loaded.result : null;
+      updateFlightMapData(map, mapData);
       updateFlightMapVisibility(map, visibleTracks, showLoss);
 
-      if (loaded?.mapData) {
-        const bounds = computeBounds(loaded.mapData);
+      if (mapData) {
+        const bounds = computeBounds(mapData);
         if (bounds) map.fitBounds(bounds, { padding: 48, maxZoom: 17, duration: 0 });
       }
     };
@@ -145,8 +142,7 @@ export function MapView() {
   }, []);
 
 
-  const rawLog = loaded && isRawLog(loaded.result) ? loaded.result : null;
-  const hasNoMapData = Boolean(rawLog && !loaded?.mapData);
+  const hasNoMapData = Boolean(loaded && loaded.result === null);
 
   return (
     <Card>
@@ -217,12 +213,12 @@ export function MapView() {
           </Button>
         </div>
 
-        {loaded && isRawLogError(loaded.result) && (
+        {loaded && isFlightMapError(loaded.result) && (
           <Alert variant="destructive">
             <AlertDescription>{loaded.result.error}</AlertDescription>
           </Alert>
         )}
-        {loaded && isRawLogInfo(loaded.result) && (
+        {loaded && isFlightMapInfo(loaded.result) && (
           <Alert variant="info">
             <AlertDescription>{loaded.result.info}</AlertDescription>
           </Alert>

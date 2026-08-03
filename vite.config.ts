@@ -5,6 +5,11 @@ import tailwindcss from '@tailwindcss/vite'
 
 // https://vite.dev/config/
 export default defineConfig({
+  // CesiumJS locates its static assets (copied into public/cesium/ by
+  // scripts/copy-cesium-assets.mjs) via this global - see Cesium's own Vite guide.
+  define: {
+    CESIUM_BASE_URL: JSON.stringify('/cesium'),
+  },
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
