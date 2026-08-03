@@ -4,15 +4,13 @@ import { CesiumMapView } from "./pages/CesiumMapView/CesiumMapView";
 import { CompareView } from "./pages/CompareView/CompareView";
 import { GraphsView } from "./pages/GraphsView/GraphsView";
 import { LogsView } from "./pages/LogsView/LogsView";
-import { MapView } from "./pages/MapView/MapView";
 import { ParametersView } from "./pages/ParametersView/ParametersView";
 import { useUiStore } from "./stores/uiStore/uiStore";
 
 const VIEWS = {
   logs: LogsView,
   graphs: GraphsView,
-  map: MapView,
-  cesium3d: CesiumMapView,
+  map: CesiumMapView,
   parameters: ParametersView,
   advisor: AdvisorView,
   compare: CompareView,

@@ -11,6 +11,7 @@ import {
   PolylineColorAppearance,
   PolylineGeometry,
   Primitive,
+  Rectangle,
   SampledPositionProperty,
   Terrain,
   Viewer,
@@ -18,6 +19,7 @@ import {
 } from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,12 +33,17 @@ import { getCoreWorker } from "../../services/coreWorkerClient/coreWorkerClient"
 const TOKEN_STORAGE_KEY = "ardulens.cesiumIonToken";
 const TARGET_PLAYBACK_SECONDS = 20; // aim for the whole flight to animate in about this long
 
-// Same colors as the MapLibre "Map" tab (mapLayers.ts's TRACK_COLORS), for consistency.
+// Colors distinguishing the fused/GCS, raw GPS, and cleaned tracks - matching the legend
+// swatches and the GPS-loss marker color below.
 const TRACK_COLORS = {
   gcsTrack: Color.fromCssColorString("#3b82f6"), // blue - fused/GCS position
   gpsTrack: Color.fromCssColorString("#ef4444"), // red - raw GPS, includes spoofed excursions
   cleanedTrack: Color.fromCssColorString("#22c55e"), // green - raw GPS after teleport rejection
 };
+const GPS_LOSS_COLOR = Color.fromCssColorString("#f97316"); // orange - GPS lost
+const GPS_LOSS_OUTLINE_COLOR = Color.fromCssColorString("#7c2d12");
+const GPS_FOUND_COLOR = Color.fromCssColorString("#22c55e"); // green - GPS reacquired
+const GPS_FOUND_OUTLINE_COLOR = Color.fromCssColorString("#14532d");
 
 // A compass-needle-style arrow, drawn pointing "up" - paired with alignedAxis: UNIT_Z on
 // the billboard below, so rotation=0 points north and the rotation angle rotates it to
@@ -93,6 +100,33 @@ function bearingRadians(lat1: number, lon1: number, lat2: number, lon2: number):
   return Math.atan2(y, x);
 }
 
+/**
+ * A rectangle around a track's extent, padded and clamped to a minimum size so a flyTo
+ * gives a sensible view whether the flight is a tiny loop or spans many kilometers -
+ * a fixed camera height/distance can't serve both.
+ */
+function computeFramingRectangle(track: TrackPoint[]): Rectangle | null {
+  if (!track.length) return null;
+  let west = Infinity;
+  let south = Infinity;
+  let east = -Infinity;
+  let north = -Infinity;
+  for (const p of track) {
+    if (p.lon < west) west = p.lon;
+    if (p.lon > east) east = p.lon;
+    if (p.lat < south) south = p.lat;
+    if (p.lat > north) north = p.lat;
+  }
+  const MIN_SPAN_DEG = 0.01; // ~1km at typical latitudes - keeps small loops from over-zooming
+  const lonSpan = Math.max(east - west, MIN_SPAN_DEG);
+  const latSpan = Math.max(north - south, MIN_SPAN_DEG);
+  const centerLon = (west + east) / 2;
+  const centerLat = (south + north) / 2;
+  const lonHalf = (lonSpan / 2) * 1.3; // 30% padding so the track isn't flush against the edges
+  const latHalf = (latSpan / 2) * 1.3;
+  return Rectangle.fromDegrees(centerLon - lonHalf, centerLat - latHalf, centerLon + lonHalf, centerLat + latHalf);
+}
+
 /** Per-track-point heading (radians) toward the next point, for orienting the arrow marker. */
 function computeHeadings(track: TrackPoint[]): Array<{ tMs: number; heading: number }> {
   const headings: Array<{ tMs: number; heading: number }> = [];
@@ -109,24 +143,29 @@ interface LoadedResult {
   result: FlightMapResult;
 }
 
-interface TrackLayers {
+interface MapLayers {
   gcsTrack: Primitive | null;
   gpsTrack: Primitive | null;
   cleanedTrack: Primitive | null;
   aircraft: Entity | null;
+  gpsLossMarkers: Entity[];
 }
 
-const EMPTY_ENTITIES: TrackLayers = { gcsTrack: null, gpsTrack: null, cleanedTrack: null, aircraft: null };
+const EMPTY_LAYERS: MapLayers = { gcsTrack: null, gpsTrack: null, cleanedTrack: null, aircraft: null, gpsLossMarkers: [] };
 
 /**
- * EXPERIMENTAL prototype page evaluating whether CesiumJS's 3D terrain is worth adopting.
- * The antenna/line-of-sight feature that used to live here was removed: Cesium's default
- * World Terrain is bare-earth only (no trees, no buildings), so an LOS check against it
- * would report "clear" in places that are actually obstructed - misleading for real
- * antenna/obstruction planning. Revisit if/when a surface model with buildings/canopy is
- * wired in. Deliberately unpolished otherwise (no i18n, minimal tests).
+ * The 3D flight-map view, built on CesiumJS terrain/imagery. Replaced the earlier 2D
+ * MapLibre map outright - Cesium's 3D terrain plus the animated, timeline-synced marker
+ * give a clearer picture of a flight than a flat overlay does.
+ *
+ * The antenna/line-of-sight feature that was prototyped early on was removed and never
+ * reinstated: Cesium's default World Terrain is bare-earth only (no trees, no buildings),
+ * so an LOS check against it would report "clear" in places that are actually obstructed -
+ * misleading for real antenna/obstruction planning. Revisit if/when a surface model with
+ * buildings/canopy is wired in.
  */
 export function CesiumMapView() {
+  const { t } = useTranslation();
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_STORAGE_KEY) ?? "");
   const [tokenInput, setTokenInput] = useState("");
   const [loaded, setLoaded] = useState<LoadedResult | null>(null);
@@ -136,6 +175,7 @@ export function CesiumMapView() {
   const [showGpsTrack, setShowGpsTrack] = useState(true);
   const [showCleanedTrack, setShowCleanedTrack] = useState(true);
   const [showCurrentPosition, setShowCurrentPosition] = useState(true);
+  const [showGpsLoss, setShowGpsLoss] = useState(true);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -144,7 +184,8 @@ export function CesiumMapView() {
   const showGpsTrackRef = useRef(true);
   const showCleanedTrackRef = useRef(true);
   const showCurrentPositionRef = useRef(true);
-  const entitiesRef = useRef<TrackLayers>(EMPTY_ENTITIES);
+  const showGpsLossRef = useRef(true);
+  const layersRef = useRef<MapLayers>(EMPTY_LAYERS);
 
   useEffect(() => {
     if (token) Ion.defaultAccessToken = token;
@@ -179,8 +220,13 @@ export function CesiumMapView() {
   }
 
   function loadSample() {
-    // Yosemite Valley - real relief (cliffs around a flat valley floor).
-    const buf = new FlightBinBuilder().withDurationSeconds(300).withBase(37.745, -119.593).build();
+    // Yosemite Valley - real relief (cliffs around a flat valley floor). A short spoofing
+    // window (a clear minority of the flight) demonstrates the GPS-loss markers too.
+    const buf = new FlightBinBuilder()
+      .withDurationSeconds(300)
+      .withBase(37.745, -119.593)
+      .withGpsSpoofing(120, 150)
+      .build();
     void loadBuffer("sample-flight.bin", buf);
   }
 
@@ -192,18 +238,29 @@ export function CesiumMapView() {
     return () => {
       viewer.destroy();
       viewerRef.current = null;
-      entitiesRef.current = EMPTY_ENTITIES;
+      layersRef.current = EMPTY_LAYERS;
     };
   }, [token]);
 
-  // Fly the camera to the flight on load - zoomed in, since a typical flight loop is only
-  // ~1km across and a normal "overview" height made it hard to see against the terrain.
+  // Fly the camera to fit the flight's actual extent on load. Framed on the trusted
+  // GCS/cleaned track rather than the raw GPS track - the raw track can include a wild
+  // spoofed excursion far from the real flight, and including it here would force the
+  // camera to zoom out so far the actual flight shrinks to an invisible speck (mirrors
+  // computeBounds() in the old 2D MapLibre map). A fixed camera height didn't work for
+  // both a small ~1km test loop and a real multi-kilometer flight, so this fits whatever
+  // extent is actually loaded.
   useEffect(() => {
     const viewer = viewerRef.current;
     const mapData = loaded && isFlightMapData(loaded.result) ? loaded.result : null;
-    if (!viewer || !mapData?.gcsTrack.length) return;
-    const home = mapData.gcsTrack[0]!;
-    viewer.camera.flyTo({ destination: Cartesian3.fromDegrees(home.lon, home.lat, 900) });
+    if (!viewer || !mapData) return;
+    const framingTrack = mapData.gcsTrack.length
+      ? mapData.gcsTrack
+      : mapData.cleanedTrack.length
+        ? mapData.cleanedTrack
+        : mapData.gpsTrack;
+    const rectangle = computeFramingRectangle(framingTrack);
+    if (!rectangle) return;
+    viewer.camera.flyTo({ destination: rectangle });
   }, [loaded]);
 
   // Rebuild every track layer + the animated "current position" marker whenever the
@@ -229,11 +286,12 @@ export function CesiumMapView() {
       const absHeight = (p: { alt: number | null }) => homeGroundHeight + (p.alt ?? 0);
       const toPositions = (points: TrackPoint[]) => points.map((p) => Cartesian3.fromDegrees(p.lon, p.lat, absHeight(p)));
 
-      const prev = entitiesRef.current;
+      const prev = layersRef.current;
       if (prev.gcsTrack) viewer.scene.primitives.remove(prev.gcsTrack);
       if (prev.gpsTrack) viewer.scene.primitives.remove(prev.gpsTrack);
       if (prev.cleanedTrack) viewer.scene.primitives.remove(prev.cleanedTrack);
       if (prev.aircraft) viewer.entities.remove(prev.aircraft);
+      for (const marker of prev.gpsLossMarkers) viewer.entities.remove(marker);
 
       const TRACK_WIDTH = 6;
       const gcsPrimitive = buildGradientPolyline(
@@ -257,6 +315,59 @@ export function CesiumMapView() {
         showCleanedTrackRef.current,
       );
       if (cleanedPrimitive) viewer.scene.primitives.add(cleanedPrimitive);
+
+      // Up to two markers per GPS-loss/spoofing region (see flight-map.ts's
+      // groupIntoRegions()): an orange dot where GPS was lost (anchored to the trusted GCS
+      // position/altitude when the loss started) and a green dot where it was reacquired
+      // (anchored at the first trustworthy sample afterward - every region gets its own
+      // recovery marker, not just the last one in a run of otherwise-unrelated blips). The
+      // "reacquired" marker is only omitted when the track ends while still untrustworthy
+      // (endLat/endLon null - nothing to anchor it to). Altitude is baked into the title
+      // (shown directly in Cesium's InfoBox header) since the description body alone is
+      // easy to miss/hard to read.
+      const labelWithAltitude = (baseTitle: string, alt: number | null) =>
+        alt !== null ? `${baseTitle} - ${t("map.gpsLoss.altitudeShort", { value: Math.round(alt) })}` : baseTitle;
+
+      const gpsLossMarkers = mapData.gpsLossRegions.flatMap((region) => {
+        const markers: Entity[] = [];
+        if (region.startLat !== null && region.startLon !== null) {
+          const label = labelWithAltitude(t("map.gpsLoss.lostTitle"), region.startAlt);
+          markers.push(
+            viewer.entities.add({
+              name: label,
+              position: Cartesian3.fromDegrees(region.startLon, region.startLat, absHeight({ alt: region.startAlt })),
+              point: {
+                pixelSize: 12,
+                color: GPS_LOSS_COLOR.withAlpha(0.9),
+                outlineColor: GPS_LOSS_OUTLINE_COLOR,
+                outlineWidth: 2,
+                disableDepthTestDistance: Number.POSITIVE_INFINITY,
+              },
+              description: `<strong>${label}</strong>`,
+              show: showGpsLossRef.current,
+            }),
+          );
+        }
+        if (region.endLat !== null && region.endLon !== null) {
+          const label = labelWithAltitude(t("map.gpsLoss.foundTitle"), region.endAlt);
+          markers.push(
+            viewer.entities.add({
+              name: label,
+              position: Cartesian3.fromDegrees(region.endLon, region.endLat, absHeight({ alt: region.endAlt })),
+              point: {
+                pixelSize: 12,
+                color: GPS_FOUND_COLOR.withAlpha(0.9),
+                outlineColor: GPS_FOUND_OUTLINE_COLOR,
+                outlineWidth: 2,
+                disableDepthTestDistance: Number.POSITIVE_INFINITY,
+              },
+              description: `<strong>${label}</strong>`,
+              show: showGpsLossRef.current,
+            }),
+          );
+        }
+        return markers;
+      });
 
       // An animated marker that flies the recorded GCS track over time, synced to
       // Cesium's own timeline/play controls at the bottom of the map.
@@ -300,28 +411,30 @@ export function CesiumMapView() {
             return -nearest.heading;
           }, false),
         },
-        description: "Drone (current position)",
+        name: t("map.currentPositionDescription"),
+        description: t("map.currentPositionDescription"),
         show: showCurrentPositionRef.current,
       });
 
-      entitiesRef.current = {
+      layersRef.current = {
         gcsTrack: gcsPrimitive,
         gpsTrack: gpsPrimitive,
         cleanedTrack: cleanedPrimitive,
         aircraft: aircraftEntity,
+        gpsLossMarkers,
       };
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [loaded]);
+  }, [loaded, t]);
 
   function toggleGcsTrackVisible() {
     setShowGcsTrack((v) => {
       const next = !v;
       showGcsTrackRef.current = next;
-      if (entitiesRef.current.gcsTrack) entitiesRef.current.gcsTrack.show = next;
+      if (layersRef.current.gcsTrack) layersRef.current.gcsTrack.show = next;
       return next;
     });
   }
@@ -330,7 +443,7 @@ export function CesiumMapView() {
     setShowGpsTrack((v) => {
       const next = !v;
       showGpsTrackRef.current = next;
-      if (entitiesRef.current.gpsTrack) entitiesRef.current.gpsTrack.show = next;
+      if (layersRef.current.gpsTrack) layersRef.current.gpsTrack.show = next;
       return next;
     });
   }
@@ -339,7 +452,7 @@ export function CesiumMapView() {
     setShowCleanedTrack((v) => {
       const next = !v;
       showCleanedTrackRef.current = next;
-      if (entitiesRef.current.cleanedTrack) entitiesRef.current.cleanedTrack.show = next;
+      if (layersRef.current.cleanedTrack) layersRef.current.cleanedTrack.show = next;
       return next;
     });
   }
@@ -348,7 +461,16 @@ export function CesiumMapView() {
     setShowCurrentPosition((v) => {
       const next = !v;
       showCurrentPositionRef.current = next;
-      if (entitiesRef.current.aircraft) entitiesRef.current.aircraft.show = next;
+      if (layersRef.current.aircraft) layersRef.current.aircraft.show = next;
+      return next;
+    });
+  }
+
+  function toggleGpsLossVisible() {
+    setShowGpsLoss((v) => {
+      const next = !v;
+      showGpsLossRef.current = next;
+      for (const marker of layersRef.current.gpsLossMarkers) marker.show = next;
       return next;
     });
   }
@@ -357,28 +479,25 @@ export function CesiumMapView() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>3D Map (Cesium prototype)</CardTitle>
-          <CardDescription>Experimental - evaluating CesiumJS 3D terrain.</CardDescription>
+          <CardTitle>{t("map.heading")}</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <Alert variant="info">
             <AlertDescription>
-              This page needs a Cesium ion access token. Get a free one at{" "}
+              {t("map.token.intro")}{" "}
               <a href="https://ion.cesium.com/tokens" target="_blank" rel="noreferrer" className="underline">
                 ion.cesium.com/tokens
-              </a>{" "}
-              (sign up free, then "Access Tokens" tab, "Create Token" - not "OAuth Applications", that's for
-              something else). It's stored only in your browser (localStorage), never sent anywhere but Cesium's own
-              servers.
+              </a>
+              . {t("map.token.instructions")}
             </AlertDescription>
           </Alert>
           <div className="flex gap-2">
             <Input
               value={tokenInput}
               onChange={(e) => setTokenInput(e.target.value)}
-              placeholder="Paste your Cesium ion token here"
+              placeholder={t("map.token.placeholder")}
             />
-            <Button onClick={saveToken}>Save</Button>
+            <Button onClick={saveToken}>{t("map.token.save")}</Button>
           </div>
         </CardContent>
       </Card>
@@ -390,11 +509,8 @@ export function CesiumMapView() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>3D Map (Cesium prototype)</CardTitle>
-        <CardDescription>
-          Experimental - 3D terrain view of the flight. Use the timeline/play button at the bottom of the map to
-          animate the drone.
-        </CardDescription>
+        <CardTitle>{t("map.heading")}</CardTitle>
+        <CardDescription>{t("map.description")}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div
@@ -431,11 +547,11 @@ export function CesiumMapView() {
           )}
         >
           {isParsing ? (
-            <span className="font-semibold">Parsing file...</span>
+            <span className="font-semibold">{t("map.drop.parsing")}</span>
           ) : (
             <>
-              <span className="font-semibold">Drop a log: .bin</span>
-              <span className="text-sm text-muted-foreground">or click to choose a file</span>
+              <span className="font-semibold">{t("map.drop.title")}</span>
+              <span className="text-sm text-muted-foreground">{t("map.drop.subtitle")}</span>
             </>
           )}
         </div>
@@ -455,10 +571,10 @@ export function CesiumMapView() {
 
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" onClick={loadSample} disabled={isParsing}>
-            Load sample flight
+            {t("logs.sample.bin")}
           </Button>
           <Button variant="ghost" size="sm" onClick={clearToken}>
-            Clear saved token
+            {t("map.token.clear")}
           </Button>
         </div>
 
@@ -474,29 +590,26 @@ export function CesiumMapView() {
         )}
         {hasNoMapData && (
           <Alert variant="info">
-            <AlertDescription>
-              This file has no separate GPS/POS position messages to map (skylog telemetry only has one merged
-              position).
-            </AlertDescription>
+            <AlertDescription>{t("map.noGpsData")}</AlertDescription>
           </Alert>
         )}
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[240px_1fr]">
           <section className="flex flex-col gap-2 rounded-lg border border-border p-3">
-            <h3 className="text-sm font-medium">Legend</h3>
+            <h3 className="text-sm font-medium">{t("map.legend.heading")}</h3>
             <ul className="flex flex-col gap-2 text-sm">
               <li className="flex items-center gap-2">
                 <input type="checkbox" id="show-gcs" checked={showGcsTrack} onChange={toggleGcsTrackVisible} />
                 <span aria-hidden className="h-3 w-3 shrink-0 rounded-sm" style={{ background: "#3b82f6" }} />
                 <label htmlFor="show-gcs" className="flex-1">
-                  Flight track (GCS/fused)
+                  {t("map.legend.gcsTrack")}
                 </label>
               </li>
               <li className="flex items-center gap-2">
                 <input type="checkbox" id="show-gps" checked={showGpsTrack} onChange={toggleGpsTrackVisible} />
                 <span aria-hidden className="h-3 w-3 shrink-0 rounded-sm" style={{ background: "#ef4444" }} />
                 <label htmlFor="show-gps" className="flex-1">
-                  Raw GPS track
+                  {t("map.legend.gpsTrack")}
                 </label>
               </li>
               <li className="flex items-center gap-2">
@@ -508,7 +621,17 @@ export function CesiumMapView() {
                 />
                 <span aria-hidden className="h-3 w-3 shrink-0 rounded-sm" style={{ background: "#22c55e" }} />
                 <label htmlFor="show-cleaned" className="flex-1">
-                  Cleaned GPS track
+                  {t("map.legend.cleanedTrack")}
+                </label>
+              </li>
+              <li className="flex items-center gap-2">
+                <input type="checkbox" id="show-gps-loss" checked={showGpsLoss} onChange={toggleGpsLossVisible} />
+                <span aria-hidden className="flex shrink-0 gap-0.5">
+                  <span className="h-3 w-3 rounded-full" style={{ background: "#f97316" }} />
+                  <span className="h-3 w-3 rounded-full" style={{ background: "#22c55e" }} />
+                </span>
+                <label htmlFor="show-gps-loss" className="flex-1">
+                  {t("map.legend.gpsLoss")}
                 </label>
               </li>
               <li className="flex items-center gap-2">
@@ -524,7 +647,7 @@ export function CesiumMapView() {
                   style={{ background: "#ffffff", border: "1px solid #000" }}
                 />
                 <label htmlFor="show-current" className="flex-1">
-                  Current position (animated)
+                  {t("map.legend.currentPosition")}
                 </label>
               </li>
             </ul>

@@ -8,7 +8,6 @@
     "logs": "Logs",
     "graphs": "Graphs",
     "map": "Map",
-    "cesium3d": "3D (experimental)",
     "parameters": "Parameters",
     "advisor": "Advisor",
     "compare": "Compare"
@@ -147,7 +146,7 @@
   },
   "map": {
     "heading": "Map",
-    "description": "Drop a .bin file to see the flight track on a map - the fused (GCS) position, the raw GPS position, and where raw GPS was rejected as spoofing/teleport.",
+    "description": "Drop a .bin file to see the flight track in 3D - the fused (GCS) position, the raw GPS position, where raw GPS was rejected as spoofing/teleport, and an animated marker synced to the timeline at the bottom of the map.",
     "drop": {
       "title": "Drop a log: .bin",
       "subtitle": "or click to choose a file",
@@ -159,7 +158,21 @@
       "gcsTrack": "GCS track (fused position)",
       "gpsTrack": "Raw GPS track",
       "cleanedTrack": "Cleaned GPS track",
-      "gpsLoss": "GPS loss / spoofing regions"
+      "gpsLoss": "GPS loss (orange) / reacquired (green)",
+      "currentPosition": "Current position (animated)"
+    },
+    "currentPositionDescription": "Drone (current position)",
+    "gpsLoss": {
+      "lostTitle": "GPS lost / spoofing",
+      "foundTitle": "GPS reacquired",
+      "altitudeShort": "{{value}} m"
+    },
+    "token": {
+      "intro": "This map needs a free Cesium ion access token for 3D terrain and imagery. Get one at",
+      "instructions": "Sign up free, then open the \"Access Tokens\" tab and click \"Create Token\" (not \"OAuth Applications\", that's for something else). It's stored only in your browser (localStorage) and never sent anywhere but Cesium's own servers.",
+      "placeholder": "Paste your Cesium ion token here",
+      "save": "Save",
+      "clear": "Clear saved token"
     }
   },
   "parameters": {
