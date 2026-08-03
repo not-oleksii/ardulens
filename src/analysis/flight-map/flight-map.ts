@@ -1,4 +1,4 @@
-import { MAX_FROM_CENTER, MAX_STEP_SPEED } from "../../constants";
+import { MAX_FROM_CENTER, MAX_STEP_SPEED, MIN_USABLE_GPS_STATUS } from "../../constants";
 import { haversine, median } from "../../utils/geo/geo";
 import type { RawLogPoint } from "../raw-log/types";
 import type { FlightMapData, GpsLossRegion, TrackPoint } from "./types";
@@ -37,22 +37,51 @@ function downsample(points: TrackPoint[]): TrackPoint[] {
 }
 
 /**
- * Downsamples to ~1Hz and classifies each point as kept or rejected using the same
- * median-center + max-step-speed teleport rejection as cleanTrack() (utils/geo/geo.ts),
- * but keeps every point (tagged) instead of only the survivors - the flight map needs to
- * show WHERE the rejected/spoofed regions are, not just how many points were dropped.
+ * Downsamples to ~1Hz and classifies each point as kept or rejected using the GPS
+ * receiver's own reported fix status (when available), plus max-step-speed teleport
+ * rejection (same as cleanTrack(), utils/geo/geo.ts) - but keeps every point (tagged)
+ * instead of only the survivors, since the flight map needs to show WHERE the
+ * rejected/spoofed regions are, not just how many points were dropped.
+ *
+ * A GPS.Status below MIN_USABLE_GPS_STATUS rejects a point outright, regardless of how
+ * plausible its position looks - the receiver itself is reporting no usable fix, which a
+ * pure position-based check can't see (a lost-fix sample may just hold a stale-but-
+ * plausible position rather than an obvious jump). statusByT is keyed by the point's own
+ * timestamp (shares the same TimeUS origin as the position fields, so exact lookup - not
+ * nearest-match - is correct here); absent when the caller has no GPS.Status series at
+ * all, in which case classification falls through to the position-based checks alone.
+ *
+ * Distance-from-truth is anchored to the trusted fused/GCS (POS/EKF) position at each
+ * point's own moment when available, NOT a median of the raw GPS stream itself: a median
+ * is only robust while spoofed points are a minority. Tested against a real ~25-minute
+ * flight with heavy GPS spoofing (raw GPS teleporting across entire continents), a
+ * median-based center broke completely - it got dragged toward the spoofed cluster,
+ * making even the genuinely good points look "far from center" and rejecting the ENTIRE
+ * flight as one continuous, never-recovered loss region. The GCS/EKF position doesn't
+ * have this failure mode since ArduPilot's own EKF already discounts implausible GPS
+ * jumps when computing it, regardless of what fraction of raw samples are bad. Falls back
+ * to a median-based center only when there's no POS data at all to anchor against.
  */
-function classifyTrack(points: TrackPoint[]): { kept: TrackPoint[]; rejected: TrackPoint[] } {
+function classifyTrack(
+  points: TrackPoint[],
+  gcsTrack: TrackPoint[],
+  statusByT: Map<number, number>,
+): { kept: TrackPoint[]; rejected: TrackPoint[] } {
   const ds = downsample(points);
   if (!ds.length) return { kept: [], rejected: [] };
 
-  const centerLat = median(ds.map((p) => p.lat));
-  const centerLon = median(ds.map((p) => p.lon));
+  const medianCenter = gcsTrack.length ? null : { lat: median(ds.map((p) => p.lat)), lon: median(ds.map((p) => p.lon)) };
 
   const kept: TrackPoint[] = [];
   const rejected: TrackPoint[] = [];
   for (const p of ds) {
-    if (haversine(centerLat, centerLon, p.lat, p.lon) > MAX_FROM_CENTER) {
+    const status = statusByT.get(p.t);
+    if (status !== undefined && status < MIN_USABLE_GPS_STATUS) {
+      rejected.push(p);
+      continue;
+    }
+    const reference = medianCenter ?? nearestGcsPoint(gcsTrack, p.t);
+    if (reference && haversine(reference.lat, reference.lon, p.lat, p.lon) > MAX_FROM_CENTER) {
       rejected.push(p);
       continue;
     }
@@ -89,31 +118,47 @@ function groupIntoRegions(rejected: TrackPoint[], allSorted: TrackPoint[], gcsTr
   if (!rejected.length) return [];
   const rejectedTimes = new Set(rejected.map((p) => p.t));
 
-  const spans: TrackPoint[][] = [];
+  // Track each span's end INDEX (not just its points) so we can look up whatever comes
+  // right after it in allSorted - the first trustworthy sample following the loss, i.e.
+  // the actual recovery point. Isolated single-sample blips (not consecutive with any
+  // other rejected sample) each get their own span here, so each pairs with its own
+  // recovery point rather than being silently skipped.
+  const spans: Array<{ points: TrackPoint[]; endIndex: number }> = [];
   let current: TrackPoint[] | null = null;
-  for (const p of allSorted) {
+  for (let i = 0; i < allSorted.length; i++) {
+    const p = allSorted[i]!;
     if (rejectedTimes.has(p.t)) {
       (current ??= []).push(p);
     } else if (current) {
-      spans.push(current);
+      spans.push({ points: current, endIndex: i - 1 });
       current = null;
     }
   }
-  if (current) spans.push(current);
+  if (current) spans.push({ points: current, endIndex: allSorted.length - 1 });
 
-  return spans.map((span) => {
+  return spans.map(({ points: span, endIndex }) => {
     const startMs = span[0]!.t;
-    const endMs = span[span.length - 1]!.t;
-    // Prefer the fused/GCS position for the marker; if there's no POS data at all, fall
+    const lastRejectedMs = span[span.length - 1]!.t;
+    // The first trustworthy sample after the loss - i.e. when GPS was actually
+    // reacquired, NOT the last (still-untrustworthy) rejected sample in the span. If the
+    // span runs to the end of the track, GPS was never reacquired before the log ends,
+    // so there's nothing to anchor a "recovered" marker to.
+    const recoveryPoint = allSorted[endIndex + 1];
+
+    // Prefer the fused/GCS position for each marker; if there's no POS data at all, fall
     // back to the raw point's own altitude (its lat/lon during the loss is untrustworthy,
     // but altitude often isn't spoofed the same way horizontal position is).
-    const anchor = nearestGcsPoint(gcsTrack, (startMs + endMs) / 2);
+    const startAnchor = nearestGcsPoint(gcsTrack, startMs);
+    const endAnchor = recoveryPoint ? nearestGcsPoint(gcsTrack, recoveryPoint.t) : null;
     return {
       startMs,
-      endMs,
-      lat: anchor?.lat ?? null,
-      lon: anchor?.lon ?? null,
-      alt: anchor?.alt ?? span[0]!.alt,
+      endMs: recoveryPoint ? recoveryPoint.t : lastRejectedMs,
+      startLat: startAnchor?.lat ?? null,
+      startLon: startAnchor?.lon ?? null,
+      startAlt: startAnchor?.alt ?? span[0]!.alt,
+      endLat: endAnchor?.lat ?? null,
+      endLon: endAnchor?.lon ?? null,
+      endAlt: recoveryPoint ? (endAnchor?.alt ?? recoveryPoint.alt) : null,
     };
   });
 }
@@ -121,7 +166,9 @@ function groupIntoRegions(rejected: TrackPoint[], allSorted: TrackPoint[], gcsTr
 /**
  * Builds the flight-map's track layers from a RawLog's per-message series: the fused/GCS
  * position (POS), the raw GPS position, a teleport-rejected "cleaned" GPS track, and the
- * time ranges where raw GPS was rejected (GPS loss / spoofing regions).
+ * time ranges where raw GPS was rejected (GPS loss / spoofing regions) - based on the
+ * receiver's own reported fix status (GPS.Status) when available, and position
+ * plausibility otherwise.
  */
 export function buildFlightMapData(series: Record<string, RawLogPoint[]>): FlightMapData | null {
   const gcsTrack = zipTrack(series["POS.Lat"], series["POS.Lng"], series["POS.RelHomeAlt"] ?? series["POS.Alt"]);
@@ -130,7 +177,8 @@ export function buildFlightMapData(series: Record<string, RawLogPoint[]>): Fligh
   if (!gcsTrack.length && !rawGpsTrack.length) return null;
 
   const gpsTrack = downsample(rawGpsTrack);
-  const { kept, rejected } = classifyTrack(rawGpsTrack);
+  const statusByT = new Map((series["GPS.Status"] ?? []).map((p) => [p.t, p.v]));
+  const { kept, rejected } = classifyTrack(rawGpsTrack, gcsTrack, statusByT);
 
   return {
     gcsTrack,

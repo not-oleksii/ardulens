@@ -11,7 +11,6 @@ export default tseslint.config(
       "coverage/**",
       "app/src-tauri/target/**",
       "legacy/**",
-      "app/public/maplibre/**",
       "app/public/cesium/**",
     ],
   },

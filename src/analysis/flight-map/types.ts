@@ -6,13 +6,22 @@ export interface TrackPoint {
 }
 
 export interface GpsLossRegion {
+  /** When GPS was first lost. */
   startMs: number;
+  /** When GPS was reacquired (the first trustworthy sample after the loss) - equal to the
+   * last rejected sample's own timestamp only if the track ends while still untrustworthy
+   * (no recovery before the log ends; see end* below). */
   endMs: number;
-  /** Fused/GCS position and altitude during the loss - the raw GPS position itself is
-   * the spoofed/meaningless one, so it isn't useful for placing a marker on the map. */
-  lat: number | null;
-  lon: number | null;
-  alt: number | null;
+  /** Fused/GCS position and altitude when GPS was first lost - the raw GPS position itself
+   * is the spoofed/meaningless one, so it isn't useful for placing a marker on the map. */
+  startLat: number | null;
+  startLon: number | null;
+  startAlt: number | null;
+  /** Fused/GCS position and altitude when GPS was reacquired. Null when the track ends
+   * while still untrustworthy - i.e. there's no recovery point to mark. */
+  endLat: number | null;
+  endLon: number | null;
+  endAlt: number | null;
 }
 
 export interface FlightMapData {

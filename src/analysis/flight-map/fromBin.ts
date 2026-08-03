@@ -49,6 +49,7 @@ export function buildFlightMapDataFromBin(_name: string, buf: ArrayBuffer): Flig
     "GPS.Lat": extractPoints(gps, "Lat", originUs),
     "GPS.Lng": extractPoints(gps, "Lng", originUs),
     "GPS.Alt": extractPoints(gps, "Alt", originUs),
+    "GPS.Status": extractPoints(gps, "Status", originUs),
   };
 
   return buildFlightMapData(series);
