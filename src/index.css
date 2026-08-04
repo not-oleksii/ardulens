@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+/* Fonts for the ArduPilot Setup cockpit theme only - self-hosted so the app keeps working
+   fully offline. Only the weights actually used are imported (400/700 for UI text, 400 for
+   the monospace telemetry values - PT Mono only ships weight 400). */
+@import "@fontsource/exo-2/400.css";
+@import "@fontsource/exo-2/700.css";
+@import "@fontsource/pt-mono/400.css";
+
 /* Tailwind's Preflight resets button cursor to the browser default instead of
    pointer - every clickable control in this app is a real <button>, so this
    one rule covers all of them (Button, Tabs, Toggle, the drop zone, etc). */
@@ -53,6 +60,21 @@
     --destructive-foreground: #16171d;
     --ring: #c084fc;
   }
+}
+
+/* ArduPilot Setup uses the app's normal colors (same CSS variables as Logs/Graphs/Map -
+   light or dark following the OS, no separate palette) - only the typeface differs, to keep
+   telemetry numbers visually distinct as instrument-style readouts. Not chained off the base
+   --font-sans/--font-mono via var(): Tailwind's own
+   `@theme inline { --font-sans: var(--font-sans); }` is genuinely self-referential at :root
+   (no parent to inherit from there), which makes it a real cycle and its computed value the
+   CSS "guaranteed-invalid value." That invalid value inherits down the tree, so extending it
+   here with `var(--font-sans)` as a fallback would itself resolve to invalid and silently
+   fail to apply. Hardcoding the full stack sidesteps that. */
+.ardupilot-setup-theme {
+  --font-sans: "Exo 2", system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "PT Mono", ui-monospace, Consolas, monospace;
+  font-family: var(--font-sans);
 }
 
 @theme inline {

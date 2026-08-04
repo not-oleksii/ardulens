@@ -6,10 +6,25 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PrimaryFlightDisplay } from "../../components/PrimaryFlightDisplay/PrimaryFlightDisplay";
+import { PLANE_MODE_NAMES } from "../../constants";
 import { encodePacket } from "../../mavlink/codec/codec";
 import { MavlinkFramer } from "../../mavlink/framer/framer";
-import { mavAutopilotLabel, mavStateLabel, mavTypeLabel } from "../../mavlink/labels/labels";
-import { Heartbeat, MavAutopilot, MavModeFlag, MavState, MavType } from "../../mavlink/registry/registry";
+import { gpsFixTypeLabel, mavAutopilotLabel, mavStateLabel, mavTypeLabel } from "../../mavlink/labels/labels";
+import {
+  Attitude,
+  GlobalPositionInt,
+  GpsRawInt,
+  Heartbeat,
+  MavAutopilot,
+  MavDataStream,
+  MavModeFlag,
+  MavState,
+  MavType,
+  RequestDataStream,
+  SysStatus,
+  VfrHud,
+} from "../../mavlink/registry/registry";
 import {
   connectSerial,
   connectUdp,
@@ -21,6 +36,7 @@ import {
 } from "../../services/mavlinkTransport/mavlinkTransport";
 import type { SerialPortInfo } from "../../services/mavlinkTransport/types";
 import { useMavlinkConnectionStore } from "../../stores/mavlinkConnectionStore/mavlinkConnectionStore";
+import { useMavlinkTelemetryStore } from "../../stores/mavlinkTelemetryStore/mavlinkTelemetryStore";
 import { useMavlinkVehicleStore } from "../../stores/mavlinkVehicleStore/mavlinkVehicleStore";
 
 const BAUD_RATES = [9600, 38400, 57600, 115200, 921600];
@@ -34,6 +50,17 @@ const AUTO_CONNECT_TIMEOUT_MS = 2000;
 // on the vehicle does need *some* heartbeat arriving periodically from a non-vehicle system.
 const GCS_SYSID = 255;
 const GCS_COMPID = 190;
+// The stream groups Mission Planner requests on connect: extended status (battery, sensor
+// health), position, attitude (EXTRA1), and VFR HUD-style speed/altitude/throttle (EXTRA2).
+// ArduPilot still honors this deprecated-but-universal message; the modern per-message
+// SET_MESSAGE_INTERVAL alternative would need one request per message id instead of per group.
+const REQUESTED_DATA_STREAMS = [
+  MavDataStream.EXTENDED_STATUS,
+  MavDataStream.POSITION,
+  MavDataStream.EXTRA1,
+  MavDataStream.EXTRA2,
+];
+const DATA_STREAM_RATE_HZ = 4;
 
 /** Resolves true if a heartbeat (any vehicle) arrives within `timeoutMs`, false otherwise. */
 function waitForHeartbeat(timeoutMs: number): Promise<boolean> {
@@ -70,6 +97,17 @@ export function ArduPilotSetupView() {
   const vehicle = useMavlinkVehicleStore((s) => s.vehicle);
   const setVehicle = useMavlinkVehicleStore((s) => s.setVehicle);
   const resetVehicle = useMavlinkVehicleStore((s) => s.reset);
+  const attitude = useMavlinkTelemetryStore((s) => s.attitude);
+  const vfrHud = useMavlinkTelemetryStore((s) => s.vfrHud);
+  const battery = useMavlinkTelemetryStore((s) => s.battery);
+  const gps = useMavlinkTelemetryStore((s) => s.gps);
+  const position = useMavlinkTelemetryStore((s) => s.position);
+  const setAttitude = useMavlinkTelemetryStore((s) => s.setAttitude);
+  const setVfrHud = useMavlinkTelemetryStore((s) => s.setVfrHud);
+  const setBattery = useMavlinkTelemetryStore((s) => s.setBattery);
+  const setGps = useMavlinkTelemetryStore((s) => s.setGps);
+  const setPosition = useMavlinkTelemetryStore((s) => s.setPosition);
+  const resetTelemetry = useMavlinkTelemetryStore((s) => s.reset);
 
   const [mode, setMode] = useState<"serial" | "udp">("udp");
   const [ports, setPorts] = useState<SerialPortInfo[]>([]);
@@ -80,6 +118,7 @@ export function ArduPilotSetupView() {
 
   const framerRef = useRef(new MavlinkFramer());
   const outgoingSeqRef = useRef(0);
+  const streamsRequestedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -89,16 +128,63 @@ export function ArduPilotSetupView() {
     void onData((bytes) => {
       addBytesReceived(bytes.length);
       for (const packet of framerRef.current.push(bytes)) {
-        if (packet.msgId !== Heartbeat.MSG_ID) continue;
-        const hb = packet.message as Heartbeat;
-        setVehicle({
-          type: hb.type,
-          autopilot: hb.autopilot,
-          armed: (hb.baseMode & MavModeFlag.SAFETY_ARMED) !== 0,
-          systemStatus: hb.systemStatus,
-          customMode: hb.customMode,
-          lastHeartbeatAt: Date.now(),
-        });
+        const now = Date.now();
+        switch (packet.msgId) {
+          case Heartbeat.MSG_ID: {
+            const hb = packet.message as Heartbeat;
+            setVehicle({
+              sysid: packet.sysid,
+              compid: packet.compid,
+              type: hb.type,
+              autopilot: hb.autopilot,
+              armed: (hb.baseMode & MavModeFlag.SAFETY_ARMED) !== 0,
+              systemStatus: hb.systemStatus,
+              customMode: hb.customMode,
+              lastHeartbeatAt: now,
+            });
+            break;
+          }
+          case Attitude.MSG_ID: {
+            const msg = packet.message as Attitude;
+            setAttitude({ rollRad: msg.roll, pitchRad: msg.pitch, yawRad: msg.yaw, updatedAt: now });
+            break;
+          }
+          case VfrHud.MSG_ID: {
+            const msg = packet.message as VfrHud;
+            setVfrHud({
+              airspeed: msg.airspeed,
+              groundspeed: msg.groundspeed,
+              headingDeg: msg.heading,
+              throttlePercent: msg.throttle,
+              altitudeM: msg.alt,
+              climbMs: msg.climb,
+              updatedAt: now,
+            });
+            break;
+          }
+          case SysStatus.MSG_ID: {
+            const msg = packet.message as SysStatus;
+            setBattery({
+              voltageV: msg.voltageBattery / 1000,
+              currentA: msg.currentBattery >= 0 ? msg.currentBattery / 100 : null,
+              remainingPercent: msg.batteryRemaining >= 0 ? msg.batteryRemaining : null,
+              updatedAt: now,
+            });
+            break;
+          }
+          case GpsRawInt.MSG_ID: {
+            const msg = packet.message as GpsRawInt;
+            setGps({ fixType: msg.fixType, satellitesVisible: msg.satellitesVisible, updatedAt: now });
+            break;
+          }
+          case GlobalPositionInt.MSG_ID: {
+            const msg = packet.message as GlobalPositionInt;
+            setPosition({ lat: msg.lat / 1e7, lon: msg.lon / 1e7, relativeAltM: msg.relativeAlt / 1000, updatedAt: now });
+            break;
+          }
+          default:
+            break;
+        }
       }
     }).then((unlisten) => {
       if (cancelled) unlisten();
@@ -110,9 +196,13 @@ export function ArduPilotSetupView() {
       else if (s.kind === "disconnected") {
         setDisconnected();
         resetVehicle();
+        resetTelemetry();
+        streamsRequestedRef.current = false;
       } else {
         setError(s.message);
         resetVehicle();
+        resetTelemetry();
+        streamsRequestedRef.current = false;
       }
     }).then((unlisten) => {
       if (cancelled) unlisten();
@@ -124,7 +214,20 @@ export function ArduPilotSetupView() {
       unlistenData?.();
       unlistenStatus?.();
     };
-  }, [addBytesReceived, setConnected, setDisconnected, setError, setVehicle, resetVehicle]);
+  }, [
+    addBytesReceived,
+    setConnected,
+    setDisconnected,
+    setError,
+    setVehicle,
+    resetVehicle,
+    setAttitude,
+    setVfrHud,
+    setBattery,
+    setGps,
+    setPosition,
+    resetTelemetry,
+  ]);
 
   // A GCS is expected to send its own periodic heartbeat - some vehicles use its absence to
   // trigger a GCS-failsafe. Best-effort: a single failed send doesn't flip the whole
@@ -155,6 +258,33 @@ export function ArduPilotSetupView() {
     const id = window.setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
     return () => window.clearInterval(id);
   }, [status, addBytesSent]);
+
+  // Ask the vehicle to start streaming telemetry once we know who it is (its sysid/compid,
+  // learned from its own heartbeat) - ArduPilot doesn't push ATTITUDE/VFR_HUD/SYS_STATUS/etc.
+  // at a useful rate to a GCS that never asked. Sent once per connection (guarded by the ref,
+  // reset on disconnect/error) rather than repeated on every heartbeat.
+  useEffect(() => {
+    if (status !== "connected" || !vehicle || streamsRequestedRef.current) return;
+    streamsRequestedRef.current = true;
+
+    for (const streamId of REQUESTED_DATA_STREAMS) {
+      const req = new RequestDataStream();
+      req.targetSystem = vehicle.sysid;
+      req.targetComponent = vehicle.compid;
+      req.reqStreamId = streamId;
+      req.reqMessageRate = DATA_STREAM_RATE_HZ;
+      req.startStop = 1;
+
+      const seq = outgoingSeqRef.current;
+      outgoingSeqRef.current = (seq + 1) % 256;
+      const packet = encodePacket(req, { seq, sysid: GCS_SYSID, compid: GCS_COMPID });
+      sendBytes(packet)
+        .then(() => addBytesSent(packet.length))
+        .catch(() => {
+          // Best-effort - if this is lost, the vehicle simply won't stream that group.
+        });
+    }
+  }, [status, vehicle, addBytesSent]);
 
   useEffect(() => {
     let cancelled = false;
@@ -198,6 +328,7 @@ export function ArduPilotSetupView() {
   async function handleAutoConnect() {
     setConnecting();
     resetVehicle();
+    resetTelemetry();
     for (const port of ports) {
       setScanningPort(port.name);
       try {
@@ -231,18 +362,18 @@ export function ArduPilotSetupView() {
   const isConnected = status === "connected";
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-4 px-7 py-5">
+    <div className="ardupilot-setup-theme flex flex-1 flex-col gap-4 px-6 py-4">
       <Link to="/" className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="h-4 w-4" />
         {t("ardupilotSetup.backToHome")}
       </Link>
 
-      <Card>
+      <Card className="flex flex-1 flex-col">
         <CardHeader>
-          <CardTitle>{t("ardupilotSetup.heading")}</CardTitle>
+          <CardTitle className="font-bold">{t("ardupilotSetup.heading")}</CardTitle>
           <CardDescription>{t("ardupilotSetup.description")}</CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-4">
+        <CardContent className="flex flex-1 flex-col gap-4">
           <div className="flex gap-2">
             <Button
               type="button"
@@ -367,7 +498,7 @@ export function ArduPilotSetupView() {
             </AlertDescription>
           </Alert>
 
-          <div className="flex gap-4 text-xs text-muted-foreground">
+          <div className="flex gap-4 font-mono text-xs text-muted-foreground">
             <span>
               {t("ardupilotSetup.connect.bytesReceived")}: {t("ardupilotSetup.connect.bytesUnit", { count: bytesReceived })}
             </span>
@@ -377,24 +508,72 @@ export function ArduPilotSetupView() {
           </div>
 
           {isConnected && (
-            <div className="flex flex-col gap-2 border-t border-border pt-4">
-              <h3 className="text-sm font-medium">{t("ardupilotSetup.vehicle.heading")}</h3>
-              {vehicle ? (
-                <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-                  <dt className="text-muted-foreground">{t("ardupilotSetup.vehicle.type")}</dt>
-                  <dd>{mavTypeLabel(t, vehicle.type)}</dd>
-                  <dt className="text-muted-foreground">{t("ardupilotSetup.vehicle.autopilot")}</dt>
-                  <dd>{mavAutopilotLabel(t, vehicle.autopilot)}</dd>
-                  <dt className="text-muted-foreground">{t("ardupilotSetup.vehicle.armed")}</dt>
-                  <dd>{vehicle.armed ? t("ardupilotSetup.vehicle.armed") : t("ardupilotSetup.vehicle.disarmed")}</dd>
-                  <dt className="text-muted-foreground">{t("ardupilotSetup.vehicle.status")}</dt>
-                  <dd>{mavStateLabel(t, vehicle.systemStatus)}</dd>
-                  <dt className="text-muted-foreground">{t("ardupilotSetup.vehicle.customMode")}</dt>
-                  <dd>{vehicle.customMode}</dd>
-                </dl>
-              ) : (
-                <p className="text-xs text-muted-foreground">{t("ardupilotSetup.vehicle.waitingForHeartbeat")}</p>
-              )}
+            <div className="grid flex-1 grid-cols-1 gap-6 border-t border-border pt-4 lg:grid-cols-[minmax(320px,480px)_1fr]">
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-2">
+                  <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.vehicle.heading")}</h3>
+                  {vehicle ? (
+                    <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+                      <dt className="text-muted-foreground">{t("ardupilotSetup.vehicle.type")}</dt>
+                      <dd>{mavTypeLabel(t, vehicle.type)}</dd>
+                      <dt className="text-muted-foreground">{t("ardupilotSetup.vehicle.autopilot")}</dt>
+                      <dd>{mavAutopilotLabel(t, vehicle.autopilot)}</dd>
+                      <dt className="text-muted-foreground">{t("ardupilotSetup.vehicle.status")}</dt>
+                      <dd>{mavStateLabel(t, vehicle.systemStatus)}</dd>
+                    </dl>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">{t("ardupilotSetup.vehicle.waitingForHeartbeat")}</p>
+                  )}
+                </div>
+
+                {vehicle && (
+                  <div className="flex flex-col gap-3 border-t border-border pt-4">
+                    <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.telemetry.heading")}</h3>
+                    <PrimaryFlightDisplay
+                      rollRad={attitude?.rollRad ?? null}
+                      pitchRad={attitude?.pitchRad ?? null}
+                      headingDeg={vfrHud?.headingDeg ?? null}
+                      airspeed={vfrHud?.airspeed ?? null}
+                      altitudeM={vfrHud?.altitudeM ?? null}
+                      armed={vehicle.armed}
+                      modeLabel={
+                        vehicle.type === MavType.FIXED_WING
+                          ? (PLANE_MODE_NAMES[vehicle.customMode] ?? String(vehicle.customMode))
+                          : String(vehicle.customMode)
+                      }
+                    />
+                    {battery || gps || position ? (
+                      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+                        <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.batteryVoltage")}</dt>
+                        <dd className="font-mono">{battery ? `${battery.voltageV.toFixed(2)} V` : "-"}</dd>
+                        <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.batteryCurrent")}</dt>
+                        <dd className="font-mono">
+                          {battery && battery.currentA !== null ? `${battery.currentA.toFixed(1)} A` : "-"}
+                        </dd>
+                        <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.batteryRemaining")}</dt>
+                        <dd className="font-mono">
+                          {battery && battery.remainingPercent !== null ? `${battery.remainingPercent}%` : "-"}
+                        </dd>
+                        <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.gpsFixLabel")}</dt>
+                        <dd>{gps ? gpsFixTypeLabel(t, gps.fixType) : "-"}</dd>
+                        <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.satellites")}</dt>
+                        <dd className="font-mono">{gps ? gps.satellitesVisible : "-"}</dd>
+                        <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.position")}</dt>
+                        <dd className="font-mono">
+                          {position ? `${position.lat.toFixed(6)}, ${position.lon.toFixed(6)}` : "-"}
+                        </dd>
+                      </dl>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">{t("ardupilotSetup.telemetry.waitingForTelemetry")}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex min-h-80 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-border">
+                <p className="text-sm font-medium">{t("ardupilotSetup.map.heading")}</p>
+                <p className="text-xs text-muted-foreground">{t("ardupilotSetup.map.comingSoon")}</p>
+              </div>
             </div>
           )}
         </CardContent>

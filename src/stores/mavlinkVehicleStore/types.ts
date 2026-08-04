@@ -1,6 +1,8 @@
 import type { MavAutopilot, MavState, MavType } from "../../mavlink/registry/registry";
 
 export interface VehicleInfo {
+  sysid: number;
+  compid: number;
   type: MavType;
   autopilot: MavAutopilot;
   armed: boolean;

@@ -32,6 +32,10 @@
     "heading": "ArduPilot Setup",
     "description": "Connect to a real ArduPilot vehicle for live telemetry, parameters, calibration, and motor/servo setup - separate from the offline log viewer.",
     "backToHome": "Back to Home",
+    "map": {
+      "heading": "Map",
+      "comingSoon": "Live moving map - coming in a future release"
+    },
     "connect": {
       "modeSerial": "USB / Serial",
       "modeUdp": "UDP (WiFi / SITL)",
@@ -62,7 +66,6 @@
       "armed": "Armed",
       "disarmed": "Disarmed",
       "status": "Status",
-      "customMode": "Flight mode (raw)",
       "types": {
         "generic": "Generic",
         "fixedWing": "Fixed wing",
@@ -95,6 +98,42 @@
         "emergency": "Emergency",
         "poweroff": "Powering off",
         "flightTermination": "Flight termination",
+        "unknown": "Unknown ({{value}})"
+      }
+    },
+    "telemetry": {
+      "heading": "Telemetry",
+      "waitingForTelemetry": "Waiting for telemetry...",
+      "pfdAriaLabel": "Primary flight display",
+      "pfd": {
+        "airspeedLabel": "ASPD, m/s",
+        "altitudeLabel": "ALT, m"
+      },
+      "roll": "Roll",
+      "pitch": "Pitch",
+      "yaw": "Yaw",
+      "altitude": "Altitude (rel.)",
+      "climb": "Climb rate",
+      "airspeed": "Airspeed",
+      "groundspeed": "Groundspeed",
+      "compassHeading": "Heading",
+      "throttle": "Throttle",
+      "batteryVoltage": "Battery voltage",
+      "batteryCurrent": "Battery current",
+      "batteryRemaining": "Battery remaining",
+      "gpsFixLabel": "GPS fix",
+      "satellites": "Satellites",
+      "position": "Position (lat, lon)",
+      "gpsFix": {
+        "noGps": "No GPS",
+        "noFix": "No fix",
+        "fix2d": "2D fix",
+        "fix3d": "3D fix",
+        "dgps": "DGPS",
+        "rtkFloat": "RTK float",
+        "rtkFixed": "RTK fixed",
+        "static": "Static",
+        "ppp": "PPP",
         "unknown": "Unknown ({{value}})"
       }
     }
