@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher/LanguageSwitcher";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -117,6 +118,10 @@ export function HomeView() {
           {t("logs.sample.skylog")}
         </Button>
       </div>
+
+      <Button variant="link" asChild>
+        <Link to="/ardupilot-setup">{t("home.ardupilotSetupCta")}</Link>
+      </Button>
     </div>
   );
 }

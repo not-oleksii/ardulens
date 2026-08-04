@@ -25,6 +25,31 @@
       "subtitle": "або клікніть, щоб вибрати файл",
       "reading": "Читання файлу...",
       "parsing": "Розбір файлу..."
+    },
+    "ardupilotSetupCta": "Налаштувати підключений апарат"
+  },
+  "ardupilotSetup": {
+    "heading": "Налаштування ArduPilot",
+    "description": "Підключіться до реального апарата на ArduPilot для телеметрії наживо, параметрів, калібрування та налаштування моторів/сервоприводів - окремо від офлайн-перегляду логів.",
+    "backToHome": "На головну",
+    "connect": {
+      "modeSerial": "USB / Серійний порт",
+      "modeUdp": "UDP (WiFi / SITL)",
+      "portLabel": "Серійний порт",
+      "portPlaceholder": "Портів не знайдено - підключіть пристрій і оновіть",
+      "refreshPorts": "Оновити порти",
+      "baudLabel": "Швидкість (baud rate)",
+      "udpPortLabel": "Порт прослуховування",
+      "udpPortHint": "Апарат/SITL має бути налаштований надсилати MAVLink на цей порт цього комп'ютера.",
+      "connect": "Підключити",
+      "disconnect": "Відключити",
+      "statusIdle": "Не підключено",
+      "statusConnecting": "Підключення...",
+      "statusConnected": "Підключено: {{detail}}",
+      "statusError": "Помилка підключення: {{message}}",
+      "bytesReceived": "Отримано",
+      "bytesSent": "Надіслано",
+      "bytesUnit": "{{count}} Б"
     }
   },
   "logs": {

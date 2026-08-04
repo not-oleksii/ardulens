@@ -1,23 +1,44 @@
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { MemoryRouter } from "react-router";
 import App from "../App";
 import i18n from "../i18n/i18n";
 import { useFileStore } from "../stores/fileStore/fileStore";
+import { useMavlinkConnectionStore } from "../stores/mavlinkConnectionStore/mavlinkConnectionStore";
 import { useUiStore } from "../stores/uiStore/uiStore";
 
-function getView() {
+function getView(initialPath = "/") {
   const user = userEvent.setup();
-  render(<App />);
+  render(
+    <MemoryRouter initialEntries={[initialPath]}>
+      <App />
+    </MemoryRouter>,
+  );
 
   const getSampleBinButton = () => screen.getByRole("button", { name: /Приклад \.bin|Sample \.bin/ });
   const clickSampleBin = () => user.click(getSampleBinButton());
+  const getArduPilotSetupLink = () => screen.getByRole("link", { name: /Налаштувати підключений апарат|Set up a live vehicle/ });
+  const clickArduPilotSetupLink = () => user.click(getArduPilotSetupLink());
 
-  return { user, getSampleBinButton, clickSampleBin };
+  return { user, getSampleBinButton, clickSampleBin, getArduPilotSetupLink, clickArduPilotSetupLink };
 }
 
+beforeEach(() => {
+  mockWindows("main");
+  mockIPC((cmd) => (cmd === "list_serial_ports" ? [] : undefined), { shouldMockEvents: true });
+});
+
 afterEach(async () => {
+  // See ArduPilotSetupView.test.tsx for why cleanup() + a macrotask flush must happen
+  // before clearMocks() - the ArduPilot Setup route mounted here uses the same
+  // subscribe-in-effect pattern.
+  cleanup();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  clearMocks();
   useFileStore.getState().clearFile();
+  useMavlinkConnectionStore.getState().reset();
   useUiStore.getState().setActiveTab("logs");
   await i18n.changeLanguage("uk");
 });
@@ -68,5 +89,20 @@ describe("App", () => {
 
     expect(await screen.findByRole("heading", { name: "Log Data" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Logs" })).toBeInTheDocument();
+  });
+
+  it("navigates to the ArduPilot Setup page from the Home CTA", async () => {
+    const { clickArduPilotSetupLink } = getView();
+
+    await clickArduPilotSetupLink();
+
+    expect(await screen.findByRole("heading", { name: "Налаштування ArduPilot" })).toBeInTheDocument();
+  });
+
+  it("renders the ArduPilot Setup page directly at /ardupilot-setup, independent of the file store", () => {
+    getView("/ardupilot-setup");
+
+    expect(screen.getByRole("heading", { name: "Налаштування ArduPilot" })).toBeInTheDocument();
+    expect(screen.queryByTestId("home-dropzone")).not.toBeInTheDocument();
   });
 });

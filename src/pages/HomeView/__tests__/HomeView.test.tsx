@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router";
 import { FlightBinBuilder } from "../../../builders/FlightBinBuilder/FlightBinBuilder";
 import { SkylogFileBuilder } from "../../../builders/SkylogFileBuilder/SkylogFileBuilder";
 import { getCoreWorker } from "../../../services/coreWorkerClient/coreWorkerClient";
@@ -17,18 +18,33 @@ vi.mock("../../../services/coreWorkerClient/coreWorkerClient", async () => {
 
 function getView() {
   const user = userEvent.setup();
-  render(<HomeView />);
+  render(
+    <MemoryRouter>
+      <HomeView />
+    </MemoryRouter>,
+  );
 
   const getFileInput = () => screen.getByTestId("home-file-input");
   const getSampleBinButton = () => screen.getByRole("button", { name: "Приклад .bin" });
   const getSampleSkylogButton = () => screen.getByRole("button", { name: "Приклад .skylog" });
+  const getArduPilotSetupLink = () => screen.getByRole("link", { name: "Налаштувати підключений апарат" });
 
   const uploadFile = (file: File) => user.upload(getFileInput(), file);
   const dropFileOnZone = (file: File) => dropFile("home-dropzone", file);
   const clickSampleBin = () => user.click(getSampleBinButton());
   const clickSampleSkylog = () => user.click(getSampleSkylogButton());
 
-  return { user, getFileInput, getSampleBinButton, getSampleSkylogButton, uploadFile, dropFileOnZone, clickSampleBin, clickSampleSkylog };
+  return {
+    user,
+    getFileInput,
+    getSampleBinButton,
+    getSampleSkylogButton,
+    getArduPilotSetupLink,
+    uploadFile,
+    dropFileOnZone,
+    clickSampleBin,
+    clickSampleSkylog,
+  };
 }
 
 afterEach(() => {
@@ -41,6 +57,11 @@ describe("HomeView", () => {
     getView();
     expect(screen.getByRole("heading", { name: "ArduLens" })).toBeInTheDocument();
     expect(screen.getByTestId("home-dropzone")).toBeInTheDocument();
+  });
+
+  it("links to the ArduPilot Setup page", () => {
+    const { getArduPilotSetupLink } = getView();
+    expect(getArduPilotSetupLink()).toHaveAttribute("href", "/ardupilot-setup");
   });
 
   it("uploading a valid file sets the shared file store", async () => {

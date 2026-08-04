@@ -25,6 +25,31 @@
       "subtitle": "or click to choose a file",
       "reading": "Reading file...",
       "parsing": "Parsing file..."
+    },
+    "ardupilotSetupCta": "Set up a live vehicle"
+  },
+  "ardupilotSetup": {
+    "heading": "ArduPilot Setup",
+    "description": "Connect to a real ArduPilot vehicle for live telemetry, parameters, calibration, and motor/servo setup - separate from the offline log viewer.",
+    "backToHome": "Back to Home",
+    "connect": {
+      "modeSerial": "USB / Serial",
+      "modeUdp": "UDP (WiFi / SITL)",
+      "portLabel": "Serial port",
+      "portPlaceholder": "No ports found - plug in a device and refresh",
+      "refreshPorts": "Refresh ports",
+      "baudLabel": "Baud rate",
+      "udpPortLabel": "Listen port",
+      "udpPortHint": "The vehicle/SITL must be configured to send MAVLink to this port on this computer.",
+      "connect": "Connect",
+      "disconnect": "Disconnect",
+      "statusIdle": "Not connected",
+      "statusConnecting": "Connecting...",
+      "statusConnected": "Connected: {{detail}}",
+      "statusError": "Connection error: {{message}}",
+      "bytesReceived": "Received",
+      "bytesSent": "Sent",
+      "bytesUnit": "{{count}} B"
     }
   },
   "logs": {
