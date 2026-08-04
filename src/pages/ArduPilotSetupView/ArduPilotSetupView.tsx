@@ -1,11 +1,15 @@
 import { ArrowLeft } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { encodePacket } from "../../mavlink/codec/codec";
+import { MavlinkFramer } from "../../mavlink/framer/framer";
+import { mavAutopilotLabel, mavStateLabel, mavTypeLabel } from "../../mavlink/labels/labels";
+import { Heartbeat, MavAutopilot, MavModeFlag, MavState, MavType } from "../../mavlink/registry/registry";
 import {
   connectSerial,
   connectUdp,
@@ -13,12 +17,39 @@ import {
   listSerialPorts,
   onData,
   onStatus,
+  sendBytes,
 } from "../../services/mavlinkTransport/mavlinkTransport";
 import type { SerialPortInfo } from "../../services/mavlinkTransport/types";
 import { useMavlinkConnectionStore } from "../../stores/mavlinkConnectionStore/mavlinkConnectionStore";
+import { useMavlinkVehicleStore } from "../../stores/mavlinkVehicleStore/mavlinkVehicleStore";
 
 const BAUD_RATES = [9600, 38400, 57600, 115200, 921600];
 const DEFAULT_UDP_PORT = 14550;
+const HEARTBEAT_INTERVAL_MS = 1000;
+// ArduPilot sends its own heartbeat at ~1Hz, so 2s is enough margin to see at least one on
+// the right port/baud rate combination without making a wrong port take too long to skip.
+const AUTO_CONNECT_TIMEOUT_MS = 2000;
+// Our own identity as a "ground station" system on the link, following the same convention
+// Mission Planner/QGC use - ArduPilot doesn't care what these are, but a GCS-failsafe setup
+// on the vehicle does need *some* heartbeat arriving periodically from a non-vehicle system.
+const GCS_SYSID = 255;
+const GCS_COMPID = 190;
+
+/** Resolves true if a heartbeat (any vehicle) arrives within `timeoutMs`, false otherwise. */
+function waitForHeartbeat(timeoutMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => {
+      unsubscribe();
+      resolve(false);
+    }, timeoutMs);
+    const unsubscribe = useMavlinkVehicleStore.subscribe((state) => {
+      if (!state.vehicle) return;
+      window.clearTimeout(timer);
+      unsubscribe();
+      resolve(true);
+    });
+  });
+}
 
 const SELECT_CLASSNAME =
   "flex h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50";
@@ -35,12 +66,20 @@ export function ArduPilotSetupView() {
   const setDisconnected = useMavlinkConnectionStore((s) => s.setDisconnected);
   const setError = useMavlinkConnectionStore((s) => s.setError);
   const addBytesReceived = useMavlinkConnectionStore((s) => s.addBytesReceived);
+  const addBytesSent = useMavlinkConnectionStore((s) => s.addBytesSent);
+  const vehicle = useMavlinkVehicleStore((s) => s.vehicle);
+  const setVehicle = useMavlinkVehicleStore((s) => s.setVehicle);
+  const resetVehicle = useMavlinkVehicleStore((s) => s.reset);
 
   const [mode, setMode] = useState<"serial" | "udp">("udp");
   const [ports, setPorts] = useState<SerialPortInfo[]>([]);
   const [selectedPort, setSelectedPort] = useState("");
   const [baudRate, setBaudRate] = useState(BAUD_RATES[2]!);
   const [udpPort, setUdpPort] = useState(DEFAULT_UDP_PORT);
+  const [scanningPort, setScanningPort] = useState<string | null>(null);
+
+  const framerRef = useRef(new MavlinkFramer());
+  const outgoingSeqRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -49,6 +88,18 @@ export function ArduPilotSetupView() {
 
     void onData((bytes) => {
       addBytesReceived(bytes.length);
+      for (const packet of framerRef.current.push(bytes)) {
+        if (packet.msgId !== Heartbeat.MSG_ID) continue;
+        const hb = packet.message as Heartbeat;
+        setVehicle({
+          type: hb.type,
+          autopilot: hb.autopilot,
+          armed: (hb.baseMode & MavModeFlag.SAFETY_ARMED) !== 0,
+          systemStatus: hb.systemStatus,
+          customMode: hb.customMode,
+          lastHeartbeatAt: Date.now(),
+        });
+      }
     }).then((unlisten) => {
       if (cancelled) unlisten();
       else unlistenData = unlisten;
@@ -56,8 +107,13 @@ export function ArduPilotSetupView() {
 
     void onStatus((s) => {
       if (s.kind === "connected") setConnected(s.detail);
-      else if (s.kind === "disconnected") setDisconnected();
-      else setError(s.message);
+      else if (s.kind === "disconnected") {
+        setDisconnected();
+        resetVehicle();
+      } else {
+        setError(s.message);
+        resetVehicle();
+      }
     }).then((unlisten) => {
       if (cancelled) unlisten();
       else unlistenStatus = unlisten;
@@ -68,7 +124,37 @@ export function ArduPilotSetupView() {
       unlistenData?.();
       unlistenStatus?.();
     };
-  }, [addBytesReceived, setConnected, setDisconnected, setError]);
+  }, [addBytesReceived, setConnected, setDisconnected, setError, setVehicle, resetVehicle]);
+
+  // A GCS is expected to send its own periodic heartbeat - some vehicles use its absence to
+  // trigger a GCS-failsafe. Best-effort: a single failed send doesn't flip the whole
+  // connection to an error state, it just tries again next tick.
+  useEffect(() => {
+    if (status !== "connected") return;
+
+    function sendHeartbeat() {
+      const hb = new Heartbeat();
+      hb.type = MavType.GCS;
+      hb.autopilot = MavAutopilot.INVALID;
+      hb.baseMode = 0 as MavModeFlag;
+      hb.customMode = 0;
+      hb.systemStatus = MavState.ACTIVE;
+      hb.mavlinkVersion = 3;
+
+      const seq = outgoingSeqRef.current;
+      outgoingSeqRef.current = (seq + 1) % 256;
+      const packet = encodePacket(hb, { seq, sysid: GCS_SYSID, compid: GCS_COMPID });
+      sendBytes(packet)
+        .then(() => addBytesSent(packet.length))
+        .catch(() => {
+          // Best-effort - the next tick will just try again.
+        });
+    }
+
+    sendHeartbeat();
+    const id = window.setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [status, addBytesSent]);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,6 +193,30 @@ export function ArduPilotSetupView() {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
+  }
+
+  async function handleAutoConnect() {
+    setConnecting();
+    resetVehicle();
+    for (const port of ports) {
+      setScanningPort(port.name);
+      try {
+        await connectSerial(port.name, baudRate);
+      } catch {
+        continue; // couldn't even open this one - try the next
+      }
+
+      const found = await waitForHeartbeat(AUTO_CONNECT_TIMEOUT_MS);
+      if (found) {
+        setSelectedPort(port.name);
+        setScanningPort(null);
+        return; // stay connected - onStatus already reflected "connected"
+      }
+
+      await disconnect().catch(() => {});
+    }
+    setScanningPort(null);
+    setError(t("ardupilotSetup.connect.autoConnectFailed"));
   }
 
   async function handleDisconnect() {
@@ -202,6 +312,15 @@ export function ArduPilotSetupView() {
               <Button type="button" variant="ghost" onClick={() => void refreshPorts()} disabled={isConnected || isBusy}>
                 {t("ardupilotSetup.connect.refreshPorts")}
               </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void handleAutoConnect()}
+                disabled={isConnected || isBusy || ports.length === 0}
+              >
+                {t("ardupilotSetup.connect.autoConnect")}
+              </Button>
             </div>
           ) : (
             <div className="flex flex-col gap-1">
@@ -239,7 +358,10 @@ export function ArduPilotSetupView() {
           <Alert variant={status === "error" ? "destructive" : "info"}>
             <AlertDescription>
               {status === "idle" && t("ardupilotSetup.connect.statusIdle")}
-              {status === "connecting" && t("ardupilotSetup.connect.statusConnecting")}
+              {status === "connecting" &&
+                (scanningPort
+                  ? t("ardupilotSetup.connect.autoConnectScanning", { port: scanningPort })
+                  : t("ardupilotSetup.connect.statusConnecting"))}
               {status === "connected" && t("ardupilotSetup.connect.statusConnected", { detail })}
               {status === "error" && t("ardupilotSetup.connect.statusError", { message: errorMessage })}
             </AlertDescription>
@@ -253,6 +375,28 @@ export function ArduPilotSetupView() {
               {t("ardupilotSetup.connect.bytesSent")}: {t("ardupilotSetup.connect.bytesUnit", { count: bytesSent })}
             </span>
           </div>
+
+          {isConnected && (
+            <div className="flex flex-col gap-2 border-t border-border pt-4">
+              <h3 className="text-sm font-medium">{t("ardupilotSetup.vehicle.heading")}</h3>
+              {vehicle ? (
+                <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+                  <dt className="text-muted-foreground">{t("ardupilotSetup.vehicle.type")}</dt>
+                  <dd>{mavTypeLabel(t, vehicle.type)}</dd>
+                  <dt className="text-muted-foreground">{t("ardupilotSetup.vehicle.autopilot")}</dt>
+                  <dd>{mavAutopilotLabel(t, vehicle.autopilot)}</dd>
+                  <dt className="text-muted-foreground">{t("ardupilotSetup.vehicle.armed")}</dt>
+                  <dd>{vehicle.armed ? t("ardupilotSetup.vehicle.armed") : t("ardupilotSetup.vehicle.disarmed")}</dd>
+                  <dt className="text-muted-foreground">{t("ardupilotSetup.vehicle.status")}</dt>
+                  <dd>{mavStateLabel(t, vehicle.systemStatus)}</dd>
+                  <dt className="text-muted-foreground">{t("ardupilotSetup.vehicle.customMode")}</dt>
+                  <dd>{vehicle.customMode}</dd>
+                </dl>
+              ) : (
+                <p className="text-xs text-muted-foreground">{t("ardupilotSetup.vehicle.waitingForHeartbeat")}</p>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
