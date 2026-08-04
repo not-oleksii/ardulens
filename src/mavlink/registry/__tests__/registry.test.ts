@@ -1,15 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { Heartbeat, MAVLINK_REGISTRY } from "../registry";
+import { GlobalPositionInt, Heartbeat, MAVLINK_REGISTRY } from "../registry";
 
 describe("MAVLINK_REGISTRY", () => {
   it("maps message id 0 to the Heartbeat class", () => {
     expect(MAVLINK_REGISTRY[0]).toBe(Heartbeat);
   });
 
-  it("combines minimal, common, and ardupilotmega dialects into one registry", () => {
-    // A sampling of message ids from each of the three merged dialects.
+  it("combines minimal, common, standard, and ardupilotmega dialects into one registry", () => {
+    // A sampling of message ids from each of the four merged dialects.
     expect(MAVLINK_REGISTRY[0]).toBeDefined(); // HEARTBEAT (minimal)
     expect(MAVLINK_REGISTRY[1]).toBeDefined(); // SYS_STATUS (common)
+    expect(MAVLINK_REGISTRY[33]).toBe(GlobalPositionInt); // GLOBAL_POSITION_INT (standard)
     expect(MAVLINK_REGISTRY[150]).toBeDefined(); // SENSOR_OFFSETS (ardupilotmega)
   });
 

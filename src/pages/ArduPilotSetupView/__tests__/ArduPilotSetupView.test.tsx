@@ -5,8 +5,22 @@ import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
 import { encodePacket } from "../../../mavlink/codec/codec";
-import { Heartbeat, MavAutopilot, MavModeFlag, MavState, MavType } from "../../../mavlink/registry/registry";
+import {
+  Attitude,
+  GlobalPositionInt,
+  GpsFixType,
+  GpsRawInt,
+  Heartbeat,
+  MavAutopilot,
+  MavModeFlag,
+  MavState,
+  MavType,
+  RequestDataStream,
+  SysStatus,
+  VfrHud,
+} from "../../../mavlink/registry/registry";
 import { useMavlinkConnectionStore } from "../../../stores/mavlinkConnectionStore/mavlinkConnectionStore";
+import { useMavlinkTelemetryStore } from "../../../stores/mavlinkTelemetryStore/mavlinkTelemetryStore";
 import { useMavlinkVehicleStore } from "../../../stores/mavlinkVehicleStore/mavlinkVehicleStore";
 import { ArduPilotSetupView } from "../ArduPilotSetupView";
 
@@ -97,6 +111,7 @@ afterEach(async () => {
   clearMocks();
   useMavlinkConnectionStore.getState().reset();
   useMavlinkVehicleStore.getState().reset();
+  useMavlinkTelemetryStore.getState().reset();
 });
 
 describe("ArduPilotSetupView", () => {
@@ -261,6 +276,94 @@ describe("ArduPilotSetupView", () => {
     const sentBytes = (sendCall?.[1] as { bytes: number[] } | undefined)?.bytes;
     expect(sentBytes?.[0]).toBe(0xfd); // MAVLink v2 start byte
     expect(sentBytes?.[7]).toBe(0); // HEARTBEAT msg id
+  });
+
+  it("decodes live telemetry messages and shows them in the telemetry dashboard", async () => {
+    mockBackend();
+    const { clickConnect, getStatusAlert } = getView();
+    await clickConnect();
+    await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+    await within(getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+
+    const hb = new Heartbeat();
+    hb.type = MavType.QUADROTOR;
+    hb.autopilot = MavAutopilot.ARDUPILOTMEGA;
+    hb.baseMode = MavModeFlag.STABILIZE_ENABLED;
+    hb.customMode = 0;
+    hb.systemStatus = MavState.ACTIVE;
+    hb.mavlinkVersion = 3;
+    await emit("mavlink-transport://data", { bytes: Array.from(encodePacket(hb, { seq: 1, sysid: 1, compid: 1 })) });
+    await screen.findByText("Активний");
+
+    const att = new Attitude();
+    att.roll = 0.1745329; // ~10 deg
+    att.pitch = -0.0872665; // ~-5 deg
+    att.yaw = 1.5707963; // 90 deg
+    await emit("mavlink-transport://data", { bytes: Array.from(encodePacket(att, { seq: 2, sysid: 1, compid: 1 })) });
+
+    const vfr = new VfrHud();
+    vfr.airspeed = 12.3;
+    vfr.groundspeed = 11.8;
+    vfr.alt = 123.4;
+    vfr.climb = 0.5;
+    vfr.heading = 267; // deliberately not a multiple of the tape's 10-degree tick step
+    vfr.throttle = 65;
+    await emit("mavlink-transport://data", { bytes: Array.from(encodePacket(vfr, { seq: 3, sysid: 1, compid: 1 })) });
+
+    const sys = new SysStatus();
+    sys.voltageBattery = 16800; // mV
+    sys.currentBattery = 520; // cA
+    sys.batteryRemaining = 77; // %
+    await emit("mavlink-transport://data", { bytes: Array.from(encodePacket(sys, { seq: 4, sysid: 1, compid: 1 })) });
+
+    const gps = new GpsRawInt();
+    gps.fixType = GpsFixType.GPS_FIX_TYPE_3D_FIX;
+    gps.satellitesVisible = 14;
+    await emit("mavlink-transport://data", { bytes: Array.from(encodePacket(gps, { seq: 5, sysid: 1, compid: 1 })) });
+
+    const pos = new GlobalPositionInt();
+    pos.lat = 504500000; // 50.45 deg * 1e7
+    pos.lon = 305200000; // 30.52 deg * 1e7
+    pos.relativeAlt = 100000; // 100 m in mm
+    await emit("mavlink-transport://data", { bytes: Array.from(encodePacket(pos, { seq: 6, sysid: 1, compid: 1 })) });
+
+    // Roll/pitch/yaw drive the attitude ball's geometry (rotation/translation), not text -
+    // covered directly by PrimaryFlightDisplay's own tests. Here we check the values that do
+    // render as text: the PFD's speed/altitude/heading tape readouts, the mode badge, and the
+    // plain-text battery/GPS/position rows kept below the PFD.
+    expect(await screen.findByText("12.3")).toBeInTheDocument(); // airspeed tape
+    expect(screen.getByText("123")).toBeInTheDocument(); // altitude tape
+    expect(screen.getByText("267")).toBeInTheDocument(); // heading tape
+    expect(screen.getByTestId("pfd-armed-badge")).toHaveTextContent("Не озброєно");
+    expect(screen.getByTestId("pfd-mode-badge")).toHaveTextContent("0"); // raw customMode - not Plane
+    expect(screen.getByText("16.80 V")).toBeInTheDocument();
+    expect(screen.getByText("5.2 A")).toBeInTheDocument();
+    expect(screen.getByText("77%")).toBeInTheDocument();
+    expect(screen.getByText("3D-фіксація")).toBeInTheDocument();
+    expect(screen.getByText("14")).toBeInTheDocument();
+    expect(screen.getByText("50.450000, 30.520000")).toBeInTheDocument();
+    expect(screen.queryByText("Очікування телеметрії...")).not.toBeInTheDocument();
+  });
+
+  it("requests telemetry data streams once the vehicle's heartbeat is known", async () => {
+    const invoked = vi.fn();
+    mockBackend(invoked);
+    const { clickConnect, getStatusAlert } = getView();
+    await clickConnect();
+    await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+    await within(getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+
+    invoked.mockClear();
+    await emit("mavlink-transport://data", { bytes: sampleHeartbeatBytes() });
+
+    await vi.waitFor(() => {
+      const requestStreamCalls = invoked.mock.calls.filter(([cmd, payload]) => {
+        if (cmd !== "send_bytes") return false;
+        const bytes = (payload as { bytes: number[] }).bytes;
+        return bytes[7] === RequestDataStream.MSG_ID;
+      });
+      expect(requestStreamCalls.length).toBe(4);
+    });
   });
 
   describe("auto-connect", () => {

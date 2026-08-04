@@ -3,6 +3,8 @@ import { useMavlinkVehicleStore } from "../mavlinkVehicleStore";
 import type { VehicleInfo } from "../types";
 
 const SAMPLE: VehicleInfo = {
+  sysid: 1,
+  compid: 1,
   type: 2,
   autopilot: 3,
   armed: false,

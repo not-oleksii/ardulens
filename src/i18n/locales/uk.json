@@ -32,6 +32,10 @@
     "heading": "Налаштування ArduPilot",
     "description": "Підключіться до реального апарата на ArduPilot для телеметрії наживо, параметрів, калібрування та налаштування моторів/сервоприводів - окремо від офлайн-перегляду логів.",
     "backToHome": "На головну",
+    "map": {
+      "heading": "Карта",
+      "comingSoon": "Карта польоту наживо - у наступному релізі"
+    },
     "connect": {
       "modeSerial": "USB / Серійний порт",
       "modeUdp": "UDP (WiFi / SITL)",
@@ -62,7 +66,6 @@
       "armed": "Озброєно",
       "disarmed": "Не озброєно",
       "status": "Стан",
-      "customMode": "Режим польоту (сирий)",
       "types": {
         "generic": "Загальний",
         "fixedWing": "Літак (крило)",
@@ -95,6 +98,42 @@
         "emergency": "Аварійний",
         "poweroff": "Вимкнення",
         "flightTermination": "Аварійне переривання польоту",
+        "unknown": "Невідомо ({{value}})"
+      }
+    },
+    "telemetry": {
+      "heading": "Телеметрія",
+      "waitingForTelemetry": "Очікування телеметрії...",
+      "pfdAriaLabel": "Основний пілотажний прилад",
+      "pfd": {
+        "airspeedLabel": "ШВИДК, м/с",
+        "altitudeLabel": "ВИС, м"
+      },
+      "roll": "Крен",
+      "pitch": "Тангаж",
+      "yaw": "Курс (yaw)",
+      "altitude": "Висота (відносна)",
+      "climb": "Швидкість набору висоти",
+      "airspeed": "Повітряна швидкість",
+      "groundspeed": "Швидкість відносно землі",
+      "compassHeading": "Азимут",
+      "throttle": "Газ",
+      "batteryVoltage": "Напруга батареї",
+      "batteryCurrent": "Струм батареї",
+      "batteryRemaining": "Заряд батареї",
+      "gpsFixLabel": "GPS-фікс",
+      "satellites": "Супутники",
+      "position": "Позиція (шир., довг.)",
+      "gpsFix": {
+        "noGps": "Немає GPS",
+        "noFix": "Немає фіксації",
+        "fix2d": "2D-фіксація",
+        "fix3d": "3D-фіксація",
+        "dgps": "DGPS",
+        "rtkFloat": "RTK float",
+        "rtkFixed": "RTK fixed",
+        "static": "Статичний",
+        "ppp": "PPP",
         "unknown": "Невідомо ({{value}})"
       }
     }

@@ -1,4 +1,4 @@
-import { MavAutopilot, MavState, MavType } from "../registry/registry";
+import { GpsFixType, MavAutopilot, MavState, MavType } from "../registry/registry";
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
@@ -51,4 +51,23 @@ export function mavAutopilotLabel(t: Translate, autopilot: MavAutopilot): string
 export function mavStateLabel(t: Translate, state: MavState): string {
   const key = STATE_KEYS[state];
   return key ? t(`ardupilotSetup.vehicle.states.${key}`) : t("ardupilotSetup.vehicle.states.unknown", { value: state });
+}
+
+const GPS_FIX_KEYS: Partial<Record<GpsFixType, string>> = {
+  [GpsFixType.NO_GPS]: "noGps",
+  [GpsFixType.NO_FIX]: "noFix",
+  [GpsFixType.GPS_FIX_TYPE_2D_FIX]: "fix2d",
+  [GpsFixType.GPS_FIX_TYPE_3D_FIX]: "fix3d",
+  [GpsFixType.DGPS]: "dgps",
+  [GpsFixType.RTK_FLOAT]: "rtkFloat",
+  [GpsFixType.RTK_FIXED]: "rtkFixed",
+  [GpsFixType.STATIC]: "static",
+  [GpsFixType.PPP]: "ppp",
+};
+
+export function gpsFixTypeLabel(t: Translate, fixType: GpsFixType): string {
+  const key = GPS_FIX_KEYS[fixType];
+  return key
+    ? t(`ardupilotSetup.telemetry.gpsFix.${key}`)
+    : t("ardupilotSetup.telemetry.gpsFix.unknown", { value: fixType });
 }
