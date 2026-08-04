@@ -38,6 +38,9 @@
       "portLabel": "Серійний порт",
       "portPlaceholder": "Портів не знайдено - підключіть пристрій і оновіть",
       "refreshPorts": "Оновити порти",
+      "autoConnect": "Автовизначення",
+      "autoConnectScanning": "Сканування {{port}}...",
+      "autoConnectFailed": "Не знайдено heartbeat ArduPilot на жодному порту",
       "baudLabel": "Швидкість (baud rate)",
       "udpPortLabel": "Порт прослуховування",
       "udpPortHint": "Апарат/SITL має бути налаштований надсилати MAVLink на цей порт цього комп'ютера.",
@@ -50,6 +53,50 @@
       "bytesReceived": "Отримано",
       "bytesSent": "Надіслано",
       "bytesUnit": "{{count}} Б"
+    },
+    "vehicle": {
+      "heading": "Апарат",
+      "waitingForHeartbeat": "Очікування першого heartbeat від апарата...",
+      "type": "Тип",
+      "autopilot": "Автопілот",
+      "armed": "Озброєно",
+      "disarmed": "Не озброєно",
+      "status": "Стан",
+      "customMode": "Режим польоту (сирий)",
+      "types": {
+        "generic": "Загальний",
+        "fixedWing": "Літак (крило)",
+        "quadrotor": "Квадрокоптер",
+        "coaxial": "Співвісний",
+        "helicopter": "Гелікоптер",
+        "antennaTracker": "Трекер антени",
+        "groundRover": "Наземний ровер",
+        "surfaceBoat": "Надводний човен",
+        "submarine": "Підводний апарат",
+        "hexarotor": "Гексакоптер",
+        "octorotor": "Октокоптер",
+        "tricopter": "Трикоптер",
+        "unknown": "Невідомо ({{value}})"
+      },
+      "autopilots": {
+        "generic": "Загальний",
+        "ardupilotmega": "ArduPilot",
+        "px4": "PX4",
+        "invalid": "Недійсний",
+        "unknown": "Невідомо ({{value}})"
+      },
+      "states": {
+        "uninit": "Не ініціалізовано",
+        "boot": "Завантаження",
+        "calibrating": "Калібрування",
+        "standby": "Очікування",
+        "active": "Активний",
+        "critical": "Критичний",
+        "emergency": "Аварійний",
+        "poweroff": "Вимкнення",
+        "flightTermination": "Аварійне переривання польоту",
+        "unknown": "Невідомо ({{value}})"
+      }
     }
   },
   "logs": {

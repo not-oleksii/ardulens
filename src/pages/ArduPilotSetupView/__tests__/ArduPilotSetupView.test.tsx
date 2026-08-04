@@ -4,13 +4,27 @@ import { emit } from "@tauri-apps/api/event";
 import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
+import { encodePacket } from "../../../mavlink/codec/codec";
+import { Heartbeat, MavAutopilot, MavModeFlag, MavState, MavType } from "../../../mavlink/registry/registry";
 import { useMavlinkConnectionStore } from "../../../stores/mavlinkConnectionStore/mavlinkConnectionStore";
+import { useMavlinkVehicleStore } from "../../../stores/mavlinkVehicleStore/mavlinkVehicleStore";
 import { ArduPilotSetupView } from "../ArduPilotSetupView";
 
 const SAMPLE_PORTS = [
   { name: "COM3", description: "USB Serial" },
   { name: "COM4", description: null },
 ];
+
+function sampleHeartbeatBytes(): number[] {
+  const hb = new Heartbeat();
+  hb.type = MavType.QUADROTOR;
+  hb.autopilot = MavAutopilot.ARDUPILOTMEGA;
+  hb.baseMode = MavModeFlag.STABILIZE_ENABLED;
+  hb.customMode = 0;
+  hb.systemStatus = MavState.STANDBY;
+  hb.mavlinkVersion = 3;
+  return Array.from(encodePacket(hb, { seq: 1, sysid: 1, compid: 1 }));
+}
 
 function mockBackend(invoked: (cmd: string, payload?: unknown) => void = () => {}) {
   mockIPC(
@@ -82,6 +96,7 @@ afterEach(async () => {
   await new Promise((resolve) => setTimeout(resolve, 0));
   clearMocks();
   useMavlinkConnectionStore.getState().reset();
+  useMavlinkVehicleStore.getState().reset();
 });
 
 describe("ArduPilotSetupView", () => {
@@ -201,5 +216,137 @@ describe("ArduPilotSetupView", () => {
     await emit("mavlink-transport://data", { bytes: [4, 5] });
 
     expect(await screen.findByText("Отримано: 5 Б")).toBeInTheDocument();
+  });
+
+  it("decodes a real HEARTBEAT pushed through the data event and shows the vehicle panel", async () => {
+    mockBackend();
+    const { clickConnect, getStatusAlert } = getView();
+    await clickConnect();
+    await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+    await within(getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+
+    const hb = new Heartbeat();
+    hb.type = MavType.QUADROTOR;
+    hb.autopilot = MavAutopilot.ARDUPILOTMEGA;
+    hb.baseMode = MavModeFlag.SAFETY_ARMED | MavModeFlag.STABILIZE_ENABLED | MavModeFlag.CUSTOM_MODE_ENABLED;
+    hb.customMode = 4; // ArduCopter GUIDED
+    hb.systemStatus = MavState.ACTIVE;
+    hb.mavlinkVersion = 3;
+    const packet = encodePacket(hb, { seq: 1, sysid: 1, compid: 1 });
+
+    await emit("mavlink-transport://data", { bytes: Array.from(packet) });
+
+    expect(await screen.findByText("Квадрокоптер")).toBeInTheDocument();
+    expect(screen.getByText("ArduPilot")).toBeInTheDocument();
+    expect(screen.getByText("Активний")).toBeInTheDocument();
+    expect(screen.getByText("4")).toBeInTheDocument();
+    // "Armed" appears as both a label and the current value - assert at least one match.
+    expect(screen.getAllByText("Озброєно").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Очікування першого heartbeat від апарата...")).not.toBeInTheDocument();
+  });
+
+  it("sends its own periodic GCS heartbeat once connected", async () => {
+    const invoked = vi.fn();
+    mockBackend(invoked);
+    const { clickConnect, getStatusAlert } = getView();
+    await clickConnect();
+
+    await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+    await within(getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+
+    await vi.waitFor(() => {
+      expect(invoked.mock.calls.some(([cmd]) => cmd === "send_bytes")).toBe(true);
+    });
+    const sendCall = invoked.mock.calls.find(([cmd]) => cmd === "send_bytes");
+    const sentBytes = (sendCall?.[1] as { bytes: number[] } | undefined)?.bytes;
+    expect(sentBytes?.[0]).toBe(0xfd); // MAVLink v2 start byte
+    expect(sentBytes?.[7]).toBe(0); // HEARTBEAT msg id
+  });
+
+  describe("auto-connect", () => {
+    function calledWithPort(invoked: ReturnType<typeof vi.fn>, cmd: string, port: string) {
+      return invoked.mock.calls.some(
+        ([c, payload]) => c === cmd && (payload as { portName?: string } | undefined)?.portName === port,
+      );
+    }
+
+    it("connects immediately when the first candidate port responds with a heartbeat", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { clickSerialMode, user, getStatusAlert } = getView();
+      await clickSerialMode();
+      await screen.findByRole("option", { name: "COM3 - USB Serial" });
+
+      await user.click(screen.getByRole("button", { name: "Автовизначення" }));
+
+      await vi.waitFor(() => expect(calledWithPort(invoked, "connect_serial", "COM3")).toBe(true));
+      await emit("mavlink-transport://status", { kind: "connected", detail: "serial:COM3@57600" });
+      await emit("mavlink-transport://data", { bytes: sampleHeartbeatBytes() });
+
+      expect(await within(getStatusAlert()).findByText("Підключено: serial:COM3@57600")).toBeInTheDocument();
+      expect(screen.getByLabelText("Серійний порт")).toHaveValue("COM3");
+    });
+
+    it(
+      "tries the next port when the first one gives no heartbeat within the timeout",
+      async () => {
+        const invoked = vi.fn();
+        mockBackend(invoked);
+        const { clickSerialMode, user, getStatusAlert } = getView();
+        await clickSerialMode();
+        await screen.findByRole("option", { name: "COM3 - USB Serial" });
+
+        await user.click(screen.getByRole("button", { name: "Автовизначення" }));
+
+        await vi.waitFor(() => expect(calledWithPort(invoked, "connect_serial", "COM3")).toBe(true));
+        await emit("mavlink-transport://status", { kind: "connected", detail: "serial:COM3@57600" });
+        // No heartbeat for COM3 - the scan should time out and move on to COM4.
+
+        await vi.waitFor(() => expect(invoked.mock.calls.some(([c]) => c === "disconnect")).toBe(true), {
+          timeout: 5000,
+        });
+        await vi.waitFor(() => expect(calledWithPort(invoked, "connect_serial", "COM4")).toBe(true), { timeout: 5000 });
+
+        await emit("mavlink-transport://status", { kind: "connected", detail: "serial:COM4@57600" });
+        await emit("mavlink-transport://data", { bytes: sampleHeartbeatBytes() });
+
+        expect(await within(getStatusAlert()).findByText("Підключено: serial:COM4@57600")).toBeInTheDocument();
+        expect(screen.getByLabelText("Серійний порт")).toHaveValue("COM4");
+      },
+      10000,
+    );
+
+    it(
+      "shows an error when no candidate port produces a heartbeat",
+      async () => {
+        const invoked = vi.fn();
+        mockIPC(
+          (cmd, payload) => {
+            invoked(cmd, payload);
+            if (cmd === "list_serial_ports") return [{ name: "COM3", description: "USB Serial" }];
+            return undefined;
+          },
+          { shouldMockEvents: true },
+        );
+        const { clickSerialMode, user, getStatusAlert } = getView();
+        await clickSerialMode();
+        await screen.findByRole("option", { name: "COM3 - USB Serial" });
+
+        await user.click(screen.getByRole("button", { name: "Автовизначення" }));
+
+        await vi.waitFor(() => expect(calledWithPort(invoked, "connect_serial", "COM3")).toBe(true));
+        await emit("mavlink-transport://status", { kind: "connected", detail: "serial:COM3@57600" });
+        // Never emit a heartbeat.
+
+        expect(
+          await within(getStatusAlert()).findByText(
+            "Помилка підключення: Не знайдено heartbeat ArduPilot на жодному порту",
+            {},
+            { timeout: 5000 },
+          ),
+        ).toBeInTheDocument();
+      },
+      10000,
+    );
   });
 });

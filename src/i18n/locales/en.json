@@ -38,6 +38,9 @@
       "portLabel": "Serial port",
       "portPlaceholder": "No ports found - plug in a device and refresh",
       "refreshPorts": "Refresh ports",
+      "autoConnect": "Auto-detect",
+      "autoConnectScanning": "Scanning {{port}}...",
+      "autoConnectFailed": "No ArduPilot heartbeat found on any port",
       "baudLabel": "Baud rate",
       "udpPortLabel": "Listen port",
       "udpPortHint": "The vehicle/SITL must be configured to send MAVLink to this port on this computer.",
@@ -50,6 +53,50 @@
       "bytesReceived": "Received",
       "bytesSent": "Sent",
       "bytesUnit": "{{count}} B"
+    },
+    "vehicle": {
+      "heading": "Vehicle",
+      "waitingForHeartbeat": "Waiting for the vehicle's first heartbeat...",
+      "type": "Type",
+      "autopilot": "Autopilot",
+      "armed": "Armed",
+      "disarmed": "Disarmed",
+      "status": "Status",
+      "customMode": "Flight mode (raw)",
+      "types": {
+        "generic": "Generic",
+        "fixedWing": "Fixed wing",
+        "quadrotor": "Quadcopter",
+        "coaxial": "Coaxial",
+        "helicopter": "Helicopter",
+        "antennaTracker": "Antenna tracker",
+        "groundRover": "Ground rover",
+        "surfaceBoat": "Surface boat",
+        "submarine": "Submarine",
+        "hexarotor": "Hexacopter",
+        "octorotor": "Octocopter",
+        "tricopter": "Tricopter",
+        "unknown": "Unknown ({{value}})"
+      },
+      "autopilots": {
+        "generic": "Generic",
+        "ardupilotmega": "ArduPilot",
+        "px4": "PX4",
+        "invalid": "Invalid",
+        "unknown": "Unknown ({{value}})"
+      },
+      "states": {
+        "uninit": "Uninitialized",
+        "boot": "Booting",
+        "calibrating": "Calibrating",
+        "standby": "Standby",
+        "active": "Active",
+        "critical": "Critical",
+        "emergency": "Emergency",
+        "poweroff": "Powering off",
+        "flightTermination": "Flight termination",
+        "unknown": "Unknown ({{value}})"
+      }
     }
   },
   "logs": {
