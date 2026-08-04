@@ -16,22 +16,35 @@ in the browser.
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org) 20 or later
+- **Browser build**: [Node.js](https://nodejs.org) 20 or later.
+- **Desktop app**: also needs [Rust](https://rustup.rs) and, on Windows, the MSVC C++
+  Build Tools. You don't need to install these yourself - `run-desktop.bat`/
+  `run-desktop.sh` install whatever's missing automatically (via `winget` on Windows,
+  Homebrew on macOS, or your distro's package manager on Linux) - no need to visit any
+  website. The one exception is Node.js itself if none of those package managers are
+  available; in that rare case the script tells you exactly what's missing.
 
 ## Running the app
 
-The easiest way: double-click the launcher for your OS. It installs dependencies on
-first run, builds the app, and opens it in your browser automatically.
+There are two ways to run ArduLens, and which one you need depends on what you're doing:
 
-- Windows: `run.bat`
-- macOS/Linux: `run.sh` (`./run.sh`)
-
-Or run it manually:
-
-```bash
-npm install
-npm run start
-```
+- **Browser build** - the offline log viewer/analyzer (Logs/Graphs/Map). Double-click the
+  launcher for your OS; it installs dependencies on first run, builds the app, and opens it
+  in your browser automatically.
+  - Windows: `run.bat`
+  - macOS/Linux: `run.sh` (`./run.sh`)
+  - Or manually: `npm install && npm run start`
+- **Desktop app** - required for **ArduPilot Setup** (connecting to a real vehicle over
+  USB/serial or UDP) - a plain browser tab cannot open a serial port or a raw network
+  socket, so the offline browser build above will always show "No ports found" there, even
+  with a vehicle plugged in and working fine in Mission Planner. Use this instead:
+  - Windows: `run-desktop.bat` - installs Node.js/Rust/C++ Build Tools automatically if
+    missing (via `winget`); the C++ Build Tools step is a multi-GB download on a clean
+    machine and may show a Windows permission (UAC) prompt - accept it to continue.
+  - macOS/Linux: `run-desktop.sh` (`./run-desktop.sh`) - best-effort auto-install via
+    Homebrew (macOS) or apt/dnf/pacman (Linux); falls back to a manual-install message if
+    none of those are available.
+  - Or manually: `npm install && npm run tauri dev` (after installing Node.js + Rust yourself)
 
 ## Available scripts
 

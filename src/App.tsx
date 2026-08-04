@@ -1,4 +1,6 @@
+import { Route, Routes } from "react-router";
 import { Sidebar } from "./components/Sidebar/Sidebar";
+import { ArduPilotSetupView } from "./pages/ArduPilotSetupView/ArduPilotSetupView";
 import { AdvisorView } from "./pages/AdvisorView/AdvisorView";
 import { CesiumMapView } from "./pages/CesiumMapView/CesiumMapView";
 import { CompareView } from "./pages/CompareView/CompareView";
@@ -18,7 +20,7 @@ const VIEWS = {
   compare: CompareView,
 } as const;
 
-function App() {
+function LogViewerRoot() {
   const file = useFileStore((s) => s.file);
   const activeTab = useUiStore((s) => s.activeTab);
   const ActiveView = VIEWS[activeTab];
@@ -34,6 +36,15 @@ function App() {
         <ActiveView />
       </main>
     </div>
+  );
+}
+
+function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<LogViewerRoot />} />
+      <Route path="/ardupilot-setup" element={<ArduPilotSetupView />} />
+    </Routes>
   );
 }
 
