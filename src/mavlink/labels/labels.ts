@@ -1,4 +1,4 @@
-import { GpsFixType, MavAutopilot, MavState, MavType } from "../registry/registry";
+import { GpsFixType, MagCalStatus, MavAutopilot, MavResult, MavState, MavType } from "../registry/registry";
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
@@ -70,4 +70,37 @@ export function gpsFixTypeLabel(t: Translate, fixType: GpsFixType): string {
   return key
     ? t(`ardupilotSetup.telemetry.gpsFix.${key}`)
     : t("ardupilotSetup.telemetry.gpsFix.unknown", { value: fixType });
+}
+
+const MAG_CAL_STATUS_KEYS: Partial<Record<MagCalStatus, string>> = {
+  [MagCalStatus.NOT_STARTED]: "notStarted",
+  [MagCalStatus.WAITING_TO_START]: "waitingToStart",
+  [MagCalStatus.RUNNING_STEP_ONE]: "runningStepOne",
+  [MagCalStatus.RUNNING_STEP_TWO]: "runningStepTwo",
+  [MagCalStatus.SUCCESS]: "success",
+  [MagCalStatus.FAILED]: "failed",
+  [MagCalStatus.BAD_ORIENTATION]: "badOrientation",
+  [MagCalStatus.BAD_RADIUS]: "badRadius",
+};
+
+export function magCalStatusLabel(t: Translate, status: MagCalStatus): string {
+  const key = MAG_CAL_STATUS_KEYS[status];
+  return key
+    ? t(`ardupilotSetup.compassCal.status.${key}`)
+    : t("ardupilotSetup.compassCal.status.unknown", { value: status });
+}
+
+const MAV_RESULT_KEYS: Partial<Record<MavResult, string>> = {
+  [MavResult.ACCEPTED]: "accepted",
+  [MavResult.TEMPORARILY_REJECTED]: "temporarilyRejected",
+  [MavResult.DENIED]: "denied",
+  [MavResult.UNSUPPORTED]: "unsupported",
+  [MavResult.FAILED]: "failed",
+  [MavResult.IN_PROGRESS]: "inProgress",
+  [MavResult.CANCELLED]: "cancelled",
+};
+
+export function mavResultLabel(t: Translate, result: MavResult): string {
+  const key = MAV_RESULT_KEYS[result];
+  return key ? t(`ardupilotSetup.compassCal.result.${key}`) : t("ardupilotSetup.compassCal.result.unknown", { value: result });
 }

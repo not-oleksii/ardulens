@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { mavAutopilotLabel, mavStateLabel, mavTypeLabel } from "../labels";
-import { MavAutopilot, MavState, MavType } from "../../registry/registry";
+import { magCalStatusLabel, mavAutopilotLabel, mavResultLabel, mavStateLabel, mavTypeLabel } from "../labels";
+import { MagCalStatus, MavAutopilot, MavResult, MavState, MavType } from "../../registry/registry";
 
 function fakeT() {
   return vi.fn((key: string, options?: Record<string, unknown>) =>
@@ -42,5 +42,31 @@ describe("mavStateLabel", () => {
   it("falls back to unknown for an unmapped state", () => {
     const t = fakeT();
     expect(mavStateLabel(t, 9999 as MavState)).toBe('ardupilotSetup.vehicle.states.unknown:{"value":9999}');
+  });
+});
+
+describe("magCalStatusLabel", () => {
+  it("resolves every named MagCalStatus value", () => {
+    const t = fakeT();
+    expect(magCalStatusLabel(t, MagCalStatus.RUNNING_STEP_ONE)).toBe("ardupilotSetup.compassCal.status.runningStepOne");
+    expect(magCalStatusLabel(t, MagCalStatus.SUCCESS)).toBe("ardupilotSetup.compassCal.status.success");
+    expect(magCalStatusLabel(t, MagCalStatus.BAD_ORIENTATION)).toBe("ardupilotSetup.compassCal.status.badOrientation");
+  });
+
+  it("falls back to unknown for an unmapped status", () => {
+    const t = fakeT();
+    expect(magCalStatusLabel(t, 9999 as MagCalStatus)).toBe('ardupilotSetup.compassCal.status.unknown:{"value":9999}');
+  });
+});
+
+describe("mavResultLabel", () => {
+  it("resolves a known result to its i18n key", () => {
+    const t = fakeT();
+    expect(mavResultLabel(t, MavResult.DENIED)).toBe("ardupilotSetup.compassCal.result.denied");
+  });
+
+  it("falls back to unknown for an unmapped result", () => {
+    const t = fakeT();
+    expect(mavResultLabel(t, 9999 as MavResult)).toBe('ardupilotSetup.compassCal.result.unknown:{"value":9999}');
   });
 });

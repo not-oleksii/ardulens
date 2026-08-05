@@ -9,13 +9,19 @@ import { x25Crc } from "../../../mavlink/crc/crc";
 import { paramValueToWireBits } from "../../../mavlink/paramValueCodec/paramValueCodec";
 import {
   Attitude,
+  CommandAck,
   GlobalPositionInt,
   GpsFixType,
   GpsRawInt,
   Heartbeat,
+  MagCalProgress,
+  MagCalReport,
+  MagCalStatus,
   MavAutopilot,
+  MavCmd,
   MavModeFlag,
   MavParamType,
+  MavResult,
   MavState,
   MavType,
   ParamRequestList,
@@ -26,6 +32,7 @@ import {
   SysStatus,
   VfrHud,
 } from "../../../mavlink/registry/registry";
+import { useMavlinkCompassCalStore } from "../../../stores/mavlinkCompassCalStore/mavlinkCompassCalStore";
 import { useMavlinkConnectionStore } from "../../../stores/mavlinkConnectionStore/mavlinkConnectionStore";
 import { useMavlinkParameterStore } from "../../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import { useMavlinkTelemetryStore } from "../../../stores/mavlinkTelemetryStore/mavlinkTelemetryStore";
@@ -73,6 +80,70 @@ function buildParamValueBytes(
   return Array.from(packet);
 }
 
+/** Builds real MAG_CAL_PROGRESS wire bytes, incl. a correct CRC - no NaN-collapse risk here
+ *  (unlike PARAM_VALUE), so a plain encodePacket() is safe for every field. */
+function buildMagCalProgressBytes(
+  compassId: number,
+  calStatus: MagCalStatus,
+  completionPct: number,
+  completionMask: number[],
+  seq: number,
+): number[] {
+  const msg = new MagCalProgress();
+  msg.directionX = 0;
+  msg.directionY = 0;
+  msg.directionZ = 0;
+  msg.compassId = compassId;
+  msg.calMask = 0b111;
+  msg.calStatus = calStatus;
+  msg.attempt = 1;
+  msg.completionPct = completionPct;
+  msg.completionMask = completionMask;
+  return Array.from(encodePacket(msg, { seq, sysid: 1, compid: 1 }));
+}
+
+function buildMagCalReportBytes(compassId: number, calStatus: MagCalStatus, fitness: number, seq: number): number[] {
+  const msg = new MagCalReport();
+  msg.fitness = fitness;
+  msg.ofsX = 1;
+  msg.ofsY = 2;
+  msg.ofsZ = 3;
+  msg.diagX = 1;
+  msg.diagY = 1;
+  msg.diagZ = 1;
+  msg.offdiagX = 0;
+  msg.offdiagY = 0;
+  msg.offdiagZ = 0;
+  msg.compassId = compassId;
+  msg.calMask = 0b111;
+  msg.calStatus = calStatus;
+  msg.autosaved = 0;
+  return Array.from(encodePacket(msg, { seq, sysid: 1, compid: 1 }));
+}
+
+function buildCommandAckBytes(command: number, result: MavResult, seq: number): number[] {
+  const msg = new CommandAck();
+  msg.command = command;
+  msg.result = result;
+  msg.progress = 0;
+  msg.resultParam2 = 0;
+  msg.targetSystem = 255;
+  msg.targetComponent = 190;
+  return Array.from(encodePacket(msg, { seq, sysid: 1, compid: 1 }));
+}
+
+/** Finds a sent COMMAND_LONG (msg 76) whose `command` field (uint16_t at payload offset 28,
+ *  i.e. absolute byte 38 of the packet) matches the given MAV_CMD id. */
+function findCommandLongSend(invoked: ReturnType<typeof vi.fn>, mavCmd: number) {
+  return invoked.mock.calls.find(([cmd, payload]) => {
+    if (cmd !== "send_bytes") return false;
+    const bytes = (payload as { bytes: number[] }).bytes;
+    if (bytes[7] !== 76) return false;
+    const view = new DataView(new Uint8Array(bytes).buffer);
+    return view.getUint16(38, true) === mavCmd;
+  });
+}
+
 function mockBackend(invoked: (cmd: string, payload?: unknown) => void = () => {}) {
   mockIPC(
     (cmd, payload) => {
@@ -104,6 +175,7 @@ function getView() {
   const getStatusAlert = () => screen.getByRole("alert");
   const getTelemetryNavButton = () => screen.getByRole("tab", { name: "Телеметрія" });
   const getParametersNavButton = () => screen.getByRole("tab", { name: "Параметри" });
+  const getCompassCalNavButton = () => screen.getByRole("tab", { name: "Калібрування компаса" });
   const getMotorsNavButton = () => screen.getByRole("tab", { name: "Налаштування моторів" });
   const getPidTuneNavButton = () => screen.getByRole("tab", { name: "Налаштування PID" });
 
@@ -114,6 +186,7 @@ function getView() {
   const clickDisconnect = () => user.click(getDisconnectButton());
   const clickParametersNav = () => user.click(getParametersNavButton());
   const clickTelemetryNav = () => user.click(getTelemetryNavButton());
+  const clickCompassCalNav = () => user.click(getCompassCalNavButton());
 
   return {
     user,
@@ -129,6 +202,7 @@ function getView() {
     getStatusAlert,
     getTelemetryNavButton,
     getParametersNavButton,
+    getCompassCalNavButton,
     getMotorsNavButton,
     getPidTuneNavButton,
     clickSerialMode,
@@ -138,6 +212,7 @@ function getView() {
     clickDisconnect,
     clickParametersNav,
     clickTelemetryNav,
+    clickCompassCalNav,
   };
 }
 
@@ -164,6 +239,7 @@ afterEach(async () => {
   useMavlinkVehicleStore.getState().reset();
   useMavlinkTelemetryStore.getState().reset();
   useMavlinkParameterStore.getState().reset();
+  useMavlinkCompassCalStore.getState().reset();
   vi.unstubAllGlobals();
 });
 
@@ -576,6 +652,41 @@ describe("ArduPilotSetupView", () => {
       expect(screen.getByRole("button", { name: "Запросити відсутні" })).toBeInTheDocument();
     });
 
+    it("orders the table columns as Name, Value, Description", async () => {
+      mockBackend();
+      const { user } = await connectWithVehicle();
+      await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
+      await emit("mavlink-transport://data", {
+        bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 1, 1),
+      });
+      await screen.findByText("ARSPD_USE");
+
+      const headers = screen.getAllByRole("columnheader").map((h) => h.textContent);
+      expect(headers).toEqual(["Назва", "Значення", "Опис"]);
+    });
+
+    it("batches a fast burst of PARAM_VALUE packets into the table instead of showing them one at a time", async () => {
+      // Regression test for a real freeze: a full parameter list arrives as hundreds of
+      // PARAM_VALUE packets in quick succession, which used to trigger one store update (and
+      // one full-table re-render) per packet. Emitting a burst here and asserting they all
+      // land correctly exercises the buffered/batched flush (PARAM_FLUSH_INTERVAL_MS) instead.
+      mockBackend();
+      const { user } = await connectWithVehicle();
+      await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
+
+      const names = ["ARSPD_USE", "ARSPD_RATIO", "ARSPD_FBW_MIN", "ARSPD_FBW_MAX", "ARSPD_OFFSET"];
+      for (const [i, name] of names.entries()) {
+        await emit("mavlink-transport://data", {
+          bytes: buildParamValueBytes(name, i, MavParamType.INT8, i, names.length, i + 1),
+        });
+      }
+
+      for (const name of names) {
+        expect(await screen.findByText(name)).toBeInTheDocument();
+      }
+      expect(screen.getByText(`Отримано ${names.length} / ${names.length}`)).toBeInTheDocument();
+    });
+
     it("re-requests only the missing indices, not the whole list", async () => {
       const invoked = vi.fn();
       mockBackend(invoked);
@@ -718,6 +829,97 @@ describe("ArduPilotSetupView", () => {
         "href",
         "https://ardupilot.org/copter/docs/parameters.html#arspd-use",
       );
+    });
+  });
+
+  describe("compass calibration", () => {
+    async function connectAndOpenCompassCal() {
+      const view = getView();
+      await view.clickConnect();
+      await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit("mavlink-transport://data", { bytes: sampleHeartbeatBytes() });
+      await view.clickCompassCalNav();
+      return view;
+    }
+
+    it("shows a not-started placeholder before calibration begins", async () => {
+      mockBackend();
+      await connectAndOpenCompassCal();
+      expect(screen.getByText("Калібрування ще не розпочато.")).toBeInTheDocument();
+    });
+
+    it("sends DO_START_MAG_CAL when Start Calibration is clicked", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenCompassCal();
+
+      await user.click(screen.getByRole("button", { name: "Почати калібрування" }));
+
+      await vi.waitFor(() => {
+        expect(findCommandLongSend(invoked, MavCmd.DO_START_MAG_CAL)).toBeDefined();
+      });
+    });
+
+    it("shows per-compass status and coverage percentage as MAG_CAL_PROGRESS arrives", async () => {
+      mockBackend();
+      const { user } = await connectAndOpenCompassCal();
+      await user.click(screen.getByRole("button", { name: "Почати калібрування" }));
+
+      await emit("mavlink-transport://data", {
+        bytes: buildMagCalProgressBytes(0, MagCalStatus.RUNNING_STEP_ONE, 37, new Array<number>(10).fill(0), 1),
+      });
+
+      expect(await screen.findByText("Компас 0")).toBeInTheDocument();
+      expect(screen.getByText("Калібрування (крок 1)")).toBeInTheDocument();
+      expect(screen.getByText("37%")).toBeInTheDocument();
+    });
+
+    it("shows Accept once a compass reports SUCCESS, and sends DO_ACCEPT_MAG_CAL when clicked", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenCompassCal();
+      await user.click(screen.getByRole("button", { name: "Почати калібрування" }));
+      await emit("mavlink-transport://data", {
+        bytes: buildMagCalReportBytes(0, MagCalStatus.SUCCESS, 12.3, 1),
+      });
+      await screen.findByText("Компас 0");
+
+      await user.click(screen.getByRole("button", { name: "Прийняти й зберегти" }));
+
+      await vi.waitFor(() => {
+        expect(findCommandLongSend(invoked, MavCmd.DO_ACCEPT_MAG_CAL)).toBeDefined();
+      });
+      expect(await screen.findByText("Калібрування прийнято - зміщення збережено на апараті.")).toBeInTheDocument();
+    });
+
+    it("sends DO_CANCEL_MAG_CAL when Cancel is clicked mid-calibration", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenCompassCal();
+      await user.click(screen.getByRole("button", { name: "Почати калібрування" }));
+      await emit("mavlink-transport://data", {
+        bytes: buildMagCalProgressBytes(0, MagCalStatus.RUNNING_STEP_ONE, 10, new Array<number>(10).fill(0), 1),
+      });
+      await screen.findByText("Компас 0");
+
+      await user.click(screen.getByRole("button", { name: "Скасувати" }));
+
+      await vi.waitFor(() => {
+        expect(findCommandLongSend(invoked, MavCmd.DO_CANCEL_MAG_CAL)).toBeDefined();
+      });
+    });
+
+    it("shows a rejection alert when the vehicle NACKs DO_START_MAG_CAL", async () => {
+      mockBackend();
+      const { user } = await connectAndOpenCompassCal();
+      await user.click(screen.getByRole("button", { name: "Почати калібрування" }));
+
+      await emit("mavlink-transport://data", {
+        bytes: buildCommandAckBytes(MavCmd.DO_START_MAG_CAL, MavResult.DENIED, 1),
+      });
+
+      expect(await screen.findByText("Апарат відхилив команду: Відхилено")).toBeInTheDocument();
     });
   });
 });

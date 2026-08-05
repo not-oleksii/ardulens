@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -60,10 +60,14 @@ export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissin
     };
   }, [vehicleFolder]);
 
-  const entries = Object.values(params).sort((a, b) => a.name.localeCompare(b.name));
-  const filtered = search.trim()
-    ? entries.filter((p) => p.name.toLowerCase().includes(search.trim().toLowerCase()))
-    : entries;
+  // Sorting/filtering a full (1000+ param) list is cheap once, but re-doing it on every
+  // render (e.g. while typing in an unrelated field) adds up - memoized so it only re-runs
+  // when the underlying data or the search term actually changes.
+  const entries = useMemo(() => Object.values(params).sort((a, b) => a.name.localeCompare(b.name)), [params]);
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return query ? entries.filter((p) => p.name.toLowerCase().includes(query)) : entries;
+  }, [entries, search]);
   const receivedCount = entries.length;
   const hasStarted = expectedCount !== null || receivedCount > 0;
   const isComplete = expectedCount !== null && receivedCount >= expectedCount;
@@ -159,8 +163,8 @@ export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissin
                 <TableHeader className="sticky top-0 bg-card">
                   <TableRow>
                     <TableHead>{t("ardupilotSetup.parameters.name")}</TableHead>
-                    <TableHead>{t("ardupilotSetup.parameters.description")}</TableHead>
                     <TableHead>{t("ardupilotSetup.parameters.value")}</TableHead>
+                    <TableHead>{t("ardupilotSetup.parameters.description")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -172,23 +176,6 @@ export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissin
                     return (
                       <TableRow key={p.name}>
                         <TableCell className="font-mono">{p.name}</TableCell>
-                        <TableCell className="max-w-xs">
-                          {doc ? (
-                            <span title={doc.documentation}>
-                              {doc.humanName}{" "}
-                              <a
-                                href={paramDocsPageUrl(vehicleFolder, p.name)}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="whitespace-nowrap text-primary underline-offset-4 hover:underline"
-                              >
-                                {t("graphs.params.readMore")}
-                              </a>
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
-                        </TableCell>
                         <TableCell className="font-mono">
                           {editingName === p.name ? (
                             <Input
@@ -212,6 +199,23 @@ export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissin
                           )}
                           {!isModified && p.dirty && (
                             <span className="ml-2 text-xs text-muted-foreground">{t("ardupilotSetup.parameters.dirty")}</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="max-w-xs">
+                          {doc ? (
+                            <span title={doc.documentation}>
+                              {doc.humanName}{" "}
+                              <a
+                                href={paramDocsPageUrl(vehicleFolder, p.name)}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="whitespace-nowrap text-primary underline-offset-4 hover:underline"
+                              >
+                                {t("graphs.params.readMore")}
+                              </a>
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
                           )}
                         </TableCell>
                       </TableRow>

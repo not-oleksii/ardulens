@@ -36,12 +36,46 @@
     "sidebar": {
       "telemetry": "Telemetry",
       "parameters": "Parameters",
+      "compassCal": "Compass Cal",
       "motorsSetup": "Motors Setup",
       "pidTune": "PID Tune"
     },
     "comingSoon": {
       "motorsSetup": "Motor/servo test and frame setup - coming in a future release.",
       "pidTune": "PID tuning - coming in a future release."
+    },
+    "compassCal": {
+      "heading": "Compass Calibration",
+      "description": "Start calibration, then rotate the vehicle slowly through as many orientations as possible until each compass's coverage sphere fills in.",
+      "start": "Start Calibration",
+      "cancel": "Cancel",
+      "accept": "Accept & Save",
+      "saved": "Calibration accepted - offsets saved to the vehicle.",
+      "commandRejected": "The vehicle rejected the command: {{result}}",
+      "notStarted": "Calibration hasn't been started yet.",
+      "compass": "Compass {{id}}",
+      "fitness": "Fitness: {{value}} mgauss",
+      "status": {
+        "notStarted": "Not started",
+        "waitingToStart": "Waiting to start",
+        "runningStepOne": "Calibrating (step 1)",
+        "runningStepTwo": "Calibrating (step 2)",
+        "success": "Success",
+        "failed": "Failed",
+        "badOrientation": "Failed - bad orientation, try again slower",
+        "badRadius": "Failed - bad field radius (check for magnetic interference)",
+        "unknown": "Unknown ({{value}})"
+      },
+      "result": {
+        "accepted": "Accepted",
+        "temporarilyRejected": "Temporarily rejected",
+        "denied": "Denied",
+        "unsupported": "Unsupported",
+        "failed": "Failed",
+        "inProgress": "In progress",
+        "cancelled": "Cancelled",
+        "unknown": "Unknown ({{value}})"
+      }
     },
     "map": {
       "heading": "Map",
