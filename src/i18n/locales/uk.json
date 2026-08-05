@@ -32,9 +32,43 @@
     "heading": "Налаштування ArduPilot",
     "description": "Підключіться до реального апарата на ArduPilot для телеметрії наживо, параметрів, калібрування та налаштування моторів/сервоприводів - окремо від офлайн-перегляду логів.",
     "backToHome": "На головну",
+    "notConnected": "Підключіться до апарата, щоб побачити цей розділ.",
+    "sidebar": {
+      "telemetry": "Телеметрія",
+      "parameters": "Параметри",
+      "motorsSetup": "Налаштування моторів",
+      "pidTune": "Налаштування PID"
+    },
+    "comingSoon": {
+      "motorsSetup": "Тест моторів/сервоприводів і налаштування рами - у наступному релізі.",
+      "pidTune": "Налаштування PID - у наступному релізі."
+    },
     "map": {
       "heading": "Карта",
       "comingSoon": "Карта польоту наживо - у наступному релізі"
+    },
+    "parameters": {
+      "heading": "Параметри",
+      "load": "Завантажити параметри",
+      "progress": "Отримано {{received}} / {{total}}",
+      "requestMissing": "Запросити відсутні",
+      "searchPlaceholder": "Пошук параметрів...",
+      "name": "Назва",
+      "description": "Опис",
+      "value": "Значення",
+      "dirty": "очікує",
+      "modified": "змінено",
+      "noMatches": "Немає параметрів, що відповідають пошуку.",
+      "descriptionsLoading": "Завантаження описів параметрів...",
+      "descriptionsUnavailable": "Описи параметрів недоступні (не вдалося з'єднатися з ardupilot.org).",
+      "reset": "Скинути",
+      "saveAll": "Зберегти все ({{count}})",
+      "confirmTitle": "Підтвердіть зміни параметрів",
+      "confirmDescription": "Ці {{count}} параметр(и) буде надіслано на апарат:",
+      "from": "Було",
+      "to": "Стане",
+      "cancel": "Скасувати",
+      "confirmSave": "Надіслати зміни"
     },
     "connect": {
       "modeSerial": "USB / Серійний порт",
@@ -43,7 +77,7 @@
       "portPlaceholder": "Портів не знайдено - підключіть пристрій і оновіть",
       "refreshPorts": "Оновити порти",
       "autoConnect": "Автовизначення",
-      "autoConnectScanning": "Сканування {{port}}...",
+      "autoConnectScanning": "Сканування {{port}} @ {{baud}}...",
       "autoConnectFailed": "Не знайдено heartbeat ArduPilot на жодному порту",
       "baudLabel": "Швидкість (baud rate)",
       "udpPortLabel": "Порт прослуховування",

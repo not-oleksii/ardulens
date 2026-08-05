@@ -5,6 +5,8 @@ import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
 import { encodePacket } from "../../../mavlink/codec/codec";
+import { x25Crc } from "../../../mavlink/crc/crc";
+import { paramValueToWireBits } from "../../../mavlink/paramValueCodec/paramValueCodec";
 import {
   Attitude,
   GlobalPositionInt,
@@ -13,13 +15,19 @@ import {
   Heartbeat,
   MavAutopilot,
   MavModeFlag,
+  MavParamType,
   MavState,
   MavType,
+  ParamRequestList,
+  ParamRequestRead,
+  ParamSet,
+  ParamValue,
   RequestDataStream,
   SysStatus,
   VfrHud,
 } from "../../../mavlink/registry/registry";
 import { useMavlinkConnectionStore } from "../../../stores/mavlinkConnectionStore/mavlinkConnectionStore";
+import { useMavlinkParameterStore } from "../../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import { useMavlinkTelemetryStore } from "../../../stores/mavlinkTelemetryStore/mavlinkTelemetryStore";
 import { useMavlinkVehicleStore } from "../../../stores/mavlinkVehicleStore/mavlinkVehicleStore";
 import { ArduPilotSetupView } from "../ArduPilotSetupView";
@@ -38,6 +46,31 @@ function sampleHeartbeatBytes(): number[] {
   hb.systemStatus = MavState.STANDBY;
   hb.mavlinkVersion = 3;
   return Array.from(encodePacket(hb, { seq: 1, sysid: 1, compid: 1 }));
+}
+
+/** Builds real PARAM_VALUE wire bytes (as a vehicle would send them), including a correct CRC. */
+function buildParamValueBytes(
+  name: string,
+  value: number,
+  type: MavParamType,
+  index: number,
+  count: number,
+  seq: number,
+): number[] {
+  const msg = new ParamValue();
+  msg.paramId = name;
+  msg.paramType = type;
+  msg.paramIndex = index;
+  msg.paramCount = count;
+  msg.paramValue = 0;
+  const packet = encodePacket(msg, { seq, sysid: 1, compid: 1 });
+  const view = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
+  view.setUint32(10, paramValueToWireBits(value, type), true); // header is 10 bytes, param_value is offset 0
+  const crcInput = packet.subarray(1, packet.length - 2);
+  const crc = x25Crc(crcInput, ParamValue.MAGIC_NUMBER);
+  view.setUint8(packet.length - 2, crc & 0xff);
+  view.setUint8(packet.length - 1, (crc >> 8) & 0xff);
+  return Array.from(packet);
 }
 
 function mockBackend(invoked: (cmd: string, payload?: unknown) => void = () => {}) {
@@ -69,12 +102,18 @@ function getView() {
   const getConnectButton = () => screen.getByRole("button", { name: "Підключити" });
   const getDisconnectButton = () => screen.getByRole("button", { name: "Відключити" });
   const getStatusAlert = () => screen.getByRole("alert");
+  const getTelemetryNavButton = () => screen.getByRole("tab", { name: "Телеметрія" });
+  const getParametersNavButton = () => screen.getByRole("tab", { name: "Параметри" });
+  const getMotorsNavButton = () => screen.getByRole("tab", { name: "Налаштування моторів" });
+  const getPidTuneNavButton = () => screen.getByRole("tab", { name: "Налаштування PID" });
 
   const clickSerialMode = () => user.click(getSerialModeButton());
   const clickUdpMode = () => user.click(getUdpModeButton());
   const clickRefreshPorts = () => user.click(getRefreshPortsButton());
   const clickConnect = () => user.click(getConnectButton());
   const clickDisconnect = () => user.click(getDisconnectButton());
+  const clickParametersNav = () => user.click(getParametersNavButton());
+  const clickTelemetryNav = () => user.click(getTelemetryNavButton());
 
   return {
     user,
@@ -88,16 +127,28 @@ function getView() {
     getConnectButton,
     getDisconnectButton,
     getStatusAlert,
+    getTelemetryNavButton,
+    getParametersNavButton,
+    getMotorsNavButton,
+    getPidTuneNavButton,
     clickSerialMode,
     clickUdpMode,
     clickRefreshPorts,
     clickConnect,
     clickDisconnect,
+    clickParametersNav,
+    clickTelemetryNav,
   };
 }
 
 beforeEach(() => {
   mockWindows("main");
+  // ParametersPanel fetches parameter documentation from ardupilot.org in the background -
+  // tests must never depend on real network access, and a real attempt would also slow
+  // every test in this file down waiting on it. Rejecting immediately exercises the
+  // panel's own "descriptions are a nice-to-have" fallback (no HoverCard, plain param
+  // names) rather than actually skipping the fetch attempt.
+  vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network disabled in tests")));
 });
 
 afterEach(async () => {
@@ -112,6 +163,8 @@ afterEach(async () => {
   useMavlinkConnectionStore.getState().reset();
   useMavlinkVehicleStore.getState().reset();
   useMavlinkTelemetryStore.getState().reset();
+  useMavlinkParameterStore.getState().reset();
+  vi.unstubAllGlobals();
 });
 
 describe("ArduPilotSetupView", () => {
@@ -391,7 +444,7 @@ describe("ArduPilotSetupView", () => {
     });
 
     it(
-      "tries the next port when the first one gives no heartbeat within the timeout",
+      "tries the next port only after exhausting every baud rate on the first one",
       async () => {
         const invoked = vi.fn();
         mockBackend(invoked);
@@ -403,12 +456,16 @@ describe("ArduPilotSetupView", () => {
 
         await vi.waitFor(() => expect(calledWithPort(invoked, "connect_serial", "COM3")).toBe(true));
         await emit("mavlink-transport://status", { kind: "connected", detail: "serial:COM3@57600" });
-        // No heartbeat for COM3 - the scan should time out and move on to COM4.
+        // No heartbeat for COM3 at any baud rate - the scan must exhaust all 5 standard
+        // rates on this port (real timers, ~2s each) before moving on to COM4.
 
-        await vi.waitFor(() => expect(invoked.mock.calls.some(([c]) => c === "disconnect")).toBe(true), {
-          timeout: 5000,
+        await vi.waitFor(() => expect(calledWithPort(invoked, "connect_serial", "COM4")).toBe(true), {
+          timeout: 15000,
         });
-        await vi.waitFor(() => expect(calledWithPort(invoked, "connect_serial", "COM4")).toBe(true), { timeout: 5000 });
+        const com3Attempts = invoked.mock.calls.filter(
+          ([c, payload]) => c === "connect_serial" && (payload as { portName?: string } | undefined)?.portName === "COM3",
+        ).length;
+        expect(com3Attempts).toBe(5); // every standard baud rate was tried on COM3 before giving up on it
 
         await emit("mavlink-transport://status", { kind: "connected", detail: "serial:COM4@57600" });
         await emit("mavlink-transport://data", { bytes: sampleHeartbeatBytes() });
@@ -416,11 +473,11 @@ describe("ArduPilotSetupView", () => {
         expect(await within(getStatusAlert()).findByText("Підключено: serial:COM4@57600")).toBeInTheDocument();
         expect(screen.getByLabelText("Серійний порт")).toHaveValue("COM4");
       },
-      10000,
+      20000,
     );
 
     it(
-      "shows an error when no candidate port produces a heartbeat",
+      "shows an error when no candidate port produces a heartbeat at any baud rate",
       async () => {
         const invoked = vi.fn();
         mockIPC(
@@ -439,17 +496,228 @@ describe("ArduPilotSetupView", () => {
 
         await vi.waitFor(() => expect(calledWithPort(invoked, "connect_serial", "COM3")).toBe(true));
         await emit("mavlink-transport://status", { kind: "connected", detail: "serial:COM3@57600" });
-        // Never emit a heartbeat.
+        // Never emit a heartbeat, at any baud rate.
 
         expect(
           await within(getStatusAlert()).findByText(
             "Помилка підключення: Не знайдено heartbeat ArduPilot на жодному порту",
             {},
-            { timeout: 5000 },
+            { timeout: 15000 },
           ),
         ).toBeInTheDocument();
       },
-      10000,
+      20000,
     );
+  });
+
+  describe("sidebar navigation", () => {
+    it("shows the telemetry section by default and switches to Parameters/Motors/PID Tune on click", async () => {
+      mockBackend();
+      const { clickConnect, getStatusAlert, clickParametersNav, getMotorsNavButton, getPidTuneNavButton, user } =
+        getView();
+      await clickConnect();
+      await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+
+      expect(screen.getByText("Апарат")).toBeInTheDocument(); // telemetry section shown by default
+
+      await clickParametersNav();
+      expect(screen.queryByText("Апарат")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Завантажити параметри" })).toBeInTheDocument();
+
+      await user.click(getMotorsNavButton());
+      expect(screen.getByText("Тест моторів/сервоприводів і налаштування рами - у наступному релізі.")).toBeInTheDocument();
+
+      await user.click(getPidTuneNavButton());
+      expect(screen.getByText("Налаштування PID - у наступному релізі.")).toBeInTheDocument();
+    });
+
+    it("shows a not-connected placeholder before any connection attempt", () => {
+      mockBackend();
+      getView();
+      expect(screen.getByText("Підключіться до апарата, щоб побачити цей розділ.")).toBeInTheDocument();
+    });
+  });
+
+  describe("parameters", () => {
+    async function connectWithVehicle() {
+      const view = getView();
+      await view.clickConnect();
+      await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit("mavlink-transport://data", { bytes: sampleHeartbeatBytes() });
+      await view.clickParametersNav();
+      return view;
+    }
+
+    it("requests the full parameter list and lists params as PARAM_VALUE packets arrive", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectWithVehicle();
+
+      await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
+
+      await vi.waitFor(() => {
+        const listRequest = invoked.mock.calls.find(([cmd, payload]) => {
+          if (cmd !== "send_bytes") return false;
+          const bytes = (payload as { bytes: number[] }).bytes;
+          return bytes[7] === ParamRequestList.MSG_ID;
+        });
+        expect(listRequest).toBeDefined();
+      });
+
+      await emit("mavlink-transport://data", {
+        bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 2, 1),
+      });
+
+      expect(await screen.findByText("ARSPD_USE")).toBeInTheDocument();
+      expect(screen.getByText("1")).toBeInTheDocument();
+      expect(screen.getByText("Отримано 1 / 2")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Запросити відсутні" })).toBeInTheDocument();
+    });
+
+    it("re-requests only the missing indices, not the whole list", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectWithVehicle();
+      await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
+      await emit("mavlink-transport://data", {
+        bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 3, 1),
+      });
+      await screen.findByText("ARSPD_USE");
+      invoked.mockClear();
+
+      await user.click(screen.getByRole("button", { name: "Запросити відсутні" }));
+
+      await vi.waitFor(() => {
+        const readRequests = invoked.mock.calls.filter(([cmd, payload]) => {
+          if (cmd !== "send_bytes") return false;
+          const bytes = (payload as { bytes: number[] }).bytes;
+          return bytes[7] === ParamRequestRead.MSG_ID;
+        });
+        expect(readRequests.length).toBe(2); // indices 1 and 2 - index 0 was already received
+      });
+    });
+
+    it("stages an edit locally without sending anything until Save all is confirmed", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectWithVehicle();
+      await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
+      await emit("mavlink-transport://data", {
+        bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 1, 1),
+      });
+      await screen.findByText("ARSPD_USE");
+      invoked.mockClear();
+
+      await user.click(screen.getByText("1"));
+      const input = screen.getByDisplayValue("1");
+      await user.clear(input);
+      await user.type(input, "-5{Enter}");
+
+      // Staged, not sent yet. The periodic GCS heartbeat legitimately calls send_bytes on its
+      // own 1s interval, so check specifically for the absence of a PARAM_SET, not of any
+      // send_bytes call at all (an overly broad check here is flaky under real timers).
+      const sentParamSet = () =>
+        invoked.mock.calls.some(([cmd, payload]) => {
+          if (cmd !== "send_bytes") return false;
+          const bytes = (payload as { bytes: number[] }).bytes;
+          return bytes[7] === ParamSet.MSG_ID;
+        });
+
+      expect(await screen.findByText("-5")).toBeInTheDocument();
+      expect(screen.getByText("змінено")).toBeInTheDocument();
+      expect(sentParamSet()).toBe(false);
+
+      const saveAllButton = screen.getByRole("button", { name: "Зберегти все (1)" });
+      await user.click(saveAllButton);
+
+      // Confirmation dialog shows the From/To change before anything is sent.
+      expect(screen.getByRole("heading", { name: "Підтвердіть зміни параметрів" })).toBeInTheDocument();
+      const dialog = screen.getByRole("dialog");
+      expect(within(dialog).getByText("ARSPD_USE")).toBeInTheDocument();
+      expect(within(dialog).getByText("1")).toBeInTheDocument();
+      expect(within(dialog).getByText("-5")).toBeInTheDocument();
+      expect(sentParamSet()).toBe(false);
+
+      await user.click(within(dialog).getByRole("button", { name: "Надіслати зміни" }));
+
+      await vi.waitFor(() => {
+        const setRequest = invoked.mock.calls.find(([cmd, payload]) => {
+          if (cmd !== "send_bytes") return false;
+          const bytes = (payload as { bytes: number[] }).bytes;
+          return bytes[7] === ParamSet.MSG_ID;
+        });
+        expect(setRequest).toBeDefined();
+        const sentBytes = (setRequest?.[1] as { bytes: number[] }).bytes;
+        const sentBits = new DataView(new Uint8Array(sentBytes).buffer).getUint32(10, true);
+        expect(sentBits).toBe(paramValueToWireBits(-5, MavParamType.INT8));
+      });
+
+      expect(screen.getByText("очікує")).toBeInTheDocument(); // now dirty (sent, awaiting the vehicle's ack)
+      expect(screen.queryByText("змінено")).not.toBeInTheDocument();
+    });
+
+    it("Reset discards a staged edit without sending anything", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectWithVehicle();
+      await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
+      await emit("mavlink-transport://data", {
+        bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 1, 1),
+      });
+      await screen.findByText("ARSPD_USE");
+      invoked.mockClear();
+
+      await user.click(screen.getByText("1"));
+      const input = screen.getByDisplayValue("1");
+      await user.clear(input);
+      await user.type(input, "-5{Enter}");
+      await screen.findByText("-5");
+
+      await user.click(screen.getByRole("button", { name: "Скинути" }));
+
+      expect(await screen.findByText("1")).toBeInTheDocument();
+      expect(screen.queryByText("-5")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Зберегти все/ })).not.toBeInTheDocument();
+      expect(invoked.mock.calls.some(([cmd]) => cmd === "send_bytes")).toBe(false);
+    });
+
+    it("shows an unavailable message and a dash in the description column when descriptions fail to load", async () => {
+      // The file-wide beforeEach already stubs fetch to always reject.
+      mockBackend();
+      const { user } = await connectWithVehicle();
+      await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
+      await emit("mavlink-transport://data", {
+        bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 1, 1),
+      });
+      await screen.findByText("ARSPD_USE");
+
+      expect(
+        await screen.findByText("Описи параметрів недоступні (не вдалося з'єднатися з ardupilot.org)."),
+      ).toBeInTheDocument();
+      expect(screen.getByText("-")).toBeInTheDocument();
+    });
+
+    it("shows the fetched description and a Read more link once parameter documentation loads", async () => {
+      const sampleXml = `<?xml version="1.0"?><paramfile><vehicles><parameters name="ArduCopter">
+        <param humanName="Use airspeed" name="ArduCopter:ARSPD_USE" documentation="Enables airspeed use"></param>
+      </parameters></vehicles></paramfile>`;
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, text: () => Promise.resolve(sampleXml) }));
+
+      mockBackend();
+      const { user } = await connectWithVehicle(); // sampleHeartbeatBytes() reports MavType.QUADROTOR -> ArduCopter
+      await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
+      await emit("mavlink-transport://data", {
+        bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 1, 1),
+      });
+      await screen.findByText("ARSPD_USE");
+
+      expect(await screen.findByText("Use airspeed")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Детальніше →" })).toHaveAttribute(
+        "href",
+        "https://ardupilot.org/copter/docs/parameters.html#arspd-use",
+      );
+    });
   });
 });

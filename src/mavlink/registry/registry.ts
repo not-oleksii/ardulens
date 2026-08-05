@@ -12,6 +12,7 @@ export { Heartbeat } from "mavlink-mappings/dist/lib/minimal";
 export { MavAutopilot, MavModeFlag, MavState, MavType } from "mavlink-mappings/dist/lib/minimal";
 export { Attitude, GpsRawInt, GpsFixType, RequestDataStream, SysStatus, VfrHud } from "mavlink-mappings/dist/lib/common";
 export { MavDataStream } from "mavlink-mappings/dist/lib/common";
+export { MavParamType, ParamRequestList, ParamRequestRead, ParamSet, ParamValue } from "mavlink-mappings/dist/lib/common";
 // GLOBAL_POSITION_INT lives in the "standard" dialect file, not "common" - this package
 // splits a curated subset of core messages there even though they're not ArduPilot-specific.
 export { GlobalPositionInt } from "mavlink-mappings/dist/lib/standard";

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { GlobalPositionInt, Heartbeat, MAVLINK_REGISTRY } from "../registry";
+import { GlobalPositionInt, Heartbeat, MAVLINK_REGISTRY, ParamValue } from "../registry";
 
 describe("MAVLINK_REGISTRY", () => {
   it("maps message id 0 to the Heartbeat class", () => {
@@ -12,6 +12,7 @@ describe("MAVLINK_REGISTRY", () => {
     expect(MAVLINK_REGISTRY[1]).toBeDefined(); // SYS_STATUS (common)
     expect(MAVLINK_REGISTRY[33]).toBe(GlobalPositionInt); // GLOBAL_POSITION_INT (standard)
     expect(MAVLINK_REGISTRY[150]).toBeDefined(); // SENSOR_OFFSETS (ardupilotmega)
+    expect(MAVLINK_REGISTRY[22]).toBe(ParamValue); // PARAM_VALUE (common)
   });
 
   it("Heartbeat carries the field metadata needed to decode/encode it", () => {
