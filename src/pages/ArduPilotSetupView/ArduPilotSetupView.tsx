@@ -1,16 +1,13 @@
-import { ArrowLeft } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link } from "react-router";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { PrimaryFlightDisplay } from "../../components/PrimaryFlightDisplay/PrimaryFlightDisplay";
-import { PLANE_MODE_NAMES } from "../../constants";
+import { ArduPilotSetupHeader } from "./ArduPilotSetupHeader";
+import { ArduPilotSetupSidebar, type ArduPilotSetupSection } from "./ArduPilotSetupSidebar";
+import { ComingSoonSection } from "./ComingSoonSection";
+import { ParametersPanel } from "./ParametersPanel";
+import { TelemetrySection } from "./TelemetrySection";
 import { encodePacket } from "../../mavlink/codec/codec";
 import { MavlinkFramer } from "../../mavlink/framer/framer";
-import { gpsFixTypeLabel, mavAutopilotLabel, mavStateLabel, mavTypeLabel } from "../../mavlink/labels/labels";
+import { buildParamSetPacket, paramValueToWireBits, paramWireBitsToValue, readParamValueBits } from "../../mavlink/paramValueCodec/paramValueCodec";
 import {
   Attitude,
   GlobalPositionInt,
@@ -19,8 +16,13 @@ import {
   MavAutopilot,
   MavDataStream,
   MavModeFlag,
+  MavParamType,
   MavState,
   MavType,
+  ParamRequestList,
+  ParamRequestRead,
+  ParamSet,
+  ParamValue,
   RequestDataStream,
   SysStatus,
   VfrHud,
@@ -36,6 +38,7 @@ import {
 } from "../../services/mavlinkTransport/mavlinkTransport";
 import type { SerialPortInfo } from "../../services/mavlinkTransport/types";
 import { useMavlinkConnectionStore } from "../../stores/mavlinkConnectionStore/mavlinkConnectionStore";
+import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import { useMavlinkTelemetryStore } from "../../stores/mavlinkTelemetryStore/mavlinkTelemetryStore";
 import { useMavlinkVehicleStore } from "../../stores/mavlinkVehicleStore/mavlinkVehicleStore";
 
@@ -78,9 +81,6 @@ function waitForHeartbeat(timeoutMs: number): Promise<boolean> {
   });
 }
 
-const SELECT_CLASSNAME =
-  "flex h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50";
-
 export function ArduPilotSetupView() {
   const { t } = useTranslation();
   const status = useMavlinkConnectionStore((s) => s.status);
@@ -108,6 +108,8 @@ export function ArduPilotSetupView() {
   const setGps = useMavlinkTelemetryStore((s) => s.setGps);
   const setPosition = useMavlinkTelemetryStore((s) => s.setPosition);
   const resetTelemetry = useMavlinkTelemetryStore((s) => s.reset);
+  const setParam = useMavlinkParameterStore((s) => s.setParam);
+  const resetParameters = useMavlinkParameterStore((s) => s.reset);
 
   const [mode, setMode] = useState<"serial" | "udp">("udp");
   const [ports, setPorts] = useState<SerialPortInfo[]>([]);
@@ -115,6 +117,8 @@ export function ArduPilotSetupView() {
   const [baudRate, setBaudRate] = useState(BAUD_RATES[2]!);
   const [udpPort, setUdpPort] = useState(DEFAULT_UDP_PORT);
   const [scanningPort, setScanningPort] = useState<string | null>(null);
+  const [scanningBaud, setScanningBaud] = useState<number | null>(null);
+  const [activeSection, setActiveSection] = useState<ArduPilotSetupSection>("telemetry");
 
   const framerRef = useRef(new MavlinkFramer());
   const outgoingSeqRef = useRef(0);
@@ -182,6 +186,25 @@ export function ArduPilotSetupView() {
             setPosition({ lat: msg.lat / 1e7, lon: msg.lon / 1e7, relativeAltM: msg.relativeAlt / 1000, updatedAt: now });
             break;
           }
+          case ParamValue.MSG_ID: {
+            const msg = packet.message as ParamValue;
+            // param_value is only meaningfully decodable via the generic float reader for
+            // REAL32 params - other types need the raw bits reinterpreted (see
+            // paramValueCodec.ts for why msg.paramValue itself can't be trusted here).
+            const bits = readParamValueBits(packet.payload);
+            setParam(
+              {
+                name: msg.paramId,
+                value: paramWireBitsToValue(bits, msg.paramType),
+                type: msg.paramType,
+                index: msg.paramIndex,
+                updatedAt: now,
+                dirty: false,
+              },
+              msg.paramCount,
+            );
+            break;
+          }
           default:
             break;
         }
@@ -197,11 +220,13 @@ export function ArduPilotSetupView() {
         setDisconnected();
         resetVehicle();
         resetTelemetry();
+        resetParameters();
         streamsRequestedRef.current = false;
       } else {
         setError(s.message);
         resetVehicle();
         resetTelemetry();
+        resetParameters();
         streamsRequestedRef.current = false;
       }
     }).then((unlisten) => {
@@ -227,6 +252,8 @@ export function ArduPilotSetupView() {
     setGps,
     setPosition,
     resetTelemetry,
+    setParam,
+    resetParameters,
   ]);
 
   // A GCS is expected to send its own periodic heartbeat - some vehicles use its absence to
@@ -329,24 +356,36 @@ export function ArduPilotSetupView() {
     setConnecting();
     resetVehicle();
     resetTelemetry();
+    resetParameters();
+    // Try the currently-selected baud rate first (fast path when it's already right - same
+    // speed as before), then fall back through the other standard rates per port. Without
+    // this, a mismatched default baud (e.g. the header still on 57600 while the FC actually
+    // talks at 115200) makes every port time out with no heartbeat, even the right one.
+    const bauds = [baudRate, ...BAUD_RATES.filter((rate) => rate !== baudRate)];
     for (const port of ports) {
-      setScanningPort(port.name);
-      try {
-        await connectSerial(port.name, baudRate);
-      } catch {
-        continue; // couldn't even open this one - try the next
-      }
+      for (const rate of bauds) {
+        setScanningPort(port.name);
+        setScanningBaud(rate);
+        try {
+          await connectSerial(port.name, rate);
+        } catch {
+          continue; // couldn't even open this one at this rate - try the next
+        }
 
-      const found = await waitForHeartbeat(AUTO_CONNECT_TIMEOUT_MS);
-      if (found) {
-        setSelectedPort(port.name);
-        setScanningPort(null);
-        return; // stay connected - onStatus already reflected "connected"
-      }
+        const found = await waitForHeartbeat(AUTO_CONNECT_TIMEOUT_MS);
+        if (found) {
+          setSelectedPort(port.name);
+          setBaudRate(rate);
+          setScanningPort(null);
+          setScanningBaud(null);
+          return; // stay connected - onStatus already reflected "connected"
+        }
 
-      await disconnect().catch(() => {});
+        await disconnect().catch(() => {});
+      }
     }
     setScanningPort(null);
+    setScanningBaud(null);
     setError(t("ardupilotSetup.connect.autoConnectFailed"));
   }
 
@@ -358,226 +397,132 @@ export function ArduPilotSetupView() {
     }
   }
 
-  const isBusy = status === "connecting";
+  function sendGcsPacket(packet: Uint8Array) {
+    sendBytes(packet)
+      .then(() => addBytesSent(packet.length))
+      .catch(() => {
+        // Best-effort - the caller doesn't have a good recovery path for a single lost send.
+      });
+  }
+
+  function nextSeq(): number {
+    const seq = outgoingSeqRef.current;
+    outgoingSeqRef.current = (seq + 1) % 256;
+    return seq;
+  }
+
+  function handleLoadParameters() {
+    if (!vehicle) return;
+    const req = new ParamRequestList();
+    req.targetSystem = vehicle.sysid;
+    req.targetComponent = vehicle.compid;
+    sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+  }
+
+  // Re-requests only the specific indices that never arrived, by index rather than name (the
+  // name isn't known for a missing param) - far cheaper than re-requesting the whole list,
+  // and is exactly what a robust GCS is expected to do after a partial/lossy transfer.
+  function handleRequestMissingParameters() {
+    if (!vehicle) return;
+    const { params, expectedCount } = useMavlinkParameterStore.getState();
+    if (expectedCount === null) return;
+    const receivedIndices = new Set(Object.values(params).map((p) => p.index));
+    for (let index = 0; index < expectedCount; index++) {
+      if (receivedIndices.has(index)) continue;
+      const req = new ParamRequestRead();
+      req.targetSystem = vehicle.sysid;
+      req.targetComponent = vehicle.compid;
+      req.paramId = "";
+      req.paramIndex = index;
+      sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+    }
+  }
+
+  function handleSetParam(name: string, value: number, type: MavParamType) {
+    if (!vehicle) return;
+    const msg = new ParamSet();
+    msg.targetSystem = vehicle.sysid;
+    msg.targetComponent = vehicle.compid;
+    msg.paramId = name;
+    msg.paramType = type;
+    msg.paramValue = 0; // placeholder - buildParamSetPacket overwrites this with the real wire bits
+    const wireBits = paramValueToWireBits(value, type);
+    sendGcsPacket(buildParamSetPacket(msg, wireBits, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+
+    const { params, expectedCount, setParam: storeSetParam } = useMavlinkParameterStore.getState();
+    const existing = params[name];
+    if (existing) {
+      storeSetParam({ ...existing, value, dirty: true, updatedAt: Date.now() }, expectedCount ?? existing.index + 1);
+    }
+  }
+
   const isConnected = status === "connected";
 
   return (
-    <div className="ardupilot-setup-theme flex flex-1 flex-col gap-4 px-6 py-4">
-      <Link to="/" className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="h-4 w-4" />
-        {t("ardupilotSetup.backToHome")}
-      </Link>
+    <div className="ardupilot-setup-theme flex h-svh flex-col overflow-hidden">
+      <ArduPilotSetupHeader
+        mode={mode}
+        setMode={setMode}
+        ports={ports}
+        selectedPort={selectedPort}
+        setSelectedPort={setSelectedPort}
+        baudRate={baudRate}
+        setBaudRate={setBaudRate}
+        baudRates={BAUD_RATES}
+        udpPort={udpPort}
+        setUdpPort={setUdpPort}
+        status={status}
+        detail={detail}
+        errorMessage={errorMessage}
+        scanningPort={scanningPort}
+        scanningBaud={scanningBaud}
+        bytesReceived={bytesReceived}
+        bytesSent={bytesSent}
+        onRefreshPorts={() => void refreshPorts()}
+        onAutoConnect={() => void handleAutoConnect()}
+        onConnect={() => void handleConnect()}
+        onDisconnect={() => void handleDisconnect()}
+      />
 
-      <Card className="flex flex-1 flex-col">
-        <CardHeader>
-          <CardTitle className="font-bold">{t("ardupilotSetup.heading")}</CardTitle>
-          <CardDescription>{t("ardupilotSetup.description")}</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-1 flex-col gap-4">
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant={mode === "serial" ? "secondary" : "outline"}
-              size="sm"
-              disabled={isConnected || isBusy}
-              onClick={() => setMode("serial")}
-            >
-              {t("ardupilotSetup.connect.modeSerial")}
-            </Button>
-            <Button
-              type="button"
-              variant={mode === "udp" ? "secondary" : "outline"}
-              size="sm"
-              disabled={isConnected || isBusy}
-              onClick={() => setMode("udp")}
-            >
-              {t("ardupilotSetup.connect.modeUdp")}
-            </Button>
-          </div>
+      <div className="flex flex-1 overflow-hidden">
+        <ArduPilotSetupSidebar activeSection={activeSection} onSelect={setActiveSection} />
 
-          {mode === "serial" ? (
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-              <div className="flex flex-1 flex-col gap-1">
-                <label htmlFor="serial-port" className="text-xs text-muted-foreground">
-                  {t("ardupilotSetup.connect.portLabel")}
-                </label>
-                <select
-                  id="serial-port"
-                  className={SELECT_CLASSNAME}
-                  value={selectedPort}
-                  disabled={isConnected || isBusy}
-                  onChange={(e) => setSelectedPort(e.target.value)}
-                >
-                  {ports.length === 0 && (
-                    <option value="" className="bg-card text-card-foreground">
-                      {t("ardupilotSetup.connect.portPlaceholder")}
-                    </option>
-                  )}
-                  {ports.map((p) => (
-                    <option key={p.name} value={p.name} className="bg-card text-card-foreground">
-                      {p.description ? `${p.name} - ${p.description}` : p.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label htmlFor="baud-rate" className="text-xs text-muted-foreground">
-                  {t("ardupilotSetup.connect.baudLabel")}
-                </label>
-                <select
-                  id="baud-rate"
-                  className={SELECT_CLASSNAME}
-                  value={baudRate}
-                  disabled={isConnected || isBusy}
-                  onChange={(e) => setBaudRate(Number(e.target.value))}
-                >
-                  {BAUD_RATES.map((rate) => (
-                    <option key={rate} value={rate} className="bg-card text-card-foreground">
-                      {rate}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <Button type="button" variant="ghost" onClick={() => void refreshPorts()} disabled={isConnected || isBusy}>
-                {t("ardupilotSetup.connect.refreshPorts")}
-              </Button>
-
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => void handleAutoConnect()}
-                disabled={isConnected || isBusy || ports.length === 0}
-              >
-                {t("ardupilotSetup.connect.autoConnect")}
-              </Button>
+        <main className="min-w-0 flex-1 overflow-y-auto px-6 py-4">
+          {!isConnected ? (
+            <div className="mx-auto flex max-w-md flex-col items-center gap-2 pt-12 text-center">
+              <h2 className="text-lg font-bold">{t("ardupilotSetup.heading")}</h2>
+              <p className="text-sm text-muted-foreground">{t("ardupilotSetup.description")}</p>
+              <p className="text-xs text-muted-foreground">{t("ardupilotSetup.notConnected")}</p>
             </div>
+          ) : activeSection === "telemetry" ? (
+            <TelemetrySection
+              vehicle={vehicle}
+              attitude={attitude}
+              vfrHud={vfrHud}
+              battery={battery}
+              gps={gps}
+              position={position}
+            />
+          ) : activeSection === "parameters" ? (
+            <ParametersPanel
+              vehicleType={vehicle?.type ?? MavType.GENERIC}
+              onLoadParameters={handleLoadParameters}
+              onRequestMissing={handleRequestMissingParameters}
+              onSetParam={handleSetParam}
+            />
+          ) : activeSection === "motorsSetup" ? (
+            <ComingSoonSection
+              heading={t("ardupilotSetup.sidebar.motorsSetup")}
+              description={t("ardupilotSetup.comingSoon.motorsSetup")}
+            />
           ) : (
-            <div className="flex flex-col gap-1">
-              <label htmlFor="udp-port" className="text-xs text-muted-foreground">
-                {t("ardupilotSetup.connect.udpPortLabel")}
-              </label>
-              <Input
-                id="udp-port"
-                type="number"
-                className="max-w-40"
-                value={udpPort}
-                disabled={isConnected || isBusy}
-                onChange={(e) => setUdpPort(Number(e.target.value))}
-              />
-              <p className="text-xs text-muted-foreground">{t("ardupilotSetup.connect.udpPortHint")}</p>
-            </div>
+            <ComingSoonSection
+              heading={t("ardupilotSetup.sidebar.pidTune")}
+              description={t("ardupilotSetup.comingSoon.pidTune")}
+            />
           )}
-
-          <div>
-            {isConnected ? (
-              <Button type="button" variant="destructive" onClick={() => void handleDisconnect()}>
-                {t("ardupilotSetup.connect.disconnect")}
-              </Button>
-            ) : (
-              <Button
-                type="button"
-                onClick={() => void handleConnect()}
-                disabled={isBusy || (mode === "serial" && !selectedPort)}
-              >
-                {t("ardupilotSetup.connect.connect")}
-              </Button>
-            )}
-          </div>
-
-          <Alert variant={status === "error" ? "destructive" : "info"}>
-            <AlertDescription>
-              {status === "idle" && t("ardupilotSetup.connect.statusIdle")}
-              {status === "connecting" &&
-                (scanningPort
-                  ? t("ardupilotSetup.connect.autoConnectScanning", { port: scanningPort })
-                  : t("ardupilotSetup.connect.statusConnecting"))}
-              {status === "connected" && t("ardupilotSetup.connect.statusConnected", { detail })}
-              {status === "error" && t("ardupilotSetup.connect.statusError", { message: errorMessage })}
-            </AlertDescription>
-          </Alert>
-
-          <div className="flex gap-4 font-mono text-xs text-muted-foreground">
-            <span>
-              {t("ardupilotSetup.connect.bytesReceived")}: {t("ardupilotSetup.connect.bytesUnit", { count: bytesReceived })}
-            </span>
-            <span>
-              {t("ardupilotSetup.connect.bytesSent")}: {t("ardupilotSetup.connect.bytesUnit", { count: bytesSent })}
-            </span>
-          </div>
-
-          {isConnected && (
-            <div className="grid flex-1 grid-cols-1 gap-6 border-t border-border pt-4 lg:grid-cols-[minmax(320px,480px)_1fr]">
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-2">
-                  <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.vehicle.heading")}</h3>
-                  {vehicle ? (
-                    <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-                      <dt className="text-muted-foreground">{t("ardupilotSetup.vehicle.type")}</dt>
-                      <dd>{mavTypeLabel(t, vehicle.type)}</dd>
-                      <dt className="text-muted-foreground">{t("ardupilotSetup.vehicle.autopilot")}</dt>
-                      <dd>{mavAutopilotLabel(t, vehicle.autopilot)}</dd>
-                      <dt className="text-muted-foreground">{t("ardupilotSetup.vehicle.status")}</dt>
-                      <dd>{mavStateLabel(t, vehicle.systemStatus)}</dd>
-                    </dl>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">{t("ardupilotSetup.vehicle.waitingForHeartbeat")}</p>
-                  )}
-                </div>
-
-                {vehicle && (
-                  <div className="flex flex-col gap-3 border-t border-border pt-4">
-                    <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.telemetry.heading")}</h3>
-                    <PrimaryFlightDisplay
-                      rollRad={attitude?.rollRad ?? null}
-                      pitchRad={attitude?.pitchRad ?? null}
-                      headingDeg={vfrHud?.headingDeg ?? null}
-                      airspeed={vfrHud?.airspeed ?? null}
-                      altitudeM={vfrHud?.altitudeM ?? null}
-                      armed={vehicle.armed}
-                      modeLabel={
-                        vehicle.type === MavType.FIXED_WING
-                          ? (PLANE_MODE_NAMES[vehicle.customMode] ?? String(vehicle.customMode))
-                          : String(vehicle.customMode)
-                      }
-                    />
-                    {battery || gps || position ? (
-                      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-                        <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.batteryVoltage")}</dt>
-                        <dd className="font-mono">{battery ? `${battery.voltageV.toFixed(2)} V` : "-"}</dd>
-                        <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.batteryCurrent")}</dt>
-                        <dd className="font-mono">
-                          {battery && battery.currentA !== null ? `${battery.currentA.toFixed(1)} A` : "-"}
-                        </dd>
-                        <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.batteryRemaining")}</dt>
-                        <dd className="font-mono">
-                          {battery && battery.remainingPercent !== null ? `${battery.remainingPercent}%` : "-"}
-                        </dd>
-                        <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.gpsFixLabel")}</dt>
-                        <dd>{gps ? gpsFixTypeLabel(t, gps.fixType) : "-"}</dd>
-                        <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.satellites")}</dt>
-                        <dd className="font-mono">{gps ? gps.satellitesVisible : "-"}</dd>
-                        <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.position")}</dt>
-                        <dd className="font-mono">
-                          {position ? `${position.lat.toFixed(6)}, ${position.lon.toFixed(6)}` : "-"}
-                        </dd>
-                      </dl>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">{t("ardupilotSetup.telemetry.waitingForTelemetry")}</p>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div className="flex min-h-80 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-border">
-                <p className="text-sm font-medium">{t("ardupilotSetup.map.heading")}</p>
-                <p className="text-xs text-muted-foreground">{t("ardupilotSetup.map.comingSoon")}</p>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+        </main>
+      </div>
     </div>
   );
 }

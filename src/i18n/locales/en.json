@@ -32,9 +32,43 @@
     "heading": "ArduPilot Setup",
     "description": "Connect to a real ArduPilot vehicle for live telemetry, parameters, calibration, and motor/servo setup - separate from the offline log viewer.",
     "backToHome": "Back to Home",
+    "notConnected": "Connect to a vehicle to see this section.",
+    "sidebar": {
+      "telemetry": "Telemetry",
+      "parameters": "Parameters",
+      "motorsSetup": "Motors Setup",
+      "pidTune": "PID Tune"
+    },
+    "comingSoon": {
+      "motorsSetup": "Motor/servo test and frame setup - coming in a future release.",
+      "pidTune": "PID tuning - coming in a future release."
+    },
     "map": {
       "heading": "Map",
       "comingSoon": "Live moving map - coming in a future release"
+    },
+    "parameters": {
+      "heading": "Parameters",
+      "load": "Load parameters",
+      "progress": "{{received}} / {{total}} received",
+      "requestMissing": "Request missing",
+      "searchPlaceholder": "Search parameters...",
+      "name": "Name",
+      "description": "Description",
+      "value": "Value",
+      "dirty": "pending",
+      "modified": "modified",
+      "noMatches": "No parameters match your search.",
+      "descriptionsLoading": "Loading parameter descriptions...",
+      "descriptionsUnavailable": "Parameter descriptions unavailable (couldn't reach ardupilot.org).",
+      "reset": "Reset",
+      "saveAll": "Save all ({{count}})",
+      "confirmTitle": "Confirm parameter changes",
+      "confirmDescription": "These {{count}} parameter(s) will be sent to the vehicle:",
+      "from": "From",
+      "to": "To",
+      "cancel": "Cancel",
+      "confirmSave": "Send changes"
     },
     "connect": {
       "modeSerial": "USB / Serial",
@@ -43,7 +77,7 @@
       "portPlaceholder": "No ports found - plug in a device and refresh",
       "refreshPorts": "Refresh ports",
       "autoConnect": "Auto-detect",
-      "autoConnectScanning": "Scanning {{port}}...",
+      "autoConnectScanning": "Scanning {{port}} @ {{baud}}...",
       "autoConnectFailed": "No ArduPilot heartbeat found on any port",
       "baudLabel": "Baud rate",
       "udpPortLabel": "Listen port",

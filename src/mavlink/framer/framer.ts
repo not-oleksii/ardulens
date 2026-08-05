@@ -9,6 +9,16 @@ export interface DecodedMavlinkPacket {
   compid: number;
   seq: number;
   message: MavLinkData;
+  /**
+   * The packet's raw (possibly v2-truncated) payload bytes, alongside the already-decoded
+   * `message`. Most callers only need `message` - this exists for the rare field that the
+   * generic decoder's normal numeric conversion loses information on, e.g. PARAM_VALUE's
+   * `param_value`, which is wire-encoded as a float but for non-float parameter types holds
+   * a bit-reinterpreted integer; decoding it via the generic float path collapses any
+   * NaN-shaped bit pattern into a single canonical NaN, so that field must be re-read
+   * directly from these raw bytes instead of trusting `message.paramValue`.
+   */
+  payload: Uint8Array;
 }
 
 const V1_START_BYTE = 0xfe;
@@ -93,6 +103,7 @@ export class MavlinkFramer {
         sysid: isV2 ? this.buffer[5]! : this.buffer[3]!,
         compid: isV2 ? this.buffer[6]! : this.buffer[4]!,
         message: decodeMessage(ctor, payload),
+        payload,
       });
       this.buffer = this.buffer.subarray(totalLength);
     }
