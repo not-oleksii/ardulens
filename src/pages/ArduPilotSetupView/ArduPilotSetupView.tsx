@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { ArduPilotSetupHeader } from "./ArduPilotSetupHeader";
 import { ArduPilotSetupSidebar, type ArduPilotSetupSection } from "./ArduPilotSetupSidebar";
 import { ComingSoonSection } from "./ComingSoonSection";
+import { CompassCalSection } from "./CompassCalSection";
 import { ParametersPanel } from "./ParametersPanel";
 import { TelemetrySection } from "./TelemetrySection";
 import { encodePacket } from "../../mavlink/codec/codec";
@@ -10,10 +11,17 @@ import { MavlinkFramer } from "../../mavlink/framer/framer";
 import { buildParamSetPacket, paramValueToWireBits, paramWireBitsToValue, readParamValueBits } from "../../mavlink/paramValueCodec/paramValueCodec";
 import {
   Attitude,
+  CommandAck,
+  DoAcceptMagCalCommand,
+  DoCancelMagCalCommand,
+  DoStartMagCalCommand,
   GlobalPositionInt,
   GpsRawInt,
   Heartbeat,
+  MagCalProgress,
+  MagCalReport,
   MavAutopilot,
+  MavCmd,
   MavDataStream,
   MavModeFlag,
   MavParamType,
@@ -37,14 +45,22 @@ import {
   sendBytes,
 } from "../../services/mavlinkTransport/mavlinkTransport";
 import type { SerialPortInfo } from "../../services/mavlinkTransport/types";
+import { useMavlinkCompassCalStore } from "../../stores/mavlinkCompassCalStore/mavlinkCompassCalStore";
 import { useMavlinkConnectionStore } from "../../stores/mavlinkConnectionStore/mavlinkConnectionStore";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
+import type { ParamEntry } from "../../stores/mavlinkParameterStore/types";
 import { useMavlinkTelemetryStore } from "../../stores/mavlinkTelemetryStore/mavlinkTelemetryStore";
 import { useMavlinkVehicleStore } from "../../stores/mavlinkVehicleStore/mavlinkVehicleStore";
 
 const BAUD_RATES = [9600, 38400, 57600, 115200, 921600];
 const DEFAULT_UDP_PORT = 14550;
 const HEARTBEAT_INTERVAL_MS = 1000;
+// A full ArduCopter parameter list is 1000-1700+ PARAM_VALUE packets, which can arrive far
+// faster than the UI could usefully re-render (each one updating the store would otherwise
+// re-render the whole parameter table, freezing the tab during a bulk load). Incoming
+// entries are buffered in a ref and flushed to the store in one batch on this interval
+// instead, decoupling "how many packets arrived" from "how many times React re-renders."
+const PARAM_FLUSH_INTERVAL_MS = 200;
 // ArduPilot sends its own heartbeat at ~1Hz, so 2s is enough margin to see at least one on
 // the right port/baud rate combination without making a wrong port take too long to skip.
 const AUTO_CONNECT_TIMEOUT_MS = 2000;
@@ -108,8 +124,15 @@ export function ArduPilotSetupView() {
   const setGps = useMavlinkTelemetryStore((s) => s.setGps);
   const setPosition = useMavlinkTelemetryStore((s) => s.setPosition);
   const resetTelemetry = useMavlinkTelemetryStore((s) => s.reset);
-  const setParam = useMavlinkParameterStore((s) => s.setParam);
+  const setParams = useMavlinkParameterStore((s) => s.setParams);
   const resetParameters = useMavlinkParameterStore((s) => s.reset);
+  const compassCalProgress = useMavlinkCompassCalStore((s) => s.progress);
+  const compassCalReports = useMavlinkCompassCalStore((s) => s.reports);
+  const compassCalLastCommandAck = useMavlinkCompassCalStore((s) => s.lastCommandAck);
+  const setCompassCalProgress = useMavlinkCompassCalStore((s) => s.setProgress);
+  const setCompassCalReport = useMavlinkCompassCalStore((s) => s.setReport);
+  const setCompassCalLastCommandAck = useMavlinkCompassCalStore((s) => s.setLastCommandAck);
+  const resetCompassCal = useMavlinkCompassCalStore((s) => s.reset);
 
   const [mode, setMode] = useState<"serial" | "udp">("udp");
   const [ports, setPorts] = useState<SerialPortInfo[]>([]);
@@ -123,6 +146,11 @@ export function ArduPilotSetupView() {
   const framerRef = useRef(new MavlinkFramer());
   const outgoingSeqRef = useRef(0);
   const streamsRequestedRef = useRef(false);
+  // Incoming PARAM_VALUE decodes land here first, then get flushed to the store in one
+  // batch on an interval (see PARAM_FLUSH_INTERVAL_MS) rather than one store update - and
+  // one full-table React re-render - per packet.
+  const pendingParamsRef = useRef<Map<string, ParamEntry>>(new Map());
+  const pendingParamCountRef = useRef<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -186,23 +214,60 @@ export function ArduPilotSetupView() {
             setPosition({ lat: msg.lat / 1e7, lon: msg.lon / 1e7, relativeAltM: msg.relativeAlt / 1000, updatedAt: now });
             break;
           }
+          case MagCalProgress.MSG_ID: {
+            const msg = packet.message as MagCalProgress;
+            setCompassCalProgress({
+              compassId: msg.compassId,
+              calMask: msg.calMask,
+              calStatus: msg.calStatus,
+              attempt: msg.attempt,
+              completionPct: msg.completionPct,
+              completionMask: Array.from(msg.completionMask),
+              updatedAt: now,
+            });
+            break;
+          }
+          case MagCalReport.MSG_ID: {
+            const msg = packet.message as MagCalReport;
+            setCompassCalReport({
+              compassId: msg.compassId,
+              calMask: msg.calMask,
+              calStatus: msg.calStatus,
+              fitness: msg.fitness,
+              offset: { x: msg.ofsX, y: msg.ofsY, z: msg.ofsZ },
+              autosaved: msg.autosaved !== 0,
+              updatedAt: now,
+            });
+            break;
+          }
+          case CommandAck.MSG_ID: {
+            const msg = packet.message as CommandAck;
+            // Only the mag-cal commands are surfaced here - a NACK on any of them (e.g.
+            // DENIED because a compass is unhealthy) would otherwise look like nothing
+            // happened at all, since MAG_CAL_PROGRESS never arrives in that case. `command`
+            // is a plain uint16_t on the wire (not typed as MavCmd), hence the cast.
+            const command = msg.command as MavCmd;
+            if (command === MavCmd.DO_START_MAG_CAL || command === MavCmd.DO_ACCEPT_MAG_CAL || command === MavCmd.DO_CANCEL_MAG_CAL) {
+              setCompassCalLastCommandAck({ command, result: msg.result });
+            }
+            break;
+          }
           case ParamValue.MSG_ID: {
             const msg = packet.message as ParamValue;
             // param_value is only meaningfully decodable via the generic float reader for
             // REAL32 params - other types need the raw bits reinterpreted (see
             // paramValueCodec.ts for why msg.paramValue itself can't be trusted here).
             const bits = readParamValueBits(packet.payload);
-            setParam(
-              {
-                name: msg.paramId,
-                value: paramWireBitsToValue(bits, msg.paramType),
-                type: msg.paramType,
-                index: msg.paramIndex,
-                updatedAt: now,
-                dirty: false,
-              },
-              msg.paramCount,
-            );
+            // Buffered, not written to the store directly - see pendingParamsRef above.
+            pendingParamsRef.current.set(msg.paramId, {
+              name: msg.paramId,
+              value: paramWireBitsToValue(bits, msg.paramType),
+              type: msg.paramType,
+              index: msg.paramIndex,
+              updatedAt: now,
+              dirty: false,
+            });
+            pendingParamCountRef.current = msg.paramCount;
             break;
           }
           default:
@@ -221,12 +286,18 @@ export function ArduPilotSetupView() {
         resetVehicle();
         resetTelemetry();
         resetParameters();
+        resetCompassCal();
+        pendingParamsRef.current.clear();
+        pendingParamCountRef.current = null;
         streamsRequestedRef.current = false;
       } else {
         setError(s.message);
         resetVehicle();
         resetTelemetry();
         resetParameters();
+        resetCompassCal();
+        pendingParamsRef.current.clear();
+        pendingParamCountRef.current = null;
         streamsRequestedRef.current = false;
       }
     }).then((unlisten) => {
@@ -252,9 +323,29 @@ export function ArduPilotSetupView() {
     setGps,
     setPosition,
     resetTelemetry,
-    setParam,
     resetParameters,
+    resetCompassCal,
+    setCompassCalProgress,
+    setCompassCalReport,
+    setCompassCalLastCommandAck,
   ]);
+
+  // Flushes buffered PARAM_VALUE decodes (see pendingParamsRef above) to the store in one
+  // batch, at most every PARAM_FLUSH_INTERVAL_MS - keeps a full 1000+ parameter load from
+  // triggering a full-table re-render per packet, which is what was freezing the tab.
+  useEffect(() => {
+    if (status !== "connected") return;
+
+    const id = window.setInterval(() => {
+      if (pendingParamsRef.current.size === 0) return;
+      const entries = Array.from(pendingParamsRef.current.values());
+      pendingParamsRef.current.clear();
+      const expectedCount = pendingParamCountRef.current ?? useMavlinkParameterStore.getState().expectedCount ?? entries.length;
+      setParams(entries, expectedCount);
+    }, PARAM_FLUSH_INTERVAL_MS);
+
+    return () => window.clearInterval(id);
+  }, [status, setParams]);
 
   // A GCS is expected to send its own periodic heartbeat - some vehicles use its absence to
   // trigger a GCS-failsafe. Best-effort: a single failed send doesn't flip the whole
@@ -357,6 +448,9 @@ export function ArduPilotSetupView() {
     resetVehicle();
     resetTelemetry();
     resetParameters();
+    resetCompassCal();
+    pendingParamsRef.current.clear();
+    pendingParamCountRef.current = null;
     // Try the currently-selected baud rate first (fast path when it's already right - same
     // speed as before), then fall back through the other standard rates per port. Without
     // this, a mismatched default baud (e.g. the header still on 57600 while the FC actually
@@ -456,6 +550,32 @@ export function ArduPilotSetupView() {
     }
   }
 
+  function handleStartCompassCal() {
+    if (!vehicle) return;
+    resetCompassCal();
+    const cmd = new DoStartMagCalCommand(vehicle.sysid, vehicle.compid);
+    cmd.magnetometersBitmask = 0; // 0 = every compass that's healthy enough to start
+    cmd.retryOnFailure = 1;
+    cmd.autosave = 0; // require an explicit Accept once fitness is known, rather than autosaving
+    cmd.delay = 0;
+    cmd.autoreboot = 0;
+    sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+  }
+
+  function handleAcceptCompassCal() {
+    if (!vehicle) return;
+    const cmd = new DoAcceptMagCalCommand(vehicle.sysid, vehicle.compid);
+    cmd.magnetometersBitmask = 0;
+    sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+  }
+
+  function handleCancelCompassCal() {
+    if (!vehicle) return;
+    const cmd = new DoCancelMagCalCommand(vehicle.sysid, vehicle.compid);
+    cmd.magnetometersBitmask = 0;
+    sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+  }
+
   const isConnected = status === "connected";
 
   return (
@@ -509,6 +629,15 @@ export function ArduPilotSetupView() {
               onLoadParameters={handleLoadParameters}
               onRequestMissing={handleRequestMissingParameters}
               onSetParam={handleSetParam}
+            />
+          ) : activeSection === "compassCal" ? (
+            <CompassCalSection
+              progress={compassCalProgress}
+              reports={compassCalReports}
+              lastCommandAck={compassCalLastCommandAck}
+              onStart={handleStartCompassCal}
+              onAccept={handleAcceptCompassCal}
+              onCancel={handleCancelCompassCal}
             />
           ) : activeSection === "motorsSetup" ? (
             <ComingSoonSection

@@ -38,6 +38,27 @@ describe("mavlinkParameterStore", () => {
     expect(Object.keys(state.params).sort()).toEqual(["ARSPD_RATIO", "ARSPD_USE"]);
   });
 
+  it("merges a batch of entries in one update, keeping previously received params", () => {
+    useMavlinkParameterStore.getState().setParam(ENTRY, 742);
+    const batch: ParamEntry[] = [
+      { ...ENTRY, name: "ARSPD_RATIO", index: 6, value: 2 },
+      { ...ENTRY, name: "ARSPD_FBW_MIN", index: 7, value: 15 },
+    ];
+    useMavlinkParameterStore.getState().setParams(batch, 742);
+    const state = useMavlinkParameterStore.getState();
+    expect(Object.keys(state.params).sort()).toEqual(["ARSPD_FBW_MIN", "ARSPD_RATIO", "ARSPD_USE"]);
+    expect(state.params["ARSPD_FBW_MIN"]?.value).toBe(15);
+    expect(state.expectedCount).toBe(742);
+  });
+
+  it("does nothing when flushing an empty batch", () => {
+    useMavlinkParameterStore.getState().setParam(ENTRY, 742);
+    useMavlinkParameterStore.getState().setParams([], 999);
+    const state = useMavlinkParameterStore.getState();
+    expect(Object.keys(state.params)).toEqual(["ARSPD_USE"]);
+    expect(state.expectedCount).toBe(742); // unchanged - the empty-batch early return skips it
+  });
+
   it("marks an existing param dirty and clears it again", () => {
     useMavlinkParameterStore.getState().setParam(ENTRY, 742);
     useMavlinkParameterStore.getState().markDirty("ARSPD_USE", true);
