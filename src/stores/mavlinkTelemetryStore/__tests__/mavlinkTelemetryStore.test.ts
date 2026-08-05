@@ -29,6 +29,19 @@ describe("mavlinkTelemetryStore", () => {
     expect(state.battery).toBeNull();
     expect(state.gps).toBeNull();
     expect(state.position).toBeNull();
+    expect(state.servoOutputs).toEqual({});
+  });
+
+  it("merges a partial servo-output update (e.g. channels 1-8) without discarding others (e.g. 9-16)", () => {
+    useMavlinkTelemetryStore.getState().mergeServoOutputs({ 9: 1500, 10: 1600 });
+    useMavlinkTelemetryStore.getState().mergeServoOutputs({ 1: 1100, 2: 1900 });
+    expect(useMavlinkTelemetryStore.getState().servoOutputs).toEqual({ 1: 1100, 2: 1900, 9: 1500, 10: 1600 });
+  });
+
+  it("overwrites a channel's value when it updates again", () => {
+    useMavlinkTelemetryStore.getState().mergeServoOutputs({ 1: 1100 });
+    useMavlinkTelemetryStore.getState().mergeServoOutputs({ 1: 1200 });
+    expect(useMavlinkTelemetryStore.getState().servoOutputs[1]).toBe(1200);
   });
 
   it("sets each telemetry slice independently", () => {
@@ -49,10 +62,12 @@ describe("mavlinkTelemetryStore", () => {
   it("resets every slice back to null", () => {
     useMavlinkTelemetryStore.getState().setAttitude(ATTITUDE);
     useMavlinkTelemetryStore.getState().setBattery(BATTERY);
+    useMavlinkTelemetryStore.getState().mergeServoOutputs({ 1: 1500 });
     useMavlinkTelemetryStore.getState().reset();
 
     const state = useMavlinkTelemetryStore.getState();
     expect(state.attitude).toBeNull();
     expect(state.battery).toBeNull();
+    expect(state.servoOutputs).toEqual({});
   });
 });

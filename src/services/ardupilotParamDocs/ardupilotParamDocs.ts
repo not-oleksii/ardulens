@@ -7,6 +7,9 @@ export interface ParamDoc {
   humanName: string;
   /** The full documentation sentence(s) ArduPilot ships for this parameter. */
   documentation: string;
+  /** For enum-typed params (e.g. SERVO1_FUNCTION), the real code->label list ArduPilot ships
+   *  in its own pdef.xml - absent for non-enum params. */
+  values?: Record<number, string>;
 }
 
 export type ParamDocsMap = Record<string, ParamDoc>;
@@ -73,9 +76,22 @@ export function parsePdefXml(xmlText: string): ParamDocsMap {
     const colonIndex = rawName.indexOf(":");
     const name = colonIndex === -1 ? rawName : rawName.slice(colonIndex + 1);
     if (docs[name]) continue; // first definition wins for params redefined per-frame/backend
+
+    const valuesEl = paramEl.getElementsByTagName("values")[0];
+    let values: Record<number, string> | undefined;
+    if (valuesEl) {
+      values = {};
+      for (const valueEl of Array.from(valuesEl.getElementsByTagName("value"))) {
+        const code = valueEl.getAttribute("code");
+        if (code === null) continue;
+        values[Number(code)] = valueEl.textContent ?? "";
+      }
+    }
+
     docs[name] = {
       humanName: paramEl.getAttribute("humanName") ?? name,
       documentation: paramEl.getAttribute("documentation") ?? "",
+      ...(values ? { values } : {}),
     };
   }
   return docs;

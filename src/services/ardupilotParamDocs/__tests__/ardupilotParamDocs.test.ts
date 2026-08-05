@@ -16,6 +16,13 @@ const SAMPLE_XML = `<?xml version="1.0" encoding="utf-8"?>
       </param>
       <param humanName="Roll P gain (multirotor)" name="ArduCopter:ATC_RAT_RLL_P" documentation="Multirotor roll rate P gain">
       </param>
+      <param humanName="Servo output function" name="ArduCopter:SERVO1_FUNCTION" documentation="Function assigned to this servo">
+        <values>
+          <value code="-1">GPIO</value>
+          <value code="0">Disabled</value>
+          <value code="4">Aileron</value>
+        </values>
+      </param>
     </parameters>
   </vehicles>
   <libraries>
@@ -49,6 +56,16 @@ describe("parsePdefXml", () => {
 
   it("returns an empty map for XML with no param elements", () => {
     expect(parsePdefXml("<paramfile></paramfile>")).toEqual({});
+  });
+
+  it("parses an enum param's <values> into a code->label map, including negative codes", () => {
+    const docs = parsePdefXml(SAMPLE_XML);
+    expect(docs["SERVO1_FUNCTION"]?.values).toEqual({ [-1]: "GPIO", 0: "Disabled", 4: "Aileron" });
+  });
+
+  it("omits the values key entirely for a non-enum param", () => {
+    const docs = parsePdefXml(SAMPLE_XML);
+    expect(docs["PILOT_THR_FILT"]).not.toHaveProperty("values");
   });
 });
 

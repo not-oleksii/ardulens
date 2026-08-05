@@ -28,7 +28,9 @@ export function CompassCoverageSphere({ completionMask, completionPct, size = DE
   const sections = projectCoverageSphere(completionMask, azimuthDeg, elevationDeg, radius);
 
   function handlePointerDown(e: React.PointerEvent<SVGSVGElement>) {
-    (e.target as Element).setPointerCapture(e.pointerId);
+    // Not implemented in jsdom (tests) and not universally available - guarded rather than
+    // assumed; losing capture just means a drag that leaves the SVG stops rotating early.
+    (e.target as Element).setPointerCapture?.(e.pointerId);
     dragRef.current = { x: e.clientX, y: e.clientY, azimuthDeg, elevationDeg };
   }
 

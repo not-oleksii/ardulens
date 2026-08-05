@@ -41,8 +41,20 @@
       "pidTune": "PID Tune"
     },
     "comingSoon": {
-      "motorsSetup": "Motor/servo test and frame setup - coming in a future release.",
       "pidTune": "PID tuning - coming in a future release."
+    },
+    "motorsServos": {
+      "heading": "Motors & Servos",
+      "load": "Load Servo Outputs",
+      "safetyWarning": "Ensure control surfaces can move freely and are clear of obstructions before testing.",
+      "notLoaded": "Servo outputs haven't been loaded yet.",
+      "noActiveChannels": "No active servo outputs found (every channel reports Disabled).",
+      "channel": "Channel",
+      "function": "Function",
+      "output": "Output",
+      "test": "Test",
+      "holdToTest": "Hold to test",
+      "copterComingSoon": "Copter motor test and frame setup - coming in a future release."
     },
     "compassCal": {
       "heading": "Compass Calibration",
@@ -118,6 +130,7 @@
       "udpPortHint": "The vehicle/SITL must be configured to send MAVLink to this port on this computer.",
       "connect": "Connect",
       "disconnect": "Disconnect",
+      "devMode": "Dev Mode",
       "statusIdle": "Not connected",
       "statusConnecting": "Connecting...",
       "statusConnected": "Connected: {{detail}}",

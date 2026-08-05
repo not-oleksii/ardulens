@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { emit } from "@tauri-apps/api/event";
 import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
@@ -29,6 +29,7 @@ import {
   ParamSet,
   ParamValue,
   RequestDataStream,
+  ServoOutputRaw,
   SysStatus,
   VfrHud,
 } from "../../../mavlink/registry/registry";
@@ -47,6 +48,17 @@ const SAMPLE_PORTS = [
 function sampleHeartbeatBytes(): number[] {
   const hb = new Heartbeat();
   hb.type = MavType.QUADROTOR;
+  hb.autopilot = MavAutopilot.ARDUPILOTMEGA;
+  hb.baseMode = MavModeFlag.STABILIZE_ENABLED;
+  hb.customMode = 0;
+  hb.systemStatus = MavState.STANDBY;
+  hb.mavlinkVersion = 3;
+  return Array.from(encodePacket(hb, { seq: 1, sysid: 1, compid: 1 }));
+}
+
+function samplePlaneHeartbeatBytes(): number[] {
+  const hb = new Heartbeat();
+  hb.type = MavType.FIXED_WING;
   hb.autopilot = MavAutopilot.ARDUPILOTMEGA;
   hb.baseMode = MavModeFlag.STABILIZE_ENABLED;
   hb.customMode = 0;
@@ -144,6 +156,46 @@ function findCommandLongSend(invoked: ReturnType<typeof vi.fn>, mavCmd: number) 
   });
 }
 
+const MAV_CMD_DO_SET_SERVO = 183;
+
+/** Finds the MOST RECENT sent DO_SET_SERVO (instance=channel) and returns its commanded pwm
+ *  (param2), or undefined if no such send happened - "most recent" matters here since a
+ *  press-and-hold test sends two DO_SET_SERVOs for the same channel (deflect, then trim) and
+ *  the test needs to distinguish which one happened last. param1/param2 are plain
+ *  COMMAND_LONG floats - no NaN-collapse risk here (unlike PARAM_VALUE), so a direct
+ *  getFloat32 read is safe. */
+function findSetServoPwm(invoked: ReturnType<typeof vi.fn>, channel: number): number | undefined {
+  const matches = invoked.mock.calls.filter(([cmd, payload]) => {
+    if (cmd !== "send_bytes") return false;
+    const bytes = (payload as { bytes: number[] }).bytes;
+    if (bytes[7] !== 76) return false;
+    const view = new DataView(new Uint8Array(bytes).buffer);
+    return view.getUint16(38, true) === MAV_CMD_DO_SET_SERVO && view.getFloat32(10, true) === channel;
+  });
+  const last = matches.at(-1);
+  if (!last) return undefined;
+  const bytes = (last[1] as { bytes: number[] }).bytes;
+  return new DataView(new Uint8Array(bytes).buffer).getFloat32(14, true);
+}
+
+/** Builds real SERVO_OUTPUT_RAW wire bytes reporting up to 8 channel values for the given
+ *  port bank (0 = channels 1-8, 1 = channels 9-16) - matches ArduPilot's real MAIN/AUX
+ *  convention (confirmed against MAVLink's own common.xml, not assumed). */
+function buildServoOutputRawBytes(port: number, values: number[], seq: number): number[] {
+  const msg = new ServoOutputRaw();
+  msg.timeUsec = 0;
+  msg.port = port;
+  msg.servo1Raw = values[0] ?? 0;
+  msg.servo2Raw = values[1] ?? 0;
+  msg.servo3Raw = values[2] ?? 0;
+  msg.servo4Raw = values[3] ?? 0;
+  msg.servo5Raw = values[4] ?? 0;
+  msg.servo6Raw = values[5] ?? 0;
+  msg.servo7Raw = values[6] ?? 0;
+  msg.servo8Raw = values[7] ?? 0;
+  return Array.from(encodePacket(msg, { seq, sysid: 1, compid: 1 }));
+}
+
 function mockBackend(invoked: (cmd: string, payload?: unknown) => void = () => {}) {
   mockIPC(
     (cmd, payload) => {
@@ -172,6 +224,7 @@ function getView() {
   const getRefreshPortsButton = () => screen.getByRole("button", { name: "Оновити порти" });
   const getConnectButton = () => screen.getByRole("button", { name: "Підключити" });
   const getDisconnectButton = () => screen.getByRole("button", { name: "Відключити" });
+  const getDevModeButton = () => screen.getByRole("button", { name: "Режим розробника" });
   const getStatusAlert = () => screen.getByRole("alert");
   const getTelemetryNavButton = () => screen.getByRole("tab", { name: "Телеметрія" });
   const getParametersNavButton = () => screen.getByRole("tab", { name: "Параметри" });
@@ -184,9 +237,11 @@ function getView() {
   const clickRefreshPorts = () => user.click(getRefreshPortsButton());
   const clickConnect = () => user.click(getConnectButton());
   const clickDisconnect = () => user.click(getDisconnectButton());
+  const clickDevMode = () => user.click(getDevModeButton());
   const clickParametersNav = () => user.click(getParametersNavButton());
   const clickTelemetryNav = () => user.click(getTelemetryNavButton());
   const clickCompassCalNav = () => user.click(getCompassCalNavButton());
+  const clickMotorsNav = () => user.click(getMotorsNavButton());
 
   return {
     user,
@@ -199,6 +254,7 @@ function getView() {
     getRefreshPortsButton,
     getConnectButton,
     getDisconnectButton,
+    getDevModeButton,
     getStatusAlert,
     getTelemetryNavButton,
     getParametersNavButton,
@@ -210,9 +266,11 @@ function getView() {
     clickRefreshPorts,
     clickConnect,
     clickDisconnect,
+    clickDevMode,
     clickParametersNav,
     clickTelemetryNav,
     clickCompassCalNav,
+    clickMotorsNav,
   };
 }
 
@@ -495,6 +553,62 @@ describe("ArduPilotSetupView", () => {
     });
   });
 
+  describe("Dev Mode", () => {
+    // No mockBackend()/mockIPC() in most of these - Dev Mode's whole point is to work with
+    // no real Tauri backend at all, and the simulator (mockVehicleSimulator.ts) is a real,
+    // separately-unit-tested MAVLink peer, not a shortcut - these tests exercise the exact
+    // same decode/store/render pipeline a real vehicle connection would.
+
+    it("connects to a simulated Plane and shows live vehicle info, with no backend mocked at all", async () => {
+      const { clickDevMode, getStatusAlert } = getView();
+
+      await clickDevMode();
+
+      await within(getStatusAlert()).findByText(/Підключено/);
+      expect(await screen.findByText("Літак (крило)")).toBeInTheDocument();
+    });
+
+    it("loading parameters exercises the real load/list/missing-param round trip against the simulator", async () => {
+      const { user, clickDevMode, clickParametersNav, getStatusAlert } = getView();
+      await clickDevMode();
+      await within(getStatusAlert()).findByText(/Підключено/);
+      await clickParametersNav();
+
+      await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
+
+      expect(await screen.findByText("ARSPD_USE")).toBeInTheDocument();
+      // SERVO3_TRIM is deliberately withheld from the initial dump by the simulator (see
+      // mockVehicleSimulator.ts) to give "Request missing" something real to do.
+      expect(screen.queryByText("SERVO3_TRIM")).not.toBeInTheDocument();
+      expect(await screen.findByRole("button", { name: "Запросити відсутні" })).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Запросити відсутні" }));
+      expect(await screen.findByText("SERVO3_TRIM")).toBeInTheDocument();
+    });
+
+    it(
+      "Motors & Servos lists the simulated channels and reflects a real press-and-hold test's live output",
+      async () => {
+        const { user, clickDevMode, clickMotorsNav, getStatusAlert } = getView();
+        await clickDevMode();
+        await within(getStatusAlert()).findByText(/Підключено/);
+        await clickMotorsNav();
+
+        await user.click(screen.getByRole("button", { name: "Завантажити виходи серво" }));
+
+        const testButtons = await screen.findAllByRole("button", { name: "Утримуйте для тесту" });
+        expect(testButtons.length).toBeGreaterThanOrEqual(3); // 3 active seeded channels, 1 disabled
+
+        fireEvent.pointerDown(testButtons[0]!);
+        // Channel 1's seeded range is min=1000/max=2000/trim=1500, so the press-and-hold
+        // deflection (30% of the larger side's room) lands at exactly 1650 - this is the
+        // simulator's own SERVO_OUTPUT_RAW echo, not an assumed/optimistic local value.
+        await screen.findByText("1650 us");
+      },
+      10000,
+    );
+  });
+
   describe("auto-connect", () => {
     function calledWithPort(invoked: ReturnType<typeof vi.fn>, cmd: string, port: string) {
       return invoked.mock.calls.some(
@@ -602,7 +716,11 @@ describe("ArduPilotSetupView", () => {
       expect(screen.getByRole("button", { name: "Завантажити параметри" })).toBeInTheDocument();
 
       await user.click(getMotorsNavButton());
-      expect(screen.getByText("Тест моторів/сервоприводів і налаштування рами - у наступному релізі.")).toBeInTheDocument();
+      // No vehicle heartbeat was emitted in this test, so vehicleType falls back to GENERIC
+      // -> ArduCopter folder -> the Copter (not-yet-built) fallback, not the Plane UI.
+      expect(
+        screen.getByText("Тест моторів мультикоптера і налаштування рами - у наступному релізі."),
+      ).toBeInTheDocument();
 
       await user.click(getPidTuneNavButton());
       expect(screen.getByText("Налаштування PID - у наступному релізі.")).toBeInTheDocument();
@@ -612,6 +730,102 @@ describe("ArduPilotSetupView", () => {
       mockBackend();
       getView();
       expect(screen.getByText("Підключіться до апарата, щоб побачити цей розділ.")).toBeInTheDocument();
+    });
+  });
+
+  describe("motors & servos (Plane)", () => {
+    async function connectPlaneAndOpenMotors() {
+      const view = getView();
+      await view.clickConnect();
+      await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit("mavlink-transport://data", { bytes: samplePlaneHeartbeatBytes() });
+      await view.clickMotorsNav();
+      return view;
+    }
+
+    it("shows a safety warning and Load button for a connected Plane", async () => {
+      mockBackend();
+      await connectPlaneAndOpenMotors();
+      expect(
+        screen.getByText("Переконайтеся, що керуючі поверхні можуть вільно рухатися і нічим не перешкоджені, перед тестуванням."),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Завантажити виходи серво" })).toBeInTheDocument();
+      expect(screen.getByText("Виходи серво ще не завантажено.")).toBeInTheDocument();
+    });
+
+    it("requests SERVOx_FUNCTION/MIN/MAX/TRIM by name for all 16 channels when Load is clicked", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectPlaneAndOpenMotors();
+
+      await user.click(screen.getByRole("button", { name: "Завантажити виходи серво" }));
+
+      const byNameRequests = invoked.mock.calls.filter(([cmd, payload]) => {
+        if (cmd !== "send_bytes") return false;
+        const bytes = (payload as { bytes: number[] }).bytes;
+        return bytes[7] === ParamRequestRead.MSG_ID;
+      });
+      expect(byNameRequests.length).toBe(16 * 4);
+
+      const requestedNames = new Set(
+        byNameRequests.map(([, payload]) => {
+          const bytes = (payload as { bytes: number[] }).bytes;
+          // param_id: char[16] at payload offset 4 (after param_index:int16, target_system/
+          // target_component:uint8 - confirmed via ParamRequestRead.FIELDS, not assumed).
+          const nameBytes = bytes.slice(14, 14 + 16);
+          const nullIndex = nameBytes.indexOf(0);
+          return String.fromCharCode(...nameBytes.slice(0, nullIndex === -1 ? undefined : nullIndex));
+        }),
+      );
+      expect(requestedNames.has("SERVO1_FUNCTION")).toBe(true);
+      expect(requestedNames.has("SERVO16_TRIM")).toBe(true);
+    });
+
+    it("lists an active channel's function label and live output once params and SERVO_OUTPUT_RAW arrive", async () => {
+      const sampleXml = `<?xml version="1.0"?><paramfile><vehicles><parameters name="ArduPlane">
+        <param humanName="Servo output function" name="ArduPlane:SERVO1_FUNCTION" documentation="Function">
+          <values><value code="4">Aileron</value></values>
+        </param>
+      </parameters></vehicles></paramfile>`;
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, text: () => Promise.resolve(sampleXml) }));
+
+      mockBackend();
+      await connectPlaneAndOpenMotors();
+
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("SERVO1_FUNCTION", 4, MavParamType.INT16, 0, 1, 1) });
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("SERVO1_MIN", 1000, MavParamType.INT16, 1, 1, 2) });
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("SERVO1_MAX", 2000, MavParamType.INT16, 2, 1, 3) });
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("SERVO1_TRIM", 1500, MavParamType.INT16, 3, 1, 4) });
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("SERVO2_FUNCTION", 0, MavParamType.INT16, 4, 1, 5) });
+
+      expect(await screen.findByText("Aileron")).toBeInTheDocument();
+      expect(screen.getByText("1")).toBeInTheDocument(); // channel number
+      expect(screen.getByText("-")).toBeInTheDocument(); // no SERVO_OUTPUT_RAW yet
+      expect(screen.getAllByRole("row")).toHaveLength(2); // header + exactly one active channel (2 is Disabled)
+
+      await emit("mavlink-transport://data", { bytes: buildServoOutputRawBytes(0, [1500], 5) });
+      expect(await screen.findByText("1500 us")).toBeInTheDocument();
+    });
+
+    it("press-and-hold sends a deflected DO_SET_SERVO on pointerdown and returns to trim on pointerup", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      await connectPlaneAndOpenMotors();
+
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("SERVO1_FUNCTION", 4, MavParamType.INT16, 0, 1, 1) });
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("SERVO1_MIN", 1000, MavParamType.INT16, 1, 1, 2) });
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("SERVO1_MAX", 2000, MavParamType.INT16, 2, 1, 3) });
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("SERVO1_TRIM", 1500, MavParamType.INT16, 3, 1, 4) });
+      const testButton = await screen.findByRole("button", { name: "Утримуйте для тесту" });
+
+      fireEvent.pointerDown(testButton);
+      // trim=1500, max=2000, min=1000 -> toward-max room (500) >= toward-min room (500), so it
+      // deflects toward max: 1500 + 0.3*500 = 1650.
+      expect(findSetServoPwm(invoked, 1)).toBe(1650);
+
+      fireEvent.pointerUp(testButton);
+      expect(findSetServoPwm(invoked, 1)).toBe(1500); // last DO_SET_SERVO(1, ...) is at trim again
     });
   });
 
@@ -791,7 +1005,16 @@ describe("ArduPilotSetupView", () => {
       expect(await screen.findByText("1")).toBeInTheDocument();
       expect(screen.queryByText("-5")).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /Зберегти все/ })).not.toBeInTheDocument();
-      expect(invoked.mock.calls.some(([cmd]) => cmd === "send_bytes")).toBe(false);
+      // Checks specifically for the absence of a PARAM_SET, not of any send_bytes call at
+      // all - the connected session's periodic 1Hz GCS heartbeat legitimately calls
+      // send_bytes on its own timer, making a "no send_bytes at all" check flaky under load
+      // (see the same fix applied to the "stages an edit locally..." test above).
+      const sentParamSet = invoked.mock.calls.some(([cmd, payload]) => {
+        if (cmd !== "send_bytes") return false;
+        const bytes = (payload as { bytes: number[] }).bytes;
+        return bytes[7] === ParamSet.MSG_ID;
+      });
+      expect(sentParamSet).toBe(false);
     });
 
     it("shows an unavailable message and a dash in the description column when descriptions fail to load", async () => {
