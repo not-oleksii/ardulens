@@ -3,9 +3,9 @@
 // tool with dependencies like xml2js/ts-node that don't belong in a browser bundle). These
 // submodule files are pure TS/JS with zero Node built-ins.
 import { REGISTRY as MINIMAL_REGISTRY } from "mavlink-mappings/dist/lib/minimal";
-import { REGISTRY as COMMON_REGISTRY } from "mavlink-mappings/dist/lib/common";
+import { REGISTRY as COMMON_REGISTRY, MavCmd as CommonMavCmd } from "mavlink-mappings/dist/lib/common";
 import { REGISTRY as STANDARD_REGISTRY } from "mavlink-mappings/dist/lib/standard";
-import { REGISTRY as ARDUPILOTMEGA_REGISTRY } from "mavlink-mappings/dist/lib/ardupilotmega";
+import { REGISTRY as ARDUPILOTMEGA_REGISTRY, MavCmd as ArduMavCmd } from "mavlink-mappings/dist/lib/ardupilotmega";
 import type { MavLinkPacketRegistry } from "mavlink-mappings/dist/lib/mavlink";
 
 export { Heartbeat } from "mavlink-mappings/dist/lib/minimal";
@@ -14,6 +14,11 @@ export { Attitude, GpsRawInt, GpsFixType, RequestDataStream, SysStatus, VfrHud }
 export { MavDataStream } from "mavlink-mappings/dist/lib/common";
 export { MavParamType, ParamRequestList, ParamRequestRead, ParamSet, ParamValue } from "mavlink-mappings/dist/lib/common";
 export { CommandAck, MavResult, MagCalReport, MagCalStatus } from "mavlink-mappings/dist/lib/common";
+// DO_SET_SERVO (COMMAND_LONG wrapper, like the mag-cal commands) directly sets one output
+// channel's PWM - used for the Plane control-surface test. SERVO_OUTPUT_RAW reports the
+// vehicle's actual live per-channel PWM back, so the test's effect can be confirmed rather
+// than just trusted.
+export { DoSetServoCommand, ServoOutputRaw } from "mavlink-mappings/dist/lib/common";
 // GLOBAL_POSITION_INT lives in the "standard" dialect file, not "common" - this package
 // splits a curated subset of core messages there even though they're not ArduPilot-specific.
 export { GlobalPositionInt } from "mavlink-mappings/dist/lib/standard";
@@ -22,10 +27,15 @@ export { GlobalPositionInt } from "mavlink-mappings/dist/lib/standard";
 // commands are typed COMMAND_LONG wrappers (MSG_ID 76) with their `command` field defaulted
 // to the right MAV_CMD id by their constructors - not distinct message ids of their own.
 export { MagCalProgress, DoStartMagCalCommand, DoAcceptMagCalCommand, DoCancelMagCalCommand } from "mavlink-mappings/dist/lib/ardupilotmega";
-// The ardupilotmega dialect's MavCmd is common's MavCmd extended with ArduPilot-specific
-// commands (e.g. DO_START_MAG_CAL) - common's own MavCmd doesn't have those, so this is the
-// one to use whenever an ArduPilot-specific command id needs comparing (e.g. a COMMAND_ACK).
-export { MavCmd } from "mavlink-mappings/dist/lib/ardupilotmega";
+// NOT simply "ardupilotmega's MavCmd extends common's" - verified (while building the mock
+// vehicle simulator, which needs to recognize a standard command like DO_SET_SERVO) that
+// ardupilotmega's own MavCmd export contains ONLY its ~32 ArduPilot-specific additions (e.g.
+// DO_START_MAG_CAL=42424), not any of common's ~166 standard commands (e.g. DO_SET_SERVO=183)
+// - a real, previously-latent gap, since nothing needed a standard command id from this
+// export before. Merged here instead (confirmed zero overlapping member names between the
+// two) so `MavCmd.<anything>` resolves correctly regardless of which dialect defines it.
+export const MavCmd = { ...CommonMavCmd, ...ArduMavCmd };
+export type MavCmd = CommonMavCmd | ArduMavCmd;
 
 /**
  * Each dialect file's own REGISTRY only lists the messages *defined* in that file, not

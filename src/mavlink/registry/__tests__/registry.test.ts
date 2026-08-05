@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { DoStartMagCalCommand, GlobalPositionInt, Heartbeat, MagCalProgress, MagCalReport, MAVLINK_REGISTRY, ParamValue } from "../registry";
+import {
+  DoSetServoCommand,
+  DoStartMagCalCommand,
+  GlobalPositionInt,
+  Heartbeat,
+  MagCalProgress,
+  MagCalReport,
+  MavCmd,
+  MAVLINK_REGISTRY,
+  ParamValue,
+  ServoOutputRaw,
+} from "../registry";
 
 describe("MAVLINK_REGISTRY", () => {
   it("maps message id 0 to the Heartbeat class", () => {
@@ -23,6 +34,26 @@ describe("MAVLINK_REGISTRY", () => {
   it("DO_START_MAG_CAL is a COMMAND_LONG (msg 76) wrapper with its command field pre-set", () => {
     expect(DoStartMagCalCommand.MSG_ID).toBe(76);
     expect(new DoStartMagCalCommand().command).toBe(42424); // MAV_CMD_DO_START_MAG_CAL
+  });
+
+  it("DO_SET_SERVO is a COMMAND_LONG wrapper exposing instance/pwm; SERVO_OUTPUT_RAW is msg 36", () => {
+    expect(DoSetServoCommand.MSG_ID).toBe(76);
+    const cmd = new DoSetServoCommand();
+    cmd.instance = 5;
+    cmd.pwm = 1600;
+    expect(cmd.instance).toBe(5);
+    expect(cmd.pwm).toBe(1600);
+    expect(MAVLINK_REGISTRY[36]).toBe(ServoOutputRaw);
+  });
+
+  it("MavCmd merges both standard commands and ArduPilot-specific ones", () => {
+    // Regression test: ardupilotmega's own MavCmd export contains ONLY its ~32 ArduPilot-
+    // specific additions, not any of common's ~166 standard commands - confirmed by dumping
+    // both objects directly, not assumed. DO_SET_SERVO (183, standard) is missing from
+    // ardupilotmega's MavCmd on its own; DO_START_MAG_CAL (42424, ArduPilot-specific) is
+    // missing from common's on its own. Both must resolve correctly from this merged export.
+    expect(MavCmd.DO_SET_SERVO).toBe(183);
+    expect(MavCmd.DO_START_MAG_CAL).toBe(42424);
   });
 
   it("Heartbeat carries the field metadata needed to decode/encode it", () => {

@@ -1,7 +1,7 @@
 import type { MavlinkPacketMeta } from "../codec/codec";
 import { encodePacket } from "../codec/codec";
 import { x25Crc } from "../crc/crc";
-import { MavParamType, ParamSet } from "../registry/registry";
+import { MavParamType, ParamSet, ParamValue } from "../registry/registry";
 
 const V2_HEADER_LENGTH = 10;
 // param_value is always the first field (offset 0, 4 bytes) in both PARAM_VALUE and PARAM_SET.
@@ -104,6 +104,22 @@ export function buildParamSetPacket(msg: ParamSet, wireBits: number, meta: Mavli
 
   const crcInput = packet.subarray(1, packet.length - 2);
   const crc = x25Crc(crcInput, ParamSet.MAGIC_NUMBER);
+  view.setUint8(packet.length - 2, crc & 0xff);
+  view.setUint8(packet.length - 1, (crc >> 8) & 0xff);
+  return packet;
+}
+
+/** Same idea as {@link buildParamSetPacket}, for encoding a PARAM_VALUE (e.g. by the mock
+ *  vehicle simulator, which needs to send real byte-wise-encoded parameter responses back to
+ *  the app - the same hazard applies since PARAM_VALUE's param_value field has the identical
+ *  byte-wise encoding as PARAM_SET's). */
+export function buildParamValuePacket(msg: ParamValue, wireBits: number, meta: MavlinkPacketMeta): Uint8Array {
+  const packet = encodePacket(msg, meta);
+  const view = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
+  view.setUint32(V2_HEADER_LENGTH + PARAM_VALUE_FIELD_OFFSET, wireBits, true);
+
+  const crcInput = packet.subarray(1, packet.length - 2);
+  const crc = x25Crc(crcInput, ParamValue.MAGIC_NUMBER);
   view.setUint8(packet.length - 2, crc & 0xff);
   view.setUint8(packet.length - 1, (crc >> 8) & 0xff);
   return packet;

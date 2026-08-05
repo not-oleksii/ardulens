@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { encodePayload } from "../../codec/codec";
 import { x25Crc } from "../../crc/crc";
-import { MavParamType, ParamSet } from "../../registry/registry";
-import { buildParamSetPacket, paramValueToWireBits, paramWireBitsToValue, readParamValueBits } from "../paramValueCodec";
+import { MavParamType, ParamSet, ParamValue } from "../../registry/registry";
+import { buildParamSetPacket, buildParamValuePacket, paramValueToWireBits, paramWireBitsToValue, readParamValueBits } from "../paramValueCodec";
 
 // Independently generated via Python's struct module (the same byte-wise reinterpretation
 // pymavlink itself does), not derived from this file's own logic:
@@ -97,6 +97,29 @@ describe("buildParamSetPacket", () => {
     expect(packet[0]).toBe(0xfd); // v2 start byte
     const crcInput = packet.subarray(1, packet.length - 2);
     const expectedCrc = x25Crc(crcInput, ParamSet.MAGIC_NUMBER);
+    const actualCrc = packet[packet.length - 2]! | (packet[packet.length - 1]! << 8);
+    expect(actualCrc).toBe(expectedCrc);
+  });
+});
+
+describe("buildParamValuePacket", () => {
+  it("produces a packet whose payload carries the exact requested bit pattern and a valid CRC", () => {
+    const msg = new ParamValue();
+    msg.paramId = "TEST_PARAM";
+    msg.paramType = MavParamType.INT16;
+    msg.paramIndex = 3;
+    msg.paramCount = 10;
+    msg.paramValue = 0;
+
+    const wireBits = paramValueToWireBits(-1234, MavParamType.INT16);
+    const packet = buildParamValuePacket(msg, wireBits, { seq: 1, sysid: 1, compid: 1 });
+
+    const payload = packet.subarray(10, 10 + ParamValue.PAYLOAD_LENGTH);
+    expect(readParamValueBits(payload)).toBe(wireBits);
+    expect(paramWireBitsToValue(readParamValueBits(payload), MavParamType.INT16)).toBe(-1234);
+
+    const crcInput = packet.subarray(1, packet.length - 2);
+    const expectedCrc = x25Crc(crcInput, ParamValue.MAGIC_NUMBER);
     const actualCrc = packet[packet.length - 2]! | (packet[packet.length - 1]! << 8);
     expect(actualCrc).toBe(expectedCrc);
   });

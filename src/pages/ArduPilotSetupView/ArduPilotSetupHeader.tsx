@@ -1,4 +1,4 @@
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, FlaskConical } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -31,6 +31,7 @@ export interface ArduPilotSetupHeaderProps {
   onAutoConnect: () => void;
   onConnect: () => void;
   onDisconnect: () => void;
+  onDevMode: () => void;
 }
 
 export function ArduPilotSetupHeader({
@@ -55,6 +56,7 @@ export function ArduPilotSetupHeader({
   onAutoConnect,
   onConnect,
   onDisconnect,
+  onDevMode,
 }: ArduPilotSetupHeaderProps) {
   const { t } = useTranslation();
   const isBusy = status === "connecting";
@@ -158,15 +160,21 @@ export function ArduPilotSetupHeader({
           {t("ardupilotSetup.connect.disconnect")}
         </Button>
       ) : (
-        <Button
-          type="button"
-          size="sm"
-          className="shrink-0"
-          onClick={onConnect}
-          disabled={isBusy || (mode === "serial" && !selectedPort)}
-        >
-          {t("ardupilotSetup.connect.connect")}
-        </Button>
+        <>
+          <Button
+            type="button"
+            size="sm"
+            className="shrink-0"
+            onClick={onConnect}
+            disabled={isBusy || (mode === "serial" && !selectedPort)}
+          >
+            {t("ardupilotSetup.connect.connect")}
+          </Button>
+          <Button type="button" size="sm" variant="outline" className="shrink-0 gap-1" onClick={onDevMode} disabled={isBusy}>
+            <FlaskConical className="h-3.5 w-3.5" />
+            {t("ardupilotSetup.connect.devMode")}
+          </Button>
+        </>
       )}
 
       <Alert variant={status === "error" ? "destructive" : "info"} className="min-w-0 flex-1 py-1.5">

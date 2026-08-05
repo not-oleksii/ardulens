@@ -4,6 +4,7 @@ import { ArduPilotSetupHeader } from "./ArduPilotSetupHeader";
 import { ArduPilotSetupSidebar, type ArduPilotSetupSection } from "./ArduPilotSetupSidebar";
 import { ComingSoonSection } from "./ComingSoonSection";
 import { CompassCalSection } from "./CompassCalSection";
+import { MotorsServosSection } from "./MotorsServosSection";
 import { ParametersPanel } from "./ParametersPanel";
 import { TelemetrySection } from "./TelemetrySection";
 import { encodePacket } from "../../mavlink/codec/codec";
@@ -14,6 +15,7 @@ import {
   CommandAck,
   DoAcceptMagCalCommand,
   DoCancelMagCalCommand,
+  DoSetServoCommand,
   DoStartMagCalCommand,
   GlobalPositionInt,
   GpsRawInt,
@@ -32,10 +34,12 @@ import {
   ParamSet,
   ParamValue,
   RequestDataStream,
+  ServoOutputRaw,
   SysStatus,
   VfrHud,
 } from "../../mavlink/registry/registry";
 import {
+  connectMock,
   connectSerial,
   connectUdp,
   disconnect,
@@ -80,6 +84,10 @@ const REQUESTED_DATA_STREAMS = [
   MavDataStream.EXTRA2,
 ];
 const DATA_STREAM_RATE_HZ = 4;
+// Every ArduPilot board defines all of SERVO1_FUNCTION..SERVO16_FUNCTION regardless of how
+// many outputs it physically has (unused ones just report Disabled) - 16 covers every real
+// board without needing to guess the actual output count up front.
+const SERVO_CHANNEL_COUNT = 16;
 
 /** Resolves true if a heartbeat (any vehicle) arrives within `timeoutMs`, false otherwise. */
 function waitForHeartbeat(timeoutMs: number): Promise<boolean> {
@@ -123,6 +131,8 @@ export function ArduPilotSetupView() {
   const setBattery = useMavlinkTelemetryStore((s) => s.setBattery);
   const setGps = useMavlinkTelemetryStore((s) => s.setGps);
   const setPosition = useMavlinkTelemetryStore((s) => s.setPosition);
+  const servoOutputs = useMavlinkTelemetryStore((s) => s.servoOutputs);
+  const mergeServoOutputs = useMavlinkTelemetryStore((s) => s.mergeServoOutputs);
   const resetTelemetry = useMavlinkTelemetryStore((s) => s.reset);
   const setParams = useMavlinkParameterStore((s) => s.setParams);
   const resetParameters = useMavlinkParameterStore((s) => s.reset);
@@ -212,6 +222,28 @@ export function ArduPilotSetupView() {
           case GlobalPositionInt.MSG_ID: {
             const msg = packet.message as GlobalPositionInt;
             setPosition({ lat: msg.lat / 1e7, lon: msg.lon / 1e7, relativeAltM: msg.relativeAlt / 1000, updatedAt: now });
+            break;
+          }
+          case ServoOutputRaw.MSG_ID: {
+            const msg = packet.message as ServoOutputRaw;
+            // `port` groups outputs in banks of 8 (standard MAVLink convention, matching
+            // ArduPilot's MAIN/AUX split): port 0 carries channels 1-8, port 1 carries 9-16.
+            const base = msg.port === 1 ? 8 : 0;
+            const raws = [
+              msg.servo1Raw,
+              msg.servo2Raw,
+              msg.servo3Raw,
+              msg.servo4Raw,
+              msg.servo5Raw,
+              msg.servo6Raw,
+              msg.servo7Raw,
+              msg.servo8Raw,
+            ];
+            const update: Record<number, number> = {};
+            raws.forEach((pwm, i) => {
+              update[base + i + 1] = pwm;
+            });
+            mergeServoOutputs(update);
             break;
           }
           case MagCalProgress.MSG_ID: {
@@ -322,6 +354,7 @@ export function ArduPilotSetupView() {
     setBattery,
     setGps,
     setPosition,
+    mergeServoOutputs,
     resetTelemetry,
     resetParameters,
     resetCompassCal,
@@ -491,6 +524,25 @@ export function ArduPilotSetupView() {
     }
   }
 
+  // Starts an in-process simulated vehicle (see mockVehicleSimulator.ts) instead of a real
+  // connection - lets the whole app be exercised without any real hardware, SITL, or even a
+  // Tauri backend. Defaults to a simulated Plane, matching this project's current real test
+  // hardware and the features already built for it (servo mapping/test, compass cal).
+  async function handleConnectMock() {
+    setConnecting();
+    resetVehicle();
+    resetTelemetry();
+    resetParameters();
+    resetCompassCal();
+    pendingParamsRef.current.clear();
+    pendingParamCountRef.current = null;
+    try {
+      await connectMock(MavType.FIXED_WING);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   function sendGcsPacket(packet: Uint8Array) {
     sendBytes(packet)
       .then(() => addBytesSent(packet.length))
@@ -576,6 +628,31 @@ export function ArduPilotSetupView() {
     sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
   }
 
+  // Requests exactly the params the Motors/Servos section needs (function + travel range per
+  // output channel) by name rather than depending on the full parameter list being loaded
+  // elsewhere - self-contained, and far cheaper than a full 1000+ param dump.
+  function handleLoadServoOutputs() {
+    if (!vehicle) return;
+    for (let channel = 1; channel <= SERVO_CHANNEL_COUNT; channel++) {
+      for (const suffix of ["FUNCTION", "MIN", "MAX", "TRIM"]) {
+        const req = new ParamRequestRead();
+        req.targetSystem = vehicle.sysid;
+        req.targetComponent = vehicle.compid;
+        req.paramId = `SERVO${channel}_${suffix}`;
+        req.paramIndex = -1; // addressed by name, not index
+        sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+      }
+    }
+  }
+
+  function handleSetServoPwm(channel: number, pwm: number) {
+    if (!vehicle) return;
+    const cmd = new DoSetServoCommand(vehicle.sysid, vehicle.compid);
+    cmd.instance = channel;
+    cmd.pwm = pwm;
+    sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+  }
+
   const isConnected = status === "connected";
 
   return (
@@ -602,6 +679,7 @@ export function ArduPilotSetupView() {
         onAutoConnect={() => void handleAutoConnect()}
         onConnect={() => void handleConnect()}
         onDisconnect={() => void handleDisconnect()}
+        onDevMode={() => void handleConnectMock()}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -640,9 +718,11 @@ export function ArduPilotSetupView() {
               onCancel={handleCancelCompassCal}
             />
           ) : activeSection === "motorsSetup" ? (
-            <ComingSoonSection
-              heading={t("ardupilotSetup.sidebar.motorsSetup")}
-              description={t("ardupilotSetup.comingSoon.motorsSetup")}
+            <MotorsServosSection
+              vehicleType={vehicle?.type ?? MavType.GENERIC}
+              servoOutputs={servoOutputs}
+              onLoad={handleLoadServoOutputs}
+              onTestServo={handleSetServoPwm}
             />
           ) : (
             <ComingSoonSection
