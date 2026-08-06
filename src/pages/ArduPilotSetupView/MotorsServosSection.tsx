@@ -3,16 +3,20 @@ import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { MavType } from "../../mavlink/registry/registry";
+import type { MavParamType, MavType } from "../../mavlink/registry/registry";
 import { fetchParamDocs, vehicleFolderForMavType, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import { ComingSoonSection } from "./ComingSoonSection";
+import { MotorsCopterSection } from "./MotorsCopterSection";
 
 interface MotorsServosSectionProps {
   vehicleType: MavType;
   servoOutputs: Record<number, number>;
   onLoad: () => void;
   onTestServo: (channel: number, pwm: number) => void;
+  onLoadFrameInfo: () => void;
+  onSetFrameParam: (name: string, value: number, type: MavParamType) => void;
+  onTestMotor: (instance: number, throttlePercent: number) => void;
 }
 
 const SERVO_CHANNEL_COUNT = 16;
@@ -37,12 +41,21 @@ interface ServoChannel {
   testPwm: number;
 }
 
-export function MotorsServosSection({ vehicleType, servoOutputs, onLoad, onTestServo }: MotorsServosSectionProps) {
+export function MotorsServosSection({
+  vehicleType,
+  servoOutputs,
+  onLoad,
+  onTestServo,
+  onLoadFrameInfo,
+  onSetFrameParam,
+  onTestMotor,
+}: MotorsServosSectionProps) {
   const { t } = useTranslation();
   const params = useMavlinkParameterStore((s) => s.params);
   const [docs, setDocs] = useState<ParamDocsMap | null>(null);
   const vehicleFolder = vehicleFolderForMavType(vehicleType);
   const isPlane = vehicleFolder === "ArduPlane";
+  const isCopter = vehicleFolder === "ArduCopter";
 
   useEffect(() => {
     if (!isPlane) return;
@@ -59,11 +72,22 @@ export function MotorsServosSection({ vehicleType, servoOutputs, onLoad, onTestS
     };
   }, [isPlane, vehicleFolder]);
 
+  if (isCopter) {
+    return (
+      <MotorsCopterSection
+        servoOutputs={servoOutputs}
+        onLoadFrameInfo={onLoadFrameInfo}
+        onSetFrameParam={onSetFrameParam}
+        onTestMotor={onTestMotor}
+      />
+    );
+  }
+
   if (!isPlane) {
     return (
       <ComingSoonSection
         heading={t("ardupilotSetup.sidebar.motorsSetup")}
-        description={t("ardupilotSetup.motorsServos.copterComingSoon")}
+        description={t("ardupilotSetup.motorsServos.otherVehicleComingSoon")}
       />
     );
   }

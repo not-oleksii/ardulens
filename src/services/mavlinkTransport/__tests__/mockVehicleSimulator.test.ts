@@ -8,6 +8,7 @@ import {
   CommandAck,
   DoAcceptMagCalCommand,
   DoCancelMagCalCommand,
+  DoMotorTestCommand,
   DoSetServoCommand,
   DoStartMagCalCommand,
   GlobalPositionInt,
@@ -18,6 +19,7 @@ import {
   MagCalStatus,
   MavResult,
   MavType,
+  MotorTestThrottleType,
   ParamRequestList,
   ParamRequestRead,
   ParamSet,
@@ -224,5 +226,72 @@ describe("startMockVehicle", () => {
     emitted = [];
     vi.advanceTimersByTime(10000);
     expect(emitted).toHaveLength(0);
+  });
+
+  it("does not seed FRAME_CLASS/FRAME_TYPE for a non-Copter vehicle (this handle is FIXED_WING)", () => {
+    emitted = [];
+    handle.handleAppBytes(encodeFromApp(new ParamRequestList()));
+    const names = decodeAll(emitted)
+      .filter((p) => p.msgId === ParamValue.MSG_ID)
+      .map((p) => (p.message as ParamValue).paramId);
+    expect(names).not.toContain("FRAME_CLASS");
+    expect(names).not.toContain("FRAME_TYPE");
+  });
+});
+
+describe("startMockVehicle (Copter)", () => {
+  let emitted: Uint8Array[];
+  let handle: MockVehicleHandle;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    emitted = [];
+    handle = startMockVehicle(MavType.QUADROTOR, (bytes) => emitted.push(bytes));
+  });
+
+  afterEach(() => {
+    handle.stop();
+    vi.useRealTimers();
+  });
+
+  it("seeds FRAME_CLASS=1 (Quad) and FRAME_TYPE=1 (X) - one of frameDiagrams.ts's verified layouts", () => {
+    emitted = [];
+    handle.handleAppBytes(encodeFromApp(new ParamRequestList()));
+    const values = new Map(
+      decodeAll(emitted)
+        .filter((p) => p.msgId === ParamValue.MSG_ID)
+        .map((p) => {
+          const msg = p.message as ParamValue;
+          return [msg.paramId, paramWireBitsToValue(readParamValueBits(p.payload), msg.paramType)] as const;
+        }),
+    );
+    expect(values.get("FRAME_CLASS")).toBe(1);
+    expect(values.get("FRAME_TYPE")).toBe(1);
+  });
+
+  it("echoes DO_MOTOR_TEST back via SERVO_OUTPUT_RAW, converting throttle percent to PWM", () => {
+    const cmd = new DoMotorTestCommand();
+    cmd.instance = 2;
+    cmd.throttleType = MotorTestThrottleType.THROTTLE_PERCENT;
+    cmd.throttle = 10;
+    cmd.timeout = 3;
+    cmd.motorCount = 1;
+
+    emitted = [];
+    handle.handleAppBytes(encodeFromApp(cmd));
+
+    const raw = decodeAll(emitted).find((p) => p.msgId === ServoOutputRaw.MSG_ID);
+    expect(raw).toBeDefined();
+    expect((raw!.message as ServoOutputRaw).servo2Raw).toBe(1100); // 10% -> 1000 + 0.10*1000
+
+    // Release sends throttle=0, which should return that channel to 1000us (motor off).
+    const stopCmd = new DoMotorTestCommand();
+    stopCmd.instance = 2;
+    stopCmd.throttleType = MotorTestThrottleType.THROTTLE_PERCENT;
+    stopCmd.throttle = 0;
+    emitted = [];
+    handle.handleAppBytes(encodeFromApp(stopCmd));
+    const stopRaw = decodeAll(emitted).find((p) => p.msgId === ServoOutputRaw.MSG_ID);
+    expect((stopRaw!.message as ServoOutputRaw).servo2Raw).toBe(1000);
   });
 });

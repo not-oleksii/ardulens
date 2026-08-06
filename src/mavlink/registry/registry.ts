@@ -19,6 +19,11 @@ export { CommandAck, MavResult, MagCalReport, MagCalStatus } from "mavlink-mappi
 // vehicle's actual live per-channel PWM back, so the test's effect can be confirmed rather
 // than just trusted.
 export { DoSetServoCommand, ServoOutputRaw } from "mavlink-mappings/dist/lib/common";
+// DO_MOTOR_TEST spins one Copter motor at a given throttle for a bounded duration (the
+// firmware itself auto-stops after `timeout` even if a follow-up stop command is lost, on
+// top of the explicit stop this app sends on release) - used for the motor-identification
+// test, which is the Copter counterpart to DO_SET_SERVO's Plane surface test above.
+export { DoMotorTestCommand, MotorTestThrottleType } from "mavlink-mappings/dist/lib/common";
 // GLOBAL_POSITION_INT lives in the "standard" dialect file, not "common" - this package
 // splits a curated subset of core messages there even though they're not ArduPilot-specific.
 export { GlobalPositionInt } from "mavlink-mappings/dist/lib/standard";

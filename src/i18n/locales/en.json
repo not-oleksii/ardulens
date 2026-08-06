@@ -54,7 +54,16 @@
       "output": "Output",
       "test": "Test",
       "holdToTest": "Hold to test",
-      "copterComingSoon": "Copter motor test and frame setup - coming in a future release."
+      "otherVehicleComingSoon": "Motor/servo setup for this vehicle type - coming in a future release.",
+      "frameHeading": "Frame",
+      "frameClass": "Frame Class",
+      "frameType": "Frame Type",
+      "loadFrameInfo": "Load Frame Info",
+      "frameNotLoaded": "Frame class/type haven't been loaded yet.",
+      "rebootRequiredWarning": "Changing Frame Class or Frame Type requires a reboot to take effect - it will not apply live.",
+      "diagramUnavailable": "No verified motor diagram for this frame class/type combination - wiring must be confirmed against ArduPilot's own documentation.",
+      "motorSafetyWarning": "Remove propellers before testing motors. Hold a motor's number to spin it briefly and confirm it's wired to the correct position.",
+      "holdToTestMotor": "Hold to test"
     },
     "compassCal": {
       "heading": "Compass Calibration",
@@ -131,6 +140,8 @@
       "connect": "Connect",
       "disconnect": "Disconnect",
       "devMode": "Dev Mode",
+      "devModeCopter": "Dev Mode (Copter)",
+      "devFramePresetLabel": "Dev Copter frame type",
       "statusIdle": "Not connected",
       "statusConnecting": "Connecting...",
       "statusConnected": "Connected: {{detail}}",

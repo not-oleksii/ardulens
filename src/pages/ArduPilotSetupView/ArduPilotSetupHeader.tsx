@@ -4,6 +4,7 @@ import { Link } from "react-router";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { VERIFIED_FRAME_PRESETS } from "../../mavlink/frameDiagrams/frameDiagrams";
 import type { SerialPortInfo } from "../../services/mavlinkTransport/types";
 
 const SELECT_CLASSNAME =
@@ -32,6 +33,9 @@ export interface ArduPilotSetupHeaderProps {
   onConnect: () => void;
   onDisconnect: () => void;
   onDevMode: () => void;
+  onDevModeCopter: () => void;
+  devFramePresetKey: string;
+  setDevFramePresetKey: (key: string) => void;
 }
 
 export function ArduPilotSetupHeader({
@@ -57,6 +61,9 @@ export function ArduPilotSetupHeader({
   onConnect,
   onDisconnect,
   onDevMode,
+  onDevModeCopter,
+  devFramePresetKey,
+  setDevFramePresetKey,
 }: ArduPilotSetupHeaderProps) {
   const { t } = useTranslation();
   const isBusy = status === "connecting";
@@ -173,6 +180,30 @@ export function ArduPilotSetupHeader({
           <Button type="button" size="sm" variant="outline" className="shrink-0 gap-1" onClick={onDevMode} disabled={isBusy}>
             <FlaskConical className="h-3.5 w-3.5" />
             {t("ardupilotSetup.connect.devMode")}
+          </Button>
+          <select
+            aria-label={t("ardupilotSetup.connect.devFramePresetLabel")}
+            className={SELECT_CLASSNAME}
+            value={devFramePresetKey}
+            disabled={isBusy}
+            onChange={(e) => setDevFramePresetKey(e.target.value)}
+          >
+            {VERIFIED_FRAME_PRESETS.map((preset) => (
+              <option key={preset.key} value={preset.key} className="bg-card text-card-foreground">
+                {preset.label}
+              </option>
+            ))}
+          </select>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="shrink-0 gap-1"
+            onClick={onDevModeCopter}
+            disabled={isBusy}
+          >
+            <FlaskConical className="h-3.5 w-3.5" />
+            {t("ardupilotSetup.connect.devModeCopter")}
           </Button>
         </>
       )}
