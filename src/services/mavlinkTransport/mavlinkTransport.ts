@@ -47,10 +47,13 @@ export function connectUdp(bindPort: number): Promise<void> {
  * (telemetry, parameters, compass cal, servo test) be exercised without any real hardware,
  * SITL, or even a Tauri backend. Fires a "connected" status through the same listener bus a
  * real connect would, so the rest of the app doesn't need to know the difference.
+ *
+ * `copterFrame` (Copter vehicle types only) picks which of frameDiagrams.ts's 6 verified
+ * frame class/type combos the simulator starts seeded as - defaults to Quad X if omitted.
  */
-export function connectMock(vehicleType: MavType): Promise<void> {
+export function connectMock(vehicleType: MavType, copterFrame?: { frameClass: number; frameType: number }): Promise<void> {
   stopMock();
-  mockHandle = startMockVehicle(vehicleType, emitData);
+  mockHandle = startMockVehicle(vehicleType, emitData, copterFrame);
   // Deferred so callers that `await connectMock(...)` then immediately subscribe (or that
   // rely on the connecting->connected transition happening asynchronously, like a real
   // connect would) see the same ordering they'd see for a real connection.

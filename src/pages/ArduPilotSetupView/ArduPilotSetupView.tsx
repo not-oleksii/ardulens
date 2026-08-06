@@ -8,6 +8,7 @@ import { MotorsServosSection } from "./MotorsServosSection";
 import { ParametersPanel } from "./ParametersPanel";
 import { TelemetrySection } from "./TelemetrySection";
 import { encodePacket } from "../../mavlink/codec/codec";
+import { VERIFIED_FRAME_PRESETS } from "../../mavlink/frameDiagrams/frameDiagrams";
 import { MavlinkFramer } from "../../mavlink/framer/framer";
 import { buildParamSetPacket, paramValueToWireBits, paramWireBitsToValue, readParamValueBits } from "../../mavlink/paramValueCodec/paramValueCodec";
 import {
@@ -15,6 +16,7 @@ import {
   CommandAck,
   DoAcceptMagCalCommand,
   DoCancelMagCalCommand,
+  DoMotorTestCommand,
   DoSetServoCommand,
   DoStartMagCalCommand,
   GlobalPositionInt,
@@ -29,6 +31,7 @@ import {
   MavParamType,
   MavState,
   MavType,
+  MotorTestThrottleType,
   ParamRequestList,
   ParamRequestRead,
   ParamSet,
@@ -88,6 +91,10 @@ const DATA_STREAM_RATE_HZ = 4;
 // many outputs it physically has (unused ones just report Disabled) - 16 covers every real
 // board without needing to guess the actual output count up front.
 const SERVO_CHANNEL_COUNT = 16;
+// The firmware's own auto-stop safety net (see DoMotorTestCommand.timeout) - independent of,
+// and in addition to, the explicit throttle=0 command this app sends on release, in case that
+// release command is ever lost.
+const MOTOR_TEST_TIMEOUT_S = 3;
 
 /** Resolves true if a heartbeat (any vehicle) arrives within `timeoutMs`, false otherwise. */
 function waitForHeartbeat(timeoutMs: number): Promise<boolean> {
@@ -151,6 +158,7 @@ export function ArduPilotSetupView() {
   const [udpPort, setUdpPort] = useState(DEFAULT_UDP_PORT);
   const [scanningPort, setScanningPort] = useState<string | null>(null);
   const [scanningBaud, setScanningBaud] = useState<number | null>(null);
+  const [devFramePresetKey, setDevFramePresetKey] = useState(VERIFIED_FRAME_PRESETS[1]!.key); // Quad X
   const [activeSection, setActiveSection] = useState<ArduPilotSetupSection>("telemetry");
 
   const framerRef = useRef(new MavlinkFramer());
@@ -526,9 +534,8 @@ export function ArduPilotSetupView() {
 
   // Starts an in-process simulated vehicle (see mockVehicleSimulator.ts) instead of a real
   // connection - lets the whole app be exercised without any real hardware, SITL, or even a
-  // Tauri backend. Defaults to a simulated Plane, matching this project's current real test
-  // hardware and the features already built for it (servo mapping/test, compass cal).
-  async function handleConnectMock() {
+  // Tauri backend.
+  async function handleConnectMockAs(vehicleType: MavType, copterFrame?: { frameClass: number; frameType: number }) {
     setConnecting();
     resetVehicle();
     resetTelemetry();
@@ -537,10 +544,24 @@ export function ArduPilotSetupView() {
     pendingParamsRef.current.clear();
     pendingParamCountRef.current = null;
     try {
-      await connectMock(MavType.FIXED_WING);
+      await connectMock(vehicleType, copterFrame);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
+  }
+
+  // Defaults to a simulated Plane, matching this project's current real test hardware and the
+  // features already built for it (servo mapping/test, compass cal).
+  async function handleConnectMock() {
+    await handleConnectMockAs(MavType.FIXED_WING);
+  }
+
+  // Simulated Copter (see MotorsCopterSection.tsx / frameDiagrams.ts) for exercising the
+  // Copter half of Motors & Servos without real hardware - starts as whichever of the 6
+  // verified frame class/type combos the header's frame-preset selector currently has picked.
+  async function handleConnectMockCopter() {
+    const preset = VERIFIED_FRAME_PRESETS.find((p) => p.key === devFramePresetKey) ?? VERIFIED_FRAME_PRESETS[1]!;
+    await handleConnectMockAs(MavType.QUADROTOR, { frameClass: preset.frameClass, frameType: preset.frameType });
   }
 
   function sendGcsPacket(packet: Uint8Array) {
@@ -653,6 +674,36 @@ export function ArduPilotSetupView() {
     sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
   }
 
+  // Requests exactly the two params the Copter half of Motors & Servos needs to know the
+  // vehicle's real motor layout (see frameDiagrams.ts) - same self-contained by-name pattern
+  // as handleLoadServoOutputs above, rather than depending on the full parameter list.
+  function handleLoadFrameInfo() {
+    if (!vehicle) return;
+    for (const name of ["FRAME_CLASS", "FRAME_TYPE"]) {
+      const req = new ParamRequestRead();
+      req.targetSystem = vehicle.sysid;
+      req.targetComponent = vehicle.compid;
+      req.paramId = name;
+      req.paramIndex = -1;
+      sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+    }
+  }
+
+  // Press-and-hold motor identification test (the Copter counterpart to handleSetServoPwm's
+  // Plane surface test) - `throttlePercent` is 0 on release, matching the deflect/return-to-
+  // trim convention already established for servos.
+  function handleTestMotor(instance: number, throttlePercent: number) {
+    if (!vehicle) return;
+    const cmd = new DoMotorTestCommand(vehicle.sysid, vehicle.compid);
+    cmd.instance = instance;
+    cmd.throttleType = MotorTestThrottleType.THROTTLE_PERCENT;
+    cmd.throttle = throttlePercent;
+    cmd.timeout = MOTOR_TEST_TIMEOUT_S;
+    cmd.motorCount = 1;
+    cmd.testOrder = 0; // DEFAULT - board-defined, not remapped (see frameDiagrams.ts)
+    sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+  }
+
   const isConnected = status === "connected";
 
   return (
@@ -680,6 +731,9 @@ export function ArduPilotSetupView() {
         onConnect={() => void handleConnect()}
         onDisconnect={() => void handleDisconnect()}
         onDevMode={() => void handleConnectMock()}
+        onDevModeCopter={() => void handleConnectMockCopter()}
+        devFramePresetKey={devFramePresetKey}
+        setDevFramePresetKey={setDevFramePresetKey}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -723,6 +777,9 @@ export function ArduPilotSetupView() {
               servoOutputs={servoOutputs}
               onLoad={handleLoadServoOutputs}
               onTestServo={handleSetServoPwm}
+              onLoadFrameInfo={handleLoadFrameInfo}
+              onSetFrameParam={handleSetParam}
+              onTestMotor={handleTestMotor}
             />
           ) : (
             <ComingSoonSection

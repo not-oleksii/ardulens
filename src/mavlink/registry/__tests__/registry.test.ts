@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  DoMotorTestCommand,
   DoSetServoCommand,
   DoStartMagCalCommand,
   GlobalPositionInt,
@@ -8,6 +9,7 @@ import {
   MagCalReport,
   MavCmd,
   MAVLINK_REGISTRY,
+  MotorTestThrottleType,
   ParamValue,
   ServoOutputRaw,
 } from "../registry";
@@ -44,6 +46,20 @@ describe("MAVLINK_REGISTRY", () => {
     expect(cmd.instance).toBe(5);
     expect(cmd.pwm).toBe(1600);
     expect(MAVLINK_REGISTRY[36]).toBe(ServoOutputRaw);
+  });
+
+  it("DO_MOTOR_TEST is a COMMAND_LONG wrapper exposing instance/throttleType/throttle/timeout", () => {
+    expect(DoMotorTestCommand.MSG_ID).toBe(76);
+    const cmd = new DoMotorTestCommand();
+    cmd.instance = 3;
+    cmd.throttleType = MotorTestThrottleType.THROTTLE_PERCENT;
+    cmd.throttle = 10;
+    cmd.timeout = 3;
+    cmd.motorCount = 1;
+    expect(cmd.instance).toBe(3);
+    expect(cmd.throttleType).toBe(0);
+    expect(cmd.throttle).toBe(10);
+    expect(cmd.timeout).toBe(3);
   });
 
   it("MavCmd merges both standard commands and ArduPilot-specific ones", () => {

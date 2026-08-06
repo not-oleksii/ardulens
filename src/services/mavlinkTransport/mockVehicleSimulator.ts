@@ -6,6 +6,7 @@ import { buildParamValuePacket, paramValueToWireBits, paramWireBitsToValue, read
 import {
   Attitude,
   CommandAck,
+  DoMotorTestCommand,
   DoSetServoCommand,
   GlobalPositionInt,
   GpsFixType,
@@ -30,6 +31,7 @@ import {
   SysStatus,
   VfrHud,
 } from "../../mavlink/registry/registry";
+import { vehicleFolderForMavType } from "../ardupilotParamDocs/ardupilotParamDocs";
 
 const SYSID = 1;
 const COMPID = 1;
@@ -86,7 +88,11 @@ export interface MockVehicleHandle {
  * hardware, SITL, or Tauri backend. Reuses the exact same encode/decode/codec utilities the
  * real app and its tests use, so nothing about the wire format is faked or shortcut.
  */
-export function startMockVehicle(vehicleType: MavType, emit: (bytes: Uint8Array) => void): MockVehicleHandle {
+export function startMockVehicle(
+  vehicleType: MavType,
+  emit: (bytes: Uint8Array) => void,
+  copterFrame?: { frameClass: number; frameType: number },
+): MockVehicleHandle {
   const framer = new MavlinkFramer();
   let seq = 0;
   function nextSeq(): number {
@@ -166,6 +172,15 @@ export function startMockVehicle(vehicleType: MavType, emit: (bytes: Uint8Array)
   // --- Parameters ---
   const params = new Map<string, FakeParam>();
   FAKE_PARAM_SEED.forEach(([name, value, type], index) => params.set(name, { value, type, index }));
+  // FRAME_CLASS/FRAME_TYPE only exist on Copter firmware - seeded here (not in the static
+  // FAKE_PARAM_SEED table above) so a simulated Plane doesn't report params it wouldn't
+  // really have. Defaults to Quad X (1, 1) - one of frameDiagrams.ts's verified layouts - but
+  // the caller (Dev Mode's frame-preset selector) can start the simulator as any of the
+  // other 5 verified combos instead.
+  if (vehicleFolderForMavType(vehicleType) === "ArduCopter") {
+    params.set("FRAME_CLASS", { value: copterFrame?.frameClass ?? 1, type: MavParamType.INT8, index: params.size });
+    params.set("FRAME_TYPE", { value: copterFrame?.frameType ?? 1, type: MavParamType.INT8, index: params.size });
+  }
 
   function sendParamValue(name: string) {
     const p = params.get(name);
@@ -301,6 +316,13 @@ export function startMockVehicle(vehicleType: MavType, emit: (bytes: Uint8Array)
     } else if (command === MavCmd.DO_SET_SERVO) {
       const cmd = decodeMessage(DoSetServoCommand, payload);
       handleSetServo(cmd.instance, cmd.pwm);
+    } else if (command === MavCmd.DO_MOTOR_TEST) {
+      // Motor outputs ARE servo outputs 1..N in real ArduPilot (see ServoOutputRaw handling in
+      // ArduPilotSetupView.tsx) - reusing handleSetServo reports the test's effect through the
+      // exact same live-readback path the Plane surface test already uses.
+      const cmd = decodeMessage(DoMotorTestCommand, payload);
+      const pwm = Math.round(1000 + (cmd.throttle / 100) * 1000);
+      handleSetServo(cmd.instance, pwm);
     }
   }
 

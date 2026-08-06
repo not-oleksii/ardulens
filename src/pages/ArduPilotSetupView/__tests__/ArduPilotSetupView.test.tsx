@@ -157,6 +157,7 @@ function findCommandLongSend(invoked: ReturnType<typeof vi.fn>, mavCmd: number) 
 }
 
 const MAV_CMD_DO_SET_SERVO = 183;
+const MAV_CMD_DO_MOTOR_TEST = 209;
 
 /** Finds the MOST RECENT sent DO_SET_SERVO (instance=channel) and returns its commanded pwm
  *  (param2), or undefined if no such send happened - "most recent" matters here since a
@@ -176,6 +177,23 @@ function findSetServoPwm(invoked: ReturnType<typeof vi.fn>, channel: number): nu
   if (!last) return undefined;
   const bytes = (last[1] as { bytes: number[] }).bytes;
   return new DataView(new Uint8Array(bytes).buffer).getFloat32(14, true);
+}
+
+/** Finds the MOST RECENT sent DO_MOTOR_TEST (instance=motor) and returns its commanded
+ *  throttle percent (param3), or undefined if no such send happened - same "most recent"
+ *  reasoning as findSetServoPwm above (a press-and-hold sends throttle=10 then throttle=0). */
+function findMotorTestThrottle(invoked: ReturnType<typeof vi.fn>, motor: number): number | undefined {
+  const matches = invoked.mock.calls.filter(([cmd, payload]) => {
+    if (cmd !== "send_bytes") return false;
+    const bytes = (payload as { bytes: number[] }).bytes;
+    if (bytes[7] !== 76) return false;
+    const view = new DataView(new Uint8Array(bytes).buffer);
+    return view.getUint16(38, true) === MAV_CMD_DO_MOTOR_TEST && view.getFloat32(10, true) === motor;
+  });
+  const last = matches.at(-1);
+  if (!last) return undefined;
+  const bytes = (last[1] as { bytes: number[] }).bytes;
+  return new DataView(new Uint8Array(bytes).buffer).getFloat32(18, true); // param3 = throttle
 }
 
 /** Builds real SERVO_OUTPUT_RAW wire bytes reporting up to 8 channel values for the given
@@ -225,6 +243,8 @@ function getView() {
   const getConnectButton = () => screen.getByRole("button", { name: "Підключити" });
   const getDisconnectButton = () => screen.getByRole("button", { name: "Відключити" });
   const getDevModeButton = () => screen.getByRole("button", { name: "Режим розробника" });
+  const getDevModeCopterButton = () => screen.getByRole("button", { name: "Режим розробника (мультикоптер)" });
+  const getDevFramePresetSelect = () => screen.getByLabelText("Тип рами для тестового мультикоптера");
   const getStatusAlert = () => screen.getByRole("alert");
   const getTelemetryNavButton = () => screen.getByRole("tab", { name: "Телеметрія" });
   const getParametersNavButton = () => screen.getByRole("tab", { name: "Параметри" });
@@ -238,6 +258,7 @@ function getView() {
   const clickConnect = () => user.click(getConnectButton());
   const clickDisconnect = () => user.click(getDisconnectButton());
   const clickDevMode = () => user.click(getDevModeButton());
+  const clickDevModeCopter = () => user.click(getDevModeCopterButton());
   const clickParametersNav = () => user.click(getParametersNavButton());
   const clickTelemetryNav = () => user.click(getTelemetryNavButton());
   const clickCompassCalNav = () => user.click(getCompassCalNavButton());
@@ -255,6 +276,8 @@ function getView() {
     getConnectButton,
     getDisconnectButton,
     getDevModeButton,
+    getDevModeCopterButton,
+    getDevFramePresetSelect,
     getStatusAlert,
     getTelemetryNavButton,
     getParametersNavButton,
@@ -267,6 +290,7 @@ function getView() {
     clickConnect,
     clickDisconnect,
     clickDevMode,
+    clickDevModeCopter,
     clickParametersNav,
     clickTelemetryNav,
     clickCompassCalNav,
@@ -717,10 +741,8 @@ describe("ArduPilotSetupView", () => {
 
       await user.click(getMotorsNavButton());
       // No vehicle heartbeat was emitted in this test, so vehicleType falls back to GENERIC
-      // -> ArduCopter folder -> the Copter (not-yet-built) fallback, not the Plane UI.
-      expect(
-        screen.getByText("Тест моторів мультикоптера і налаштування рами - у наступному релізі."),
-      ).toBeInTheDocument();
+      // -> ArduCopter folder -> the Copter frame/motor UI, not the Plane servo UI.
+      expect(screen.getByText("Клас і тип рами ще не завантажено.")).toBeInTheDocument();
 
       await user.click(getPidTuneNavButton());
       expect(screen.getByText("Налаштування PID - у наступному релізі.")).toBeInTheDocument();
@@ -826,6 +848,138 @@ describe("ArduPilotSetupView", () => {
 
       fireEvent.pointerUp(testButton);
       expect(findSetServoPwm(invoked, 1)).toBe(1500); // last DO_SET_SERVO(1, ...) is at trim again
+    });
+  });
+
+  describe("motors & servos (Copter)", () => {
+    async function connectCopterAndOpenMotors() {
+      const view = getView();
+      await view.clickConnect();
+      await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit("mavlink-transport://data", { bytes: sampleHeartbeatBytes() }); // QUADROTOR
+      await view.clickMotorsNav();
+      return view;
+    }
+
+    it("shows a Load Frame Info button and not-loaded message for a connected Copter", async () => {
+      mockBackend();
+      await connectCopterAndOpenMotors();
+      expect(screen.getByRole("button", { name: "Завантажити дані рами" })).toBeInTheDocument();
+      expect(screen.getByText("Клас і тип рами ще не завантажено.")).toBeInTheDocument();
+    });
+
+    it("requests FRAME_CLASS and FRAME_TYPE by name when Load Frame Info is clicked", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectCopterAndOpenMotors();
+
+      await user.click(screen.getByRole("button", { name: "Завантажити дані рами" }));
+
+      const requestedNames = new Set(
+        invoked.mock.calls
+          .filter(([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamRequestRead.MSG_ID)
+          .map(([, payload]) => {
+            const bytes = (payload as { bytes: number[] }).bytes;
+            const nameBytes = bytes.slice(14, 14 + 16);
+            const nullIndex = nameBytes.indexOf(0);
+            return String.fromCharCode(...nameBytes.slice(0, nullIndex === -1 ? undefined : nullIndex));
+          }),
+      );
+      expect(requestedNames.has("FRAME_CLASS")).toBe(true);
+      expect(requestedNames.has("FRAME_TYPE")).toBe(true);
+    });
+
+    it("renders the verified Quad X diagram once FRAME_CLASS/FRAME_TYPE arrive, and press-and-hold sends DO_MOTOR_TEST", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      await connectCopterAndOpenMotors();
+
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("FRAME_CLASS", 1, MavParamType.INT8, 0, 2, 1) }); // Quad
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("FRAME_TYPE", 1, MavParamType.INT8, 1, 2, 2) }); // X
+
+      const diagram = await screen.findByRole("img", { name: "Motor layout" });
+      expect(diagram).toBeInTheDocument();
+      // Scoped to the diagram itself - the frame class/type <select> fallback options (docs
+      // haven't loaded in this test) also render a plain "1", which would otherwise collide.
+      const motor1Group = within(diagram).getByText("1").closest("g")!;
+
+      fireEvent.pointerDown(motor1Group);
+      expect(findMotorTestThrottle(invoked, 1)).toBe(10);
+
+      fireEvent.pointerUp(motor1Group);
+      expect(findMotorTestThrottle(invoked, 1)).toBe(0);
+    });
+
+    it("shows a reboot-required warning and lets Frame Class/Type be changed via PARAM_SET", async () => {
+      // Deliberately does NOT stub a resolving fetch here (unlike the "parameters" describe
+      // block's docs tests below) - fetchParamDocs caches successful ArduCopter results at
+      // module scope (in-memory + localStorage), and this file's tests share that module, so a
+      // real fetch here would leak cached docs into those later tests. The file-wide beforeEach
+      // already stubs fetch to reject, which exercises the raw-numeric-fallback <option> path.
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      await connectCopterAndOpenMotors();
+
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("FRAME_CLASS", 1, MavParamType.INT8, 0, 2, 1) });
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("FRAME_TYPE", 1, MavParamType.INT8, 1, 2, 2) });
+      await screen.findByRole("img", { name: "Motor layout" });
+
+      expect(
+        screen.getByText("Зміна класу або типу рами вимагає перезавантаження - вона не застосується одразу."),
+      ).toBeInTheDocument();
+
+      const frameClassSelect = screen.getByRole("combobox", { name: "Клас рами" });
+      fireEvent.change(frameClassSelect, { target: { value: "1" } });
+
+      const paramSet = invoked.mock.calls.find(
+        ([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamSet.MSG_ID,
+      );
+      expect(paramSet).toBeDefined();
+    });
+
+    it("falls back to a plain per-motor list (with live PWM) for an unverified frame class/type", async () => {
+      mockBackend();
+      await connectCopterAndOpenMotors();
+
+      // Tri (class 7) has no verified position/rotation diagram, but its motor count (3) is
+      // still known - see motorCountForFrameClass in frameDiagrams.ts.
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("FRAME_CLASS", 7, MavParamType.INT8, 0, 2, 1) });
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("FRAME_TYPE", 0, MavParamType.INT8, 1, 2, 2) });
+
+      expect(
+        await screen.findByText(
+          "Немає перевіреної схеми моторів для цього поєднання класу/типу рами - розташування треба звірити з офіційною документацією ArduPilot.",
+        ),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Утримуйте для тесту 1/ })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /Утримуйте для тесту 3/ })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Утримуйте для тесту 4/ })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("Dev Mode frame-preset selector", () => {
+    it("starts the simulated Copter seeded with whichever verified frame preset is selected, not just the Quad X default", async () => {
+      mockBackend();
+      const { user, clickDevModeCopter, clickMotorsNav, getDevFramePresetSelect, getStatusAlert } = getView();
+
+      const presetSelect = getDevFramePresetSelect() as HTMLSelectElement;
+      fireEvent.change(presetSelect, { target: { value: "3_1" } }); // Octa X (8 motors)
+
+      await clickDevModeCopter();
+      await within(getStatusAlert()).findByText("Підключено: Dev mode (simulated vehicle)");
+      await clickMotorsNav();
+      await user.click(screen.getByRole("button", { name: "Завантажити дані рами" }));
+
+      const diagram = await screen.findByRole("img", { name: "Motor layout" });
+      // Octa X has 8 motors - the default Quad X preset would only render 4, so this also
+      // proves the selector actually changed what the simulator seeded, not just the label.
+      expect(within(diagram).getAllByText(/^[1-8]$/)).toHaveLength(8);
+
+      const frameClassSelect = screen.getByRole("combobox", { name: "Клас рами" });
+      const frameTypeSelect = screen.getByRole("combobox", { name: "Тип рами" });
+      expect(frameClassSelect.value).toBe("3"); // Octa
+      expect(frameTypeSelect.value).toBe("1"); // X
     });
   });
 
