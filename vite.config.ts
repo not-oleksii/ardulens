@@ -19,6 +19,12 @@ export default defineConfig({
   publicDir: 'app/public',
   server: {
     open: '/app/',
+    watch: {
+      // app/src-tauri/target is Cargo's build output. Vite has no reason to
+      // watch it, and doing so races Cargo's file writes on Windows, where
+      // locked files raise EBUSY (see Tauri's own Vite template config).
+      ignored: ['**/src-tauri/**'],
+    },
   },
   build: {
     outDir: 'app/dist',
