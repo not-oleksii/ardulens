@@ -28,6 +28,7 @@ import {
   ParamValue,
   PreflightCalibrationCommand,
   PreflightRebootShutdownCommand,
+  RcChannels,
   RebootShutdownAction,
   RequestDataStream,
   ServoOutputRaw,
@@ -98,6 +99,27 @@ describe("startMockVehicle", () => {
     expect(packets.some((p) => p.msgId === SysStatus.MSG_ID)).toBe(true);
     expect(packets.some((p) => p.msgId === GpsRawInt.MSG_ID)).toBe(true);
     expect(packets.some((p) => p.msgId === GlobalPositionInt.MSG_ID)).toBe(true);
+  });
+
+  it("streams RC_CHANNELS with a simulated sweep once telemetry starts, moving over time", () => {
+    handle.handleAppBytes(encodeFromApp(new RequestDataStream()));
+
+    emitted = [];
+    vi.advanceTimersByTime(250);
+    const first = decodeAll(emitted).find((p) => p.msgId === RcChannels.MSG_ID);
+    expect(first).toBeDefined();
+    const firstMsg = first!.message as RcChannels;
+    expect(firstMsg.chancount).toBe(8);
+    expect(firstMsg.chan1Raw).toBeGreaterThanOrEqual(1000);
+    expect(firstMsg.chan1Raw).toBeLessThanOrEqual(2000);
+    // Unused channels (9-18, beyond the simulated 8) report UINT16_MAX, not 0 - the real
+    // MAVLink convention for "unused" (confirmed against common.xml).
+    expect(firstMsg.chan9Raw).toBe(0xffff);
+
+    emitted = [];
+    vi.advanceTimersByTime(5000); // far enough along the sine sweep to have moved
+    const later = decodeAll(emitted).find((p) => p.msgId === RcChannels.MSG_ID)!.message as RcChannels;
+    expect(later.chan1Raw).not.toBe(firstMsg.chan1Raw);
   });
 
   it("dumps every param except the one deliberately-dropped param on PARAM_REQUEST_LIST", () => {
@@ -262,6 +284,18 @@ describe("startMockVehicle", () => {
     // messages matter here.
     const followUp = decodeAll(emitted).filter((p) => p.msgId !== Heartbeat.MSG_ID);
     expect(followUp).toHaveLength(0);
+  });
+
+  it("acks a pure RC-only PREFLIGHT_CALIBRATION call (remoteControl set, nothing else) with UNSUPPORTED, matching real ArduPilot", () => {
+    const cmd = new PreflightCalibrationCommand();
+    cmd.remoteControl = 1;
+
+    emitted = [];
+    handle.handleAppBytes(encodeFromApp(cmd));
+
+    const ack = decodeAll(emitted).find((p) => p.msgId === CommandAck.MSG_ID);
+    expect(ack).toBeDefined();
+    expect((ack!.message as CommandAck).result).toBe(MavResult.UNSUPPORTED);
   });
 
   it("steps a full (6-position) accel cal through LEVEL->LEFT->RIGHT->NOSEDOWN->NOSEUP->BACK->SUCCESS, one position at a time, only after each is echoed back", () => {
