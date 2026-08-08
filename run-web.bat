@@ -17,6 +17,6 @@ if not exist node_modules (
   )
 )
 
-echo Building and starting ArduLens...
+echo Building and starting ArduLens (web version - no live vehicle connection, use run-desktop.bat for that)...
 call npm run start
 pause

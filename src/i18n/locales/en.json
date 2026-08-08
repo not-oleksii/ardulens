@@ -137,6 +137,7 @@
       "baudLabel": "Baud rate",
       "udpPortLabel": "Listen port",
       "udpPortHint": "The vehicle/SITL must be configured to send MAVLink to this port on this computer.",
+      "webOnlyNotice": "Live vehicle connection (USB/Serial or UDP) needs the desktop app - try Dev Mode instead, or run run-desktop to connect a real vehicle.",
       "connect": "Connect",
       "disconnect": "Disconnect",
       "devMode": "Dev Mode",

@@ -12,5 +12,5 @@ if [ ! -d node_modules ]; then
   npm install
 fi
 
-echo "Building and starting ArduLens..."
+echo "Building and starting ArduLens (web version - no live vehicle connection, use run-desktop.sh for that)..."
 npm run start

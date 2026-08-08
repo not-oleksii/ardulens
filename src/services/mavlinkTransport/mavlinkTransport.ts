@@ -7,6 +7,16 @@ import type { SerialPortInfo, TransportStatus } from "./types";
 const DATA_EVENT = "mavlink-transport://data";
 const STATUS_EVENT = "mavlink-transport://status";
 
+/**
+ * True when running inside the Tauri desktop shell, false for a plain browser tab (the
+ * `npm run start` / `run-web` build). Real serial/UDP connections only work under Tauri -
+ * a browser tab has no OS-level serial or raw-socket access - so callers use this to gate
+ * the live-vehicle connect UI and fall back to Dev Mode's simulated vehicle instead.
+ */
+export function isTauriRuntime(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
 // A local pub-sub bus that both onData/onStatus subscribers and the mock vehicle simulator
 // go through - the real Tauri backend's events also get forwarded into this same bus (see
 // onData/onStatus below), so a caller never needs to know whether it's ultimately hearing

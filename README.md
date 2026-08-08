@@ -30,14 +30,14 @@ There are two ways to run ArduLens, and which one you need depends on what you'r
 
 - **Browser build** - the offline log viewer/analyzer (Logs/Graphs/Map). Double-click the
   launcher for your OS; it installs dependencies on first run, builds the app, and opens it
-  in your browser automatically.
-  - Windows: `run.bat`
-  - macOS/Linux: `run.sh` (`./run.sh`)
+  in your browser automatically. **ArduPilot Setup**'s live vehicle connection (USB/Serial
+  or UDP) is hidden in this build - a plain browser tab has no OS-level serial or raw-socket
+  access, so it wouldn't work anyway; Dev Mode's simulated vehicle is still available.
+  - Windows: `run-web.bat`
+  - macOS/Linux: `run-web.sh` (`./run-web.sh`)
   - Or manually: `npm install && npm run start`
-- **Desktop app** - required for **ArduPilot Setup** (connecting to a real vehicle over
-  USB/serial or UDP) - a plain browser tab cannot open a serial port or a raw network
-  socket, so the offline browser build above will always show "No ports found" there, even
-  with a vehicle plugged in and working fine in Mission Planner. Use this instead:
+- **Desktop app** - required for **ArduPilot Setup**'s live vehicle connection (USB/serial
+  or UDP). Use this instead:
   - Windows: `run-desktop.bat` - installs Node.js/Rust/C++ Build Tools automatically if
     missing (via `winget`); the C++ Build Tools step is a multi-GB download on a clean
     machine and may show a Windows permission (UAC) prompt - accept it to continue.
