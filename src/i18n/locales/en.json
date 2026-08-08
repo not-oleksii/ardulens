@@ -37,6 +37,7 @@
       "telemetry": "Telemetry",
       "parameters": "Parameters",
       "compassCal": "Compass Cal",
+      "accelCal": "Accel Cal",
       "motorsSetup": "Motors Setup",
       "pidTune": "PID Tune"
     },
@@ -58,11 +59,14 @@
       "frameHeading": "Frame",
       "frameClass": "Frame Class",
       "frameType": "Frame Type",
-      "loadFrameInfo": "Load Frame Info",
+      "loadMotorSetup": "Load Motor Setup",
       "frameNotLoaded": "Frame class/type haven't been loaded yet.",
       "rebootRequiredWarning": "Changing Frame Class or Frame Type requires a reboot to take effect - it will not apply live.",
+      "rebootNow": "Reboot Now",
       "diagramUnavailable": "No verified motor diagram for this frame class/type combination - wiring must be confirmed against ArduPilot's own documentation.",
       "motorSafetyWarning": "Remove propellers before testing motors. Hold a motor's number to spin it briefly and confirm it's wired to the correct position.",
+      "reverseMotor": "Reverse",
+      "reverseNote": "Reverse takes effect on the motor's next arm or after a reboot, and only works with DShot ESCs - PWM/OneShot ESCs still need two motor wires physically swapped.",
       "holdToTestMotor": "Hold to test"
     },
     "compassCal": {
@@ -95,6 +99,30 @@
         "failed": "Failed",
         "inProgress": "In progress",
         "cancelled": "Cancelled",
+        "unknown": "Unknown ({{value}})"
+      }
+    },
+    "accelCal": {
+      "heading": "Accelerometer Calibration",
+      "description": "\"Calibrate Level\" is a quick one-position trim - use it after remounting the flight controller. \"Full Calibration\" is the complete 6-position calibration, needed after a fresh install or if the vehicle drifts in flight.",
+      "startLevel": "Calibrate Level",
+      "startFull": "Full Calibration",
+      "cancel": "Cancel",
+      "commandRejected": "The vehicle rejected the command: {{result}}",
+      "notStarted": "Calibration hasn't been started yet.",
+      "levelInProgress": "Calibrating...",
+      "levelSuccess": "Level calibration complete.",
+      "movePrompt": "Place the vehicle in this position, then confirm:",
+      "confirmPosition": "Vehicle is in this position",
+      "fullSuccess": "Calibration successful.",
+      "fullFailed": "Calibration failed - try again, moving through each position more slowly.",
+      "position": {
+        "level": "Level",
+        "left": "On its left side",
+        "right": "On its right side",
+        "nosedown": "Nose down",
+        "noseup": "Nose up",
+        "back": "On its back",
         "unknown": "Unknown ({{value}})"
       }
     },

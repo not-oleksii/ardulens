@@ -4,6 +4,8 @@ import { decodeMessage, encodePacket } from "../../mavlink/codec/codec";
 import { MavlinkFramer } from "../../mavlink/framer/framer";
 import { buildParamValuePacket, paramValueToWireBits, paramWireBitsToValue, readParamValueBits } from "../../mavlink/paramValueCodec/paramValueCodec";
 import {
+  AccelcalVehiclePos,
+  AccelcalVehiclePosCommand,
   Attitude,
   CommandAck,
   DoMotorTestCommand,
@@ -26,6 +28,7 @@ import {
   ParamRequestRead,
   ParamSet,
   ParamValue,
+  PreflightCalibrationCommand,
   RequestDataStream,
   ServoOutputRaw,
   SysStatus,
@@ -35,10 +38,27 @@ import { vehicleFolderForMavType } from "../ardupilotParamDocs/ardupilotParamDoc
 
 const SYSID = 1;
 const COMPID = 1;
+// The GCS identity ArduPilotSetupView.tsx itself uses (GCS_SYSID/GCS_COMPID) - the real
+// target of a vehicle-initiated command like ACCELCAL_VEHICLE_POS. The app doesn't actually
+// filter incoming packets by target_system/component, so this only matters for realism.
+const GCS_SYSID = 255;
+const GCS_COMPID = 190;
 const HEARTBEAT_INTERVAL_MS = 1000;
 const TELEMETRY_INTERVAL_MS = 250;
 const COMPASS_CAL_TICK_MS = 300;
 const COMPASS_CAL_TOTAL_TICKS = 15; // ~4.5s to 100%
+// Delay before the simulator prompts for the next accel-cal position, or reports the final
+// result - mirrors a real vehicle briefly processing each sample rather than responding
+// instantly, without needing a full progress-percentage simulation like compass cal has.
+const ACCEL_CAL_STEP_DELAY_MS = 300;
+const ACCEL_CAL_POSITION_SEQUENCE = [
+  AccelcalVehiclePos.LEVEL,
+  AccelcalVehiclePos.LEFT,
+  AccelcalVehiclePos.RIGHT,
+  AccelcalVehiclePos.NOSEDOWN,
+  AccelcalVehiclePos.NOSEUP,
+  AccelcalVehiclePos.BACK,
+];
 const COMMAND_LONG_MSG_ID = 76;
 // A real vehicle doesn't always answer every request cleanly first try - one param is
 // deliberately withheld from the initial PARAM_REQUEST_LIST dump, and only ever answers to a
@@ -83,10 +103,11 @@ export interface MockVehicleHandle {
 /**
  * A self-contained, in-process MAVLink "vehicle" - decodes real requests the app sends
  * (PARAM_REQUEST_LIST/READ, PARAM_SET, REQUEST_DATA_STREAM, DO_START/ACCEPT/CANCEL_MAG_CAL,
- * DO_SET_SERVO) and responds with real, correctly-encoded wire packets, so the whole app can
- * be exercised - Telemetry, Parameters, Compass Cal, Motors & Servos - without any real
- * hardware, SITL, or Tauri backend. Reuses the exact same encode/decode/codec utilities the
- * real app and its tests use, so nothing about the wire format is faked or shortcut.
+ * DO_SET_SERVO, DO_MOTOR_TEST, PREFLIGHT_CALIBRATION, ACCELCAL_VEHICLE_POS) and responds with
+ * real, correctly-encoded wire packets, so the whole app can be exercised - Telemetry,
+ * Parameters, Compass Cal, Accel Cal, Motors & Servos - without any real hardware, SITL, or
+ * Tauri backend. Reuses the exact same encode/decode/codec utilities the real app and its
+ * tests use, so nothing about the wire format is faked or shortcut.
  */
 export function startMockVehicle(
   vehicleType: MavType,
@@ -180,6 +201,11 @@ export function startMockVehicle(
   if (vehicleFolderForMavType(vehicleType) === "ArduCopter") {
     params.set("FRAME_CLASS", { value: copterFrame?.frameClass ?? 1, type: MavParamType.INT8, index: params.size });
     params.set("FRAME_TYPE", { value: copterFrame?.frameType ?? 1, type: MavParamType.INT8, index: params.size });
+    // SERVO1-8_REVERSED, seeded Normal (0) - so Dev Mode's reverse checkboxes have something
+    // real to toggle without needing every simulated Copter to start pre-reversed.
+    for (let channel = 1; channel <= 8; channel++) {
+      params.set(`SERVO${channel}_REVERSED`, { value: 0, type: MavParamType.INT8, index: params.size });
+    }
   }
 
   function sendParamValue(name: string) {
@@ -276,6 +302,52 @@ export function startMockVehicle(
     }, COMPASS_CAL_TICK_MS);
   }
 
+  // --- Accelerometer calibration ---
+  // Unlike compass cal (a continuous progress percentage), the full 6-position accel cal is a
+  // simple step sequence: the vehicle asks for one position at a time via its own
+  // ACCELCAL_VEHICLE_POS command and only advances once the GCS echoes that same position back
+  // (see registry.ts's export comment) - so this just needs an index into the sequence, not a
+  // ticking timer.
+  let accelCalStepIndex = 0;
+  let accelCalTimer: number | null = null;
+
+  function stopAccelCal() {
+    if (accelCalTimer !== null) {
+      window.clearTimeout(accelCalTimer);
+      accelCalTimer = null;
+    }
+    accelCalStepIndex = 0;
+  }
+
+  function sendAccelCalPos(position: number) {
+    const cmd = new AccelcalVehiclePosCommand(GCS_SYSID, GCS_COMPID);
+    cmd.position = position;
+    send(cmd);
+  }
+
+  function startFullAccelCal() {
+    stopAccelCal();
+    accelCalTimer = window.setTimeout(() => {
+      sendAccelCalPos(ACCEL_CAL_POSITION_SEQUENCE[0]!);
+    }, ACCEL_CAL_STEP_DELAY_MS);
+  }
+
+  // Called when the GCS echoes a position back, confirming the vehicle is actually in it -
+  // out-of-order/stale echoes (not matching the position currently being waited on) are
+  // ignored rather than accepted, matching how a real vehicle's state machine would behave.
+  function handleAccelCalPositionConfirmed(position: AccelcalVehiclePos) {
+    if (ACCEL_CAL_POSITION_SEQUENCE[accelCalStepIndex] !== position) return;
+    accelCalStepIndex++;
+    accelCalTimer = window.setTimeout(() => {
+      if (accelCalStepIndex >= ACCEL_CAL_POSITION_SEQUENCE.length) {
+        sendAccelCalPos(AccelcalVehiclePos.SUCCESS);
+        stopAccelCal();
+      } else {
+        sendAccelCalPos(ACCEL_CAL_POSITION_SEQUENCE[accelCalStepIndex]!);
+      }
+    }, ACCEL_CAL_STEP_DELAY_MS);
+  }
+
   function ackCommand(command: number, result: MavResult) {
     const ack = new CommandAck();
     ack.command = command;
@@ -325,6 +397,20 @@ export function startMockVehicle(
       const cmd = decodeMessage(DoMotorTestCommand, payload);
       const pwm = Math.round(1000 + (cmd.throttle / 100) * 1000);
       handleSetServo(cmd.instance, pwm);
+    } else if (command === MavCmd.PREFLIGHT_CALIBRATION) {
+      const cmd = decodeMessage(PreflightCalibrationCommand, payload);
+      ackCommand(command, MavResult.ACCEPTED);
+      // accelerometer: 1 = FULL (6-position), 2 = TRIM (one-shot level cal, nothing further
+      // to send beyond this ack) - real codes confirmed against MAVLink's own common.xml.
+      if (cmd.accelerometer === 1) startFullAccelCal();
+    } else if (command === MavCmd.ACCELCAL_VEHICLE_POS) {
+      const cmd = decodeMessage(AccelcalVehiclePosCommand, payload);
+      handleAccelCalPositionConfirmed(cmd.position);
+    } else if (command === MavCmd.PREFLIGHT_REBOOT_SHUTDOWN) {
+      // A real reboot would drop and re-establish the connection - out of scope for this
+      // in-process simulator, which has no transport-level disconnect to simulate. Acking is
+      // enough for the UI (button click -> ACCEPTED) to be exercised in Dev Mode.
+      ackCommand(command, MavResult.ACCEPTED);
     }
   }
 
@@ -356,6 +442,7 @@ export function startMockVehicle(
     window.clearInterval(heartbeatTimer);
     if (telemetryTimer !== null) window.clearInterval(telemetryTimer);
     stopCompassCal();
+    stopAccelCal();
   }
 
   return { handleAppBytes, stop };

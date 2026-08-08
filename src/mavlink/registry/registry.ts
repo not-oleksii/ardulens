@@ -14,6 +14,16 @@ export { Attitude, GpsRawInt, GpsFixType, RequestDataStream, SysStatus, VfrHud }
 export { MavDataStream } from "mavlink-mappings/dist/lib/common";
 export { MavParamType, ParamRequestList, ParamRequestRead, ParamSet, ParamValue } from "mavlink-mappings/dist/lib/common";
 export { CommandAck, MavResult, MagCalReport, MagCalStatus } from "mavlink-mappings/dist/lib/common";
+// PREFLIGHT_CALIBRATION (COMMAND_LONG wrapper) triggers accelerometer calibration - its
+// `accelerometer` field (param5) selects which kind: FULL=1 (6-position), TRIM=2 (single-
+// position board-level cal), SIMPLE=4 - real codes confirmed against MAVLink's own common.xml
+// (<enum name="PREFLIGHT_CALIBRATION_ACCELEROMETER">), not guessed.
+export { PreflightCalibrationCommand } from "mavlink-mappings/dist/lib/common";
+// PREFLIGHT_REBOOT_SHUTDOWN (MAV_CMD 246) reboots the flight controller - needed after
+// changing a RebootRequired param like FRAME_CLASS/FRAME_TYPE. `autopilot` (param1) is the
+// REBOOT_SHUTDOWN_ACTION for the autopilot component specifically (REBOOT=1) - real codes
+// confirmed against MAVLink's own common.xml, not guessed.
+export { PreflightRebootShutdownCommand, RebootShutdownAction } from "mavlink-mappings/dist/lib/common";
 // DO_SET_SERVO (COMMAND_LONG wrapper, like the mag-cal commands) directly sets one output
 // channel's PWM - used for the Plane control-surface test. SERVO_OUTPUT_RAW reports the
 // vehicle's actual live per-channel PWM back, so the test's effect can be confirmed rather
@@ -32,6 +42,13 @@ export { GlobalPositionInt } from "mavlink-mappings/dist/lib/standard";
 // commands are typed COMMAND_LONG wrappers (MSG_ID 76) with their `command` field defaulted
 // to the right MAV_CMD id by their constructors - not distinct message ids of their own.
 export { MagCalProgress, DoStartMagCalCommand, DoAcceptMagCalCommand, DoCancelMagCalCommand } from "mavlink-mappings/dist/lib/ardupilotmega";
+// ACCELCAL_VEHICLE_POS (MAV_CMD 42429) is sent BOTH directions during the 6-position accel
+// cal: vehicle -> GCS tells the user what position to put the vehicle in next; GCS -> vehicle
+// (echoing the same position back) confirms the vehicle is now actually in it, advancing the
+// vehicle to the next position - confirmed against MAVLink's own ardupilotmega.xml, which
+// documents this exact bidirectional meaning (not a guess or an assumption from R5's mag-cal
+// pattern, which is unidirectional by contrast).
+export { AccelcalVehiclePos, AccelcalVehiclePosCommand } from "mavlink-mappings/dist/lib/ardupilotmega";
 // NOT simply "ardupilotmega's MavCmd extends common's" - verified (while building the mock
 // vehicle simulator, which needs to recognize a standard command like DO_SET_SERVO) that
 // ardupilotmega's own MavCmd export contains ONLY its ~32 ArduPilot-specific additions (e.g.

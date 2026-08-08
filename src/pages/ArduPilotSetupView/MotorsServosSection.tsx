@@ -14,9 +14,10 @@ interface MotorsServosSectionProps {
   servoOutputs: Record<number, number>;
   onLoad: () => void;
   onTestServo: (channel: number, pwm: number) => void;
-  onLoadFrameInfo: () => void;
+  onLoadMotorSetup: () => void;
   onSetFrameParam: (name: string, value: number, type: MavParamType) => void;
   onTestMotor: (instance: number, throttlePercent: number) => void;
+  onReboot: () => void;
 }
 
 const SERVO_CHANNEL_COUNT = 16;
@@ -46,9 +47,10 @@ export function MotorsServosSection({
   servoOutputs,
   onLoad,
   onTestServo,
-  onLoadFrameInfo,
+  onLoadMotorSetup,
   onSetFrameParam,
   onTestMotor,
+  onReboot,
 }: MotorsServosSectionProps) {
   const { t } = useTranslation();
   const params = useMavlinkParameterStore((s) => s.params);
@@ -76,9 +78,10 @@ export function MotorsServosSection({
     return (
       <MotorsCopterSection
         servoOutputs={servoOutputs}
-        onLoadFrameInfo={onLoadFrameInfo}
+        onLoadMotorSetup={onLoadMotorSetup}
         onSetFrameParam={onSetFrameParam}
         onTestMotor={onTestMotor}
+        onReboot={onReboot}
       />
     );
   }

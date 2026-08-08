@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  AccelcalVehiclePos,
+  AccelcalVehiclePosCommand,
   DoMotorTestCommand,
   DoSetServoCommand,
   DoStartMagCalCommand,
@@ -11,6 +13,9 @@ import {
   MAVLINK_REGISTRY,
   MotorTestThrottleType,
   ParamValue,
+  PreflightCalibrationCommand,
+  PreflightRebootShutdownCommand,
+  RebootShutdownAction,
   ServoOutputRaw,
 } from "../registry";
 
@@ -60,6 +65,33 @@ describe("MAVLINK_REGISTRY", () => {
     expect(cmd.throttleType).toBe(0);
     expect(cmd.throttle).toBe(10);
     expect(cmd.timeout).toBe(3);
+  });
+
+  it("PREFLIGHT_CALIBRATION is a COMMAND_LONG wrapper exposing accelerometer (param5) - real codes: FULL=1, TRIM=2, SIMPLE=4", () => {
+    expect(PreflightCalibrationCommand.MSG_ID).toBe(76);
+    const cmd = new PreflightCalibrationCommand();
+    expect(cmd.command).toBe(241); // MAV_CMD_PREFLIGHT_CALIBRATION
+    cmd.accelerometer = 1;
+    expect(cmd.accelerometer).toBe(1);
+  });
+
+  it("ACCELCAL_VEHICLE_POS is a COMMAND_LONG wrapper (MAV_CMD 42429) exposing position, with real enum codes", () => {
+    expect(AccelcalVehiclePosCommand.MSG_ID).toBe(76);
+    const cmd = new AccelcalVehiclePosCommand();
+    expect(cmd.command).toBe(42429);
+    cmd.position = AccelcalVehiclePos.LEVEL;
+    expect(cmd.position).toBe(1);
+    expect(AccelcalVehiclePos.NOSEUP).toBe(5);
+    expect(AccelcalVehiclePos.SUCCESS).toBe(16777215);
+    expect(AccelcalVehiclePos.FAILED).toBe(16777216);
+  });
+
+  it("PREFLIGHT_REBOOT_SHUTDOWN is a COMMAND_LONG wrapper (MAV_CMD 246) exposing autopilot (param1) - real code REBOOT=1", () => {
+    expect(PreflightRebootShutdownCommand.MSG_ID).toBe(76);
+    const cmd = new PreflightRebootShutdownCommand();
+    expect(cmd.command).toBe(246);
+    cmd.autopilot = RebootShutdownAction.REBOOT;
+    expect(cmd.autopilot).toBe(1);
   });
 
   it("MavCmd merges both standard commands and ArduPilot-specific ones", () => {

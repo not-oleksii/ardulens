@@ -1,4 +1,4 @@
-import { GpsFixType, MagCalStatus, MavAutopilot, MavResult, MavState, MavType } from "../registry/registry";
+import { AccelcalVehiclePos, GpsFixType, MagCalStatus, MavAutopilot, MavResult, MavState, MavType } from "../registry/registry";
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
@@ -103,4 +103,20 @@ const MAV_RESULT_KEYS: Partial<Record<MavResult, string>> = {
 export function mavResultLabel(t: Translate, result: MavResult): string {
   const key = MAV_RESULT_KEYS[result];
   return key ? t(`ardupilotSetup.compassCal.result.${key}`) : t("ardupilotSetup.compassCal.result.unknown", { value: result });
+}
+
+const ACCELCAL_POS_KEYS: Partial<Record<number, string>> = {
+  [AccelcalVehiclePos.LEVEL]: "level",
+  [AccelcalVehiclePos.LEFT]: "left",
+  [AccelcalVehiclePos.RIGHT]: "right",
+  [AccelcalVehiclePos.NOSEDOWN]: "nosedown",
+  [AccelcalVehiclePos.NOSEUP]: "noseup",
+  [AccelcalVehiclePos.BACK]: "back",
+};
+
+/** Human label for one of the 6 accel-cal positions - SUCCESS/FAILED aren't positions to
+ *  display here, they're the terminal states handled separately by the caller. */
+export function accelcalVehiclePosLabel(t: Translate, position: number): string {
+  const key = ACCELCAL_POS_KEYS[position];
+  return key ? t(`ardupilotSetup.accelCal.position.${key}`) : t("ardupilotSetup.accelCal.position.unknown", { value: position });
 }
