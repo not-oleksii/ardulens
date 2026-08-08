@@ -242,7 +242,7 @@ export function startMockVehicle(
       const status = pct < 10 ? MagCalStatus.WAITING_TO_START : pct < 90 ? MagCalStatus.RUNNING_STEP_ONE : MagCalStatus.RUNNING_STEP_TWO;
       const setBits = Math.floor((pct / 100) * 80);
       const mask = new Array<number>(10).fill(0);
-      for (let i = 0; i < setBits; i++) mask[i >> 3] |= 1 << (i & 7);
+      for (let i = 0; i < setBits; i++) mask[i >> 3] = (mask[i >> 3] ?? 0) | (1 << (i & 7));
 
       for (const compassId of COMPASS_IDS) {
         const progress = new MagCalProgress();
@@ -288,7 +288,9 @@ export function startMockVehicle(
   }
 
   // --- Servo test ---
-  const servoBank0 = [1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500];
+  const servoBank0: [number, number, number, number, number, number, number, number] = [
+    1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500,
+  ];
 
   function handleSetServo(channel: number, pwm: number) {
     if (channel >= 1 && channel <= 8) servoBank0[channel - 1] = pwm;

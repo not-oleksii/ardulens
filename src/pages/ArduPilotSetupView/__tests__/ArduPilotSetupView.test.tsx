@@ -976,8 +976,8 @@ describe("ArduPilotSetupView", () => {
       // proves the selector actually changed what the simulator seeded, not just the label.
       expect(within(diagram).getAllByText(/^[1-8]$/)).toHaveLength(8);
 
-      const frameClassSelect = screen.getByRole("combobox", { name: "Клас рами" });
-      const frameTypeSelect = screen.getByRole("combobox", { name: "Тип рами" });
+      const frameClassSelect = screen.getByRole("combobox", { name: "Клас рами" }) as HTMLSelectElement;
+      const frameTypeSelect = screen.getByRole("combobox", { name: "Тип рами" }) as HTMLSelectElement;
       expect(frameClassSelect.value).toBe("3"); // Octa
       expect(frameTypeSelect.value).toBe("1"); // X
     });
