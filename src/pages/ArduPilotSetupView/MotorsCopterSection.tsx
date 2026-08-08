@@ -4,22 +4,29 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { MotorFrameDiagram } from "../../components/MotorFrameDiagram/MotorFrameDiagram";
 import { frameDiagramMotors, motorCountForFrameClass } from "../../mavlink/frameDiagrams/frameDiagrams";
-import type { MavParamType } from "../../mavlink/registry/registry";
+import { MavParamType } from "../../mavlink/registry/registry";
 import { fetchParamDocs, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 
 interface MotorsCopterSectionProps {
   servoOutputs: Record<number, number>;
-  onLoadFrameInfo: () => void;
+  onLoadMotorSetup: () => void;
   onSetFrameParam: (name: string, value: number, type: MavParamType) => void;
   onTestMotor: (instance: number, throttlePercent: number) => void;
+  onReboot: () => void;
 }
 
 // Visible enough to confirm which motor spins without meaningfully lifting a propeller-on
 // motor - matches Mission Planner's own default motor-test throttle.
 const TEST_THROTTLE_PERCENT = 10;
 
-export function MotorsCopterSection({ servoOutputs, onLoadFrameInfo, onSetFrameParam, onTestMotor }: MotorsCopterSectionProps) {
+export function MotorsCopterSection({
+  servoOutputs,
+  onLoadMotorSetup,
+  onSetFrameParam,
+  onTestMotor,
+  onReboot,
+}: MotorsCopterSectionProps) {
   const { t } = useTranslation();
   const params = useMavlinkParameterStore((s) => s.params);
   const [docs, setDocs] = useState<ParamDocsMap | null>(null);
@@ -56,13 +63,34 @@ export function MotorsCopterSection({ servoOutputs, onLoadFrameInfo, onSetFrameP
     onTestMotor(motor, 0);
   }
 
+  // SERVOx_REVERSED is a real, generic ArduPilot param every servo/motor output has (confirmed
+  // against ArduCopter's own apm.pdef.xml) - flips a DShot ESC's spin direction on its next
+  // arm/reboot without needing to physically swap wires. It does nothing for plain PWM/OneShot
+  // ESCs, which still need rewiring - the UI note below says so rather than overclaiming.
+  function reverseCheckbox(motor: number) {
+    const entry = params[`SERVO${motor}_REVERSED`];
+    const isReversed = entry?.value === 1;
+    return (
+      <label className="flex items-center gap-1 text-xs">
+        <input
+          type="checkbox"
+          checked={isReversed}
+          onChange={(e) =>
+            onSetFrameParam(`SERVO${motor}_REVERSED`, e.target.checked ? 1 : 0, entry?.type ?? MavParamType.INT8)
+          }
+        />
+        {t("ardupilotSetup.motorsServos.reverseMotor")}
+      </label>
+    );
+  }
+
   return (
     <div className="flex h-full flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.motorsServos.heading")}</h3>
         {!hasLoaded && (
-          <Button type="button" size="sm" onClick={onLoadFrameInfo}>
-            {t("ardupilotSetup.motorsServos.loadFrameInfo")}
+          <Button type="button" size="sm" onClick={onLoadMotorSetup}>
+            {t("ardupilotSetup.motorsServos.loadMotorSetup")}
           </Button>
         )}
       </div>
@@ -72,7 +100,12 @@ export function MotorsCopterSection({ servoOutputs, onLoadFrameInfo, onSetFrameP
       ) : (
         <>
           <Alert variant="warning" className="shrink-0">
-            <AlertDescription>{t("ardupilotSetup.motorsServos.rebootRequiredWarning")}</AlertDescription>
+            <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
+              <span>{t("ardupilotSetup.motorsServos.rebootRequiredWarning")}</span>
+              <Button type="button" size="sm" variant="outline" onClick={onReboot}>
+                {t("ardupilotSetup.motorsServos.rebootNow")}
+              </Button>
+            </AlertDescription>
           </Alert>
 
           <div className="flex flex-wrap gap-4">
@@ -117,15 +150,19 @@ export function MotorsCopterSection({ servoOutputs, onLoadFrameInfo, onSetFrameP
           <Alert variant="warning" className="shrink-0">
             <AlertDescription>{t("ardupilotSetup.motorsServos.motorSafetyWarning")}</AlertDescription>
           </Alert>
+          <p className="text-xs text-muted-foreground">{t("ardupilotSetup.motorsServos.reverseNote")}</p>
 
           {motors ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-3">
               <MotorFrameDiagram motors={motors} activeMotor={activeMotor} onTestStart={startTest} onTestStop={stopTest} />
-              <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 font-mono text-xs text-muted-foreground">
+              <div className="flex flex-wrap justify-center gap-x-4 gap-y-2">
                 {motors.map(({ motor }) => (
-                  <span key={motor}>
-                    {motor}: {servoOutputs[motor] !== undefined ? `${servoOutputs[motor]} us` : "-"}
-                  </span>
+                  <div key={motor} className="flex flex-col items-center gap-0.5">
+                    <span className="font-mono text-xs text-muted-foreground">
+                      {motor}: {servoOutputs[motor] !== undefined ? `${servoOutputs[motor]} us` : "-"}
+                    </span>
+                    {reverseCheckbox(motor)}
+                  </div>
                 ))}
               </div>
             </div>
@@ -133,25 +170,27 @@ export function MotorsCopterSection({ servoOutputs, onLoadFrameInfo, onSetFrameP
             <>
               <p className="text-xs text-muted-foreground">{t("ardupilotSetup.motorsServos.diagramUnavailable")}</p>
               {fallbackMotorCount !== null && (
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-3">
                   {Array.from({ length: fallbackMotorCount }, (_, i) => i + 1).map((motor) => (
-                    <Button
-                      key={motor}
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="touch-none select-none"
-                      onPointerDown={(e) => {
-                        e.currentTarget.setPointerCapture?.(e.pointerId);
-                        startTest(motor);
-                      }}
-                      onPointerUp={() => stopTest(motor)}
-                      onPointerLeave={() => stopTest(motor)}
-                      onPointerCancel={() => stopTest(motor)}
-                    >
-                      {t("ardupilotSetup.motorsServos.holdToTestMotor")} {motor}
-                      {servoOutputs[motor] !== undefined ? ` (${servoOutputs[motor]} us)` : ""}
-                    </Button>
+                    <div key={motor} className="flex flex-col items-center gap-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="touch-none select-none"
+                        onPointerDown={(e) => {
+                          e.currentTarget.setPointerCapture?.(e.pointerId);
+                          startTest(motor);
+                        }}
+                        onPointerUp={() => stopTest(motor)}
+                        onPointerLeave={() => stopTest(motor)}
+                        onPointerCancel={() => stopTest(motor)}
+                      >
+                        {t("ardupilotSetup.motorsServos.holdToTestMotor")} {motor}
+                        {servoOutputs[motor] !== undefined ? ` (${servoOutputs[motor]} us)` : ""}
+                      </Button>
+                      {reverseCheckbox(motor)}
+                    </div>
                   ))}
                 </div>
               )}

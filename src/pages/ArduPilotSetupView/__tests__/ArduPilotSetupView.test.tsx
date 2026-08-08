@@ -8,6 +8,8 @@ import { encodePacket } from "../../../mavlink/codec/codec";
 import { x25Crc } from "../../../mavlink/crc/crc";
 import { paramValueToWireBits } from "../../../mavlink/paramValueCodec/paramValueCodec";
 import {
+  AccelcalVehiclePos,
+  AccelcalVehiclePosCommand,
   Attitude,
   CommandAck,
   GlobalPositionInt,
@@ -28,11 +30,13 @@ import {
   ParamRequestRead,
   ParamSet,
   ParamValue,
+  RebootShutdownAction,
   RequestDataStream,
   ServoOutputRaw,
   SysStatus,
   VfrHud,
 } from "../../../mavlink/registry/registry";
+import { useMavlinkAccelCalStore } from "../../../stores/mavlinkAccelCalStore/mavlinkAccelCalStore";
 import { useMavlinkCompassCalStore } from "../../../stores/mavlinkCompassCalStore/mavlinkCompassCalStore";
 import { useMavlinkConnectionStore } from "../../../stores/mavlinkConnectionStore/mavlinkConnectionStore";
 import { useMavlinkParameterStore } from "../../../stores/mavlinkParameterStore/mavlinkParameterStore";
@@ -144,6 +148,14 @@ function buildCommandAckBytes(command: number, result: MavResult, seq: number): 
   return Array.from(encodePacket(msg, { seq, sysid: 1, compid: 1 }));
 }
 
+/** Builds real ACCELCAL_VEHICLE_POS wire bytes as the vehicle itself would send them (see
+ *  registry.ts's export comment - this is one of the few commands sent vehicle->GCS). */
+function buildAccelcalVehiclePosBytes(position: AccelcalVehiclePos, seq: number): number[] {
+  const cmd = new AccelcalVehiclePosCommand(255, 190);
+  cmd.position = position;
+  return Array.from(encodePacket(cmd, { seq, sysid: 1, compid: 1 }));
+}
+
 /** Finds a sent COMMAND_LONG (msg 76) whose `command` field (uint16_t at payload offset 28,
  *  i.e. absolute byte 38 of the packet) matches the given MAV_CMD id. */
 function findCommandLongSend(invoked: ReturnType<typeof vi.fn>, mavCmd: number) {
@@ -249,6 +261,7 @@ function getView() {
   const getTelemetryNavButton = () => screen.getByRole("tab", { name: "Телеметрія" });
   const getParametersNavButton = () => screen.getByRole("tab", { name: "Параметри" });
   const getCompassCalNavButton = () => screen.getByRole("tab", { name: "Калібрування компаса" });
+  const getAccelCalNavButton = () => screen.getByRole("tab", { name: "Калібрування акселерометра" });
   const getMotorsNavButton = () => screen.getByRole("tab", { name: "Налаштування моторів" });
   const getPidTuneNavButton = () => screen.getByRole("tab", { name: "Налаштування PID" });
 
@@ -262,6 +275,7 @@ function getView() {
   const clickParametersNav = () => user.click(getParametersNavButton());
   const clickTelemetryNav = () => user.click(getTelemetryNavButton());
   const clickCompassCalNav = () => user.click(getCompassCalNavButton());
+  const clickAccelCalNav = () => user.click(getAccelCalNavButton());
   const clickMotorsNav = () => user.click(getMotorsNavButton());
 
   return {
@@ -282,6 +296,7 @@ function getView() {
     getTelemetryNavButton,
     getParametersNavButton,
     getCompassCalNavButton,
+    getAccelCalNavButton,
     getMotorsNavButton,
     getPidTuneNavButton,
     clickSerialMode,
@@ -294,6 +309,7 @@ function getView() {
     clickParametersNav,
     clickTelemetryNav,
     clickCompassCalNav,
+    clickAccelCalNav,
     clickMotorsNav,
   };
 }
@@ -322,6 +338,7 @@ afterEach(async () => {
   useMavlinkTelemetryStore.getState().reset();
   useMavlinkParameterStore.getState().reset();
   useMavlinkCompassCalStore.getState().reset();
+  useMavlinkAccelCalStore.getState().reset();
   vi.unstubAllGlobals();
 });
 
@@ -865,16 +882,16 @@ describe("ArduPilotSetupView", () => {
     it("shows a Load Frame Info button and not-loaded message for a connected Copter", async () => {
       mockBackend();
       await connectCopterAndOpenMotors();
-      expect(screen.getByRole("button", { name: "Завантажити дані рами" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Завантажити налаштування моторів" })).toBeInTheDocument();
       expect(screen.getByText("Клас і тип рами ще не завантажено.")).toBeInTheDocument();
     });
 
-    it("requests FRAME_CLASS and FRAME_TYPE by name when Load Frame Info is clicked", async () => {
+    it("requests FRAME_CLASS/FRAME_TYPE and SERVOx_REVERSED by name when Load Motor Setup is clicked", async () => {
       const invoked = vi.fn();
       mockBackend(invoked);
       const { user } = await connectCopterAndOpenMotors();
 
-      await user.click(screen.getByRole("button", { name: "Завантажити дані рами" }));
+      await user.click(screen.getByRole("button", { name: "Завантажити налаштування моторів" }));
 
       const requestedNames = new Set(
         invoked.mock.calls
@@ -888,6 +905,8 @@ describe("ArduPilotSetupView", () => {
       );
       expect(requestedNames.has("FRAME_CLASS")).toBe(true);
       expect(requestedNames.has("FRAME_TYPE")).toBe(true);
+      expect(requestedNames.has("SERVO1_REVERSED")).toBe(true);
+      expect(requestedNames.has("SERVO16_REVERSED")).toBe(true);
     });
 
     it("renders the verified Quad X diagram once FRAME_CLASS/FRAME_TYPE arrive, and press-and-hold sends DO_MOTOR_TEST", async () => {
@@ -938,6 +957,51 @@ describe("ArduPilotSetupView", () => {
       expect(paramSet).toBeDefined();
     });
 
+    it("clicking Reboot Now sends PREFLIGHT_REBOOT_SHUTDOWN(autopilot=REBOOT)", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectCopterAndOpenMotors();
+
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("FRAME_CLASS", 1, MavParamType.INT8, 0, 2, 1) });
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("FRAME_TYPE", 1, MavParamType.INT8, 1, 2, 2) });
+      await screen.findByRole("img", { name: "Motor layout" });
+
+      await user.click(screen.getByRole("button", { name: "Перезавантажити зараз" }));
+
+      const sent = findCommandLongSend(invoked, MavCmd.PREFLIGHT_REBOOT_SHUTDOWN);
+      expect(sent).toBeDefined();
+      const bytes = (sent![1] as { bytes: number[] }).bytes;
+      const view = new DataView(new Uint8Array(bytes).buffer);
+      // param1 (autopilot) is COMMAND_LONG's first float32 field - payload starts at absolute
+      // byte 10 (10-byte v2 header), same base findCommandLongSend uses for `command` at 38.
+      expect(view.getFloat32(10, true)).toBe(RebootShutdownAction.REBOOT);
+    });
+
+    it("toggling a motor's Reverse checkbox sends SERVOx_REVERSED via PARAM_SET", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      await connectCopterAndOpenMotors();
+
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("FRAME_CLASS", 1, MavParamType.INT8, 0, 2, 1) });
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("FRAME_TYPE", 1, MavParamType.INT8, 1, 2, 2) });
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("SERVO1_REVERSED", 0, MavParamType.INT8, 2, 2, 3) });
+      await screen.findByRole("img", { name: "Motor layout" });
+
+      const checkbox = screen.getAllByRole("checkbox", { name: "Реверс" })[0]!;
+      fireEvent.click(checkbox);
+
+      const paramSet = invoked.mock.calls.find(
+        ([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamSet.MSG_ID,
+      );
+      expect(paramSet).toBeDefined();
+      const bytes = (paramSet![1] as { bytes: number[] }).bytes;
+      // param_id: char[16] at payload offset 6 (after paramValue:float32, targetSystem/
+      // targetComponent:uint8), absolute byte 16 given the 10-byte v2 header.
+      const nameBytes = bytes.slice(16, 16 + 16);
+      const nullIndex = nameBytes.indexOf(0);
+      expect(String.fromCharCode(...nameBytes.slice(0, nullIndex === -1 ? undefined : nullIndex))).toBe("SERVO1_REVERSED");
+    });
+
     it("falls back to a plain per-motor list (with live PWM) for an unverified frame class/type", async () => {
       mockBackend();
       await connectCopterAndOpenMotors();
@@ -969,7 +1033,7 @@ describe("ArduPilotSetupView", () => {
       await clickDevModeCopter();
       await within(getStatusAlert()).findByText("Підключено: Dev mode (simulated vehicle)");
       await clickMotorsNav();
-      await user.click(screen.getByRole("button", { name: "Завантажити дані рами" }));
+      await user.click(screen.getByRole("button", { name: "Завантажити налаштування моторів" }));
 
       const diagram = await screen.findByRole("img", { name: "Motor layout" });
       // Octa X has 8 motors - the default Quad X preset would only render 4, so this also
@@ -1314,6 +1378,101 @@ describe("ArduPilotSetupView", () => {
 
       await emit("mavlink-transport://data", {
         bytes: buildCommandAckBytes(MavCmd.DO_START_MAG_CAL, MavResult.DENIED, 1),
+      });
+
+      expect(await screen.findByText("Апарат відхилив команду: Відхилено")).toBeInTheDocument();
+    });
+  });
+
+  describe("accelerometer calibration", () => {
+    async function connectAndOpenAccelCal() {
+      const view = getView();
+      await view.clickConnect();
+      await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit("mavlink-transport://data", { bytes: sampleHeartbeatBytes() });
+      await view.clickAccelCalNav();
+      return view;
+    }
+
+    it("shows a not-started placeholder before calibration begins", async () => {
+      mockBackend();
+      await connectAndOpenAccelCal();
+      expect(screen.getByText("Калібрування ще не розпочато.")).toBeInTheDocument();
+    });
+
+    it("sends PREFLIGHT_CALIBRATION(accelerometer=TRIM) and shows success once acked, when Calibrate Level is clicked", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenAccelCal();
+
+      await user.click(screen.getByRole("button", { name: "Калібрувати рівень" }));
+
+      await vi.waitFor(() => {
+        expect(findCommandLongSend(invoked, MavCmd.PREFLIGHT_CALIBRATION)).toBeDefined();
+      });
+      const sent = findCommandLongSend(invoked, MavCmd.PREFLIGHT_CALIBRATION)!;
+      // accelerometer is param5 - a plain float32 at payload offset 16 (absolute byte 26).
+      const bytes = (sent[1] as { bytes: number[] }).bytes;
+      expect(new DataView(new Uint8Array(bytes).buffer).getFloat32(26, true)).toBe(2); // TRIM
+
+      expect(screen.getByText("Калібрування...")).toBeInTheDocument();
+
+      await emit("mavlink-transport://data", {
+        bytes: buildCommandAckBytes(MavCmd.PREFLIGHT_CALIBRATION, MavResult.ACCEPTED, 1),
+      });
+      expect(await screen.findByText("Калібрування рівня завершено.")).toBeInTheDocument();
+
+      // Regression: the Start buttons must reappear once a level cal finishes, not stay
+      // hidden forever - a real bug caught by browser click-through, not by the isolated unit
+      // assertions above (those never re-checked button visibility after completion).
+      expect(screen.getByRole("button", { name: "Калібрувати рівень" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Повне калібрування" })).toBeInTheDocument();
+    });
+
+    it("Full Calibration steps through vehicle-requested positions, confirming echoes each one back, ending in success", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenAccelCal();
+
+      await user.click(screen.getByRole("button", { name: "Повне калібрування" }));
+      await vi.waitFor(() => {
+        expect(findCommandLongSend(invoked, MavCmd.PREFLIGHT_CALIBRATION)).toBeDefined();
+      });
+
+      // Vehicle asks the user to move to LEVEL first. The position label also appears in the
+      // checklist below, hence the testid - see AccelCalSection.tsx.
+      await emit("mavlink-transport://data", { bytes: buildAccelcalVehiclePosBytes(AccelcalVehiclePos.LEVEL, 1) });
+      expect(await screen.findByTestId("accel-cal-position-prompt")).toHaveTextContent("Рівно");
+
+      invoked.mockClear();
+      await user.click(screen.getByRole("button", { name: "Апарат у цьому положенні" }));
+      // Confirming echoes the SAME position back to the vehicle.
+      await vi.waitFor(() => {
+        const call = findCommandLongSend(invoked, MavCmd.ACCELCAL_VEHICLE_POS);
+        expect(call).toBeDefined();
+        const bytes = (call![1] as { bytes: number[] }).bytes;
+        expect(new DataView(new Uint8Array(bytes).buffer).getFloat32(10, true)).toBe(AccelcalVehiclePos.LEVEL);
+      });
+
+      // Vehicle moves on to LEFT.
+      await emit("mavlink-transport://data", { bytes: buildAccelcalVehiclePosBytes(AccelcalVehiclePos.LEFT, 2) });
+      expect(await screen.findByTestId("accel-cal-position-prompt")).toHaveTextContent("На лівому боці");
+      expect(screen.getByTestId(`accel-cal-checklist-${AccelcalVehiclePos.LEVEL}`).className).toContain("border-primary"); // LEVEL now checked off
+
+      // Vehicle reports overall success (a real full cal steps through all 6 - shortcutting the
+      // remaining 4 here since the position-request/confirm-echo mechanics are already proven).
+      await emit("mavlink-transport://data", { bytes: buildAccelcalVehiclePosBytes(AccelcalVehiclePos.SUCCESS, 3) });
+      expect(await screen.findByText("Калібрування успішне.")).toBeInTheDocument();
+    });
+
+    it("shows a rejection alert when the vehicle NACKs PREFLIGHT_CALIBRATION", async () => {
+      mockBackend();
+      const { user } = await connectAndOpenAccelCal();
+      await user.click(screen.getByRole("button", { name: "Повне калібрування" }));
+
+      await emit("mavlink-transport://data", {
+        bytes: buildCommandAckBytes(MavCmd.PREFLIGHT_CALIBRATION, MavResult.DENIED, 1),
       });
 
       expect(await screen.findByText("Апарат відхилив команду: Відхилено")).toBeInTheDocument();

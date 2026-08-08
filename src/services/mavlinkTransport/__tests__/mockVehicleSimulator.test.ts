@@ -1,9 +1,11 @@
 import type { MavLinkData } from "mavlink-mappings/dist/lib/mavlink";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { encodePacket } from "../../../mavlink/codec/codec";
+import { decodeMessage, encodePacket } from "../../../mavlink/codec/codec";
 import { MavlinkFramer, type DecodedMavlinkPacket } from "../../../mavlink/framer/framer";
 import { buildParamSetPacket, paramValueToWireBits, paramWireBitsToValue, readParamValueBits } from "../../../mavlink/paramValueCodec/paramValueCodec";
 import {
+  AccelcalVehiclePos,
+  AccelcalVehiclePosCommand,
   Attitude,
   CommandAck,
   DoAcceptMagCalCommand,
@@ -24,6 +26,9 @@ import {
   ParamRequestRead,
   ParamSet,
   ParamValue,
+  PreflightCalibrationCommand,
+  PreflightRebootShutdownCommand,
+  RebootShutdownAction,
   RequestDataStream,
   ServoOutputRaw,
   SysStatus,
@@ -237,6 +242,84 @@ describe("startMockVehicle", () => {
     expect(names).not.toContain("FRAME_CLASS");
     expect(names).not.toContain("FRAME_TYPE");
   });
+
+  it("acks a level (TRIM) cal immediately with no ACCELCAL_VEHICLE_POS follow-up", () => {
+    const cmd = new PreflightCalibrationCommand();
+    cmd.accelerometer = 2; // TRIM
+
+    emitted = [];
+    handle.handleAppBytes(encodeFromApp(cmd));
+
+    const packets = decodeAll(emitted);
+    const ack = packets.find((p) => p.msgId === CommandAck.MSG_ID);
+    expect(ack).toBeDefined();
+    expect((ack!.message as CommandAck).result).toBe(MavResult.ACCEPTED);
+    expect(packets.some((p) => p.msgId === AccelcalVehiclePosCommand.MSG_ID)).toBe(false);
+
+    emitted = [];
+    vi.advanceTimersByTime(2000);
+    // Heartbeats keep flowing regardless (1Hz, unrelated to cal) - only the cal-specific
+    // messages matter here.
+    const followUp = decodeAll(emitted).filter((p) => p.msgId !== Heartbeat.MSG_ID);
+    expect(followUp).toHaveLength(0);
+  });
+
+  it("steps a full (6-position) accel cal through LEVEL->LEFT->RIGHT->NOSEDOWN->NOSEUP->BACK->SUCCESS, one position at a time, only after each is echoed back", () => {
+    const cmd = new PreflightCalibrationCommand();
+    cmd.accelerometer = 1; // FULL
+
+    emitted = [];
+    handle.handleAppBytes(encodeFromApp(cmd));
+    const ack = decodeAll(emitted).find((p) => p.msgId === CommandAck.MSG_ID);
+    expect((ack!.message as CommandAck).result).toBe(MavResult.ACCEPTED);
+
+    const sequence = [
+      AccelcalVehiclePos.LEVEL,
+      AccelcalVehiclePos.LEFT,
+      AccelcalVehiclePos.RIGHT,
+      AccelcalVehiclePos.NOSEDOWN,
+      AccelcalVehiclePos.NOSEUP,
+      AccelcalVehiclePos.BACK,
+    ];
+
+    for (const expectedPosition of sequence) {
+      emitted = [];
+      vi.advanceTimersByTime(1000); // >= ACCEL_CAL_STEP_DELAY_MS
+      const posCmd = decodeAll(emitted).find((p) => p.msgId === AccelcalVehiclePosCommand.MSG_ID);
+      expect(posCmd).toBeDefined();
+      // The framer decodes every msg-76 packet generically as the base CommandLong class (one
+      // registry entry per message id) - re-decoding the raw payload against the specific
+      // AccelcalVehiclePosCommand subclass is what actually exposes `.position`.
+      expect(decodeMessage(AccelcalVehiclePosCommand, posCmd!.payload).position).toBe(expectedPosition);
+
+      // Echo it back, exactly like the app does once the user confirms placement.
+      const echo = new AccelcalVehiclePosCommand();
+      echo.position = expectedPosition;
+      handle.handleAppBytes(encodeFromApp(echo));
+    }
+
+    emitted = [];
+    vi.advanceTimersByTime(1000);
+    const final = decodeAll(emitted).find((p) => p.msgId === AccelcalVehiclePosCommand.MSG_ID);
+    expect(decodeMessage(AccelcalVehiclePosCommand, final!.payload).position).toBe(AccelcalVehiclePos.SUCCESS);
+  });
+
+  it("ignores an out-of-order/stale position echo (doesn't match the position currently being waited on)", () => {
+    const cmd = new PreflightCalibrationCommand();
+    cmd.accelerometer = 1;
+    handle.handleAppBytes(encodeFromApp(cmd));
+    vi.advanceTimersByTime(1000); // vehicle now requests LEVEL
+
+    emitted = [];
+    const staleEcho = new AccelcalVehiclePosCommand();
+    staleEcho.position = AccelcalVehiclePos.BACK; // wrong - vehicle is waiting on LEVEL, not BACK
+    handle.handleAppBytes(encodeFromApp(staleEcho));
+    vi.advanceTimersByTime(2000);
+
+    // No advance happened - nothing new (besides unrelated heartbeats) was emitted for the stale echo.
+    const followUp = decodeAll(emitted).filter((p) => p.msgId !== Heartbeat.MSG_ID);
+    expect(followUp).toHaveLength(0);
+  });
 });
 
 describe("startMockVehicle (Copter)", () => {
@@ -293,5 +376,32 @@ describe("startMockVehicle (Copter)", () => {
     handle.handleAppBytes(encodeFromApp(stopCmd));
     const stopRaw = decodeAll(emitted).find((p) => p.msgId === ServoOutputRaw.MSG_ID);
     expect((stopRaw!.message as ServoOutputRaw).servo2Raw).toBe(1000);
+  });
+
+  it("seeds SERVO1-8_REVERSED=0 (Normal) so Dev Mode's reverse checkboxes have something real to toggle", () => {
+    emitted = [];
+    handle.handleAppBytes(encodeFromApp(new ParamRequestList()));
+    const values = new Map(
+      decodeAll(emitted)
+        .filter((p) => p.msgId === ParamValue.MSG_ID)
+        .map((p) => {
+          const msg = p.message as ParamValue;
+          return [msg.paramId, paramWireBitsToValue(readParamValueBits(p.payload), msg.paramType)] as const;
+        }),
+    );
+    expect(values.get("SERVO1_REVERSED")).toBe(0);
+    expect(values.get("SERVO8_REVERSED")).toBe(0);
+  });
+
+  it("acks PREFLIGHT_REBOOT_SHUTDOWN(autopilot=REBOOT) with ACCEPTED", () => {
+    const cmd = new PreflightRebootShutdownCommand();
+    cmd.autopilot = RebootShutdownAction.REBOOT;
+
+    emitted = [];
+    handle.handleAppBytes(encodeFromApp(cmd));
+
+    const ack = decodeAll(emitted).find((p) => p.msgId === CommandAck.MSG_ID);
+    expect(ack).toBeDefined();
+    expect((ack!.message as CommandAck).result).toBe(MavResult.ACCEPTED);
   });
 });

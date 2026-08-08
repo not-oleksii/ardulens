@@ -1,17 +1,21 @@
+import type { CommandLong } from "mavlink-mappings/dist/lib/common";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ArduPilotSetupHeader } from "./ArduPilotSetupHeader";
 import { ArduPilotSetupSidebar, type ArduPilotSetupSection } from "./ArduPilotSetupSidebar";
+import { AccelCalSection } from "./AccelCalSection";
 import { ComingSoonSection } from "./ComingSoonSection";
 import { CompassCalSection } from "./CompassCalSection";
 import { MotorsServosSection } from "./MotorsServosSection";
 import { ParametersPanel } from "./ParametersPanel";
 import { TelemetrySection } from "./TelemetrySection";
-import { encodePacket } from "../../mavlink/codec/codec";
+import { decodeMessage, encodePacket } from "../../mavlink/codec/codec";
 import { VERIFIED_FRAME_PRESETS } from "../../mavlink/frameDiagrams/frameDiagrams";
 import { MavlinkFramer } from "../../mavlink/framer/framer";
 import { buildParamSetPacket, paramValueToWireBits, paramWireBitsToValue, readParamValueBits } from "../../mavlink/paramValueCodec/paramValueCodec";
 import {
+  AccelcalVehiclePos,
+  AccelcalVehiclePosCommand,
   Attitude,
   CommandAck,
   DoAcceptMagCalCommand,
@@ -36,6 +40,9 @@ import {
   ParamRequestRead,
   ParamSet,
   ParamValue,
+  PreflightCalibrationCommand,
+  PreflightRebootShutdownCommand,
+  RebootShutdownAction,
   RequestDataStream,
   ServoOutputRaw,
   SysStatus,
@@ -53,6 +60,7 @@ import {
   sendBytes,
 } from "../../services/mavlinkTransport/mavlinkTransport";
 import type { SerialPortInfo } from "../../services/mavlinkTransport/types";
+import { useMavlinkAccelCalStore } from "../../stores/mavlinkAccelCalStore/mavlinkAccelCalStore";
 import { useMavlinkCompassCalStore } from "../../stores/mavlinkCompassCalStore/mavlinkCompassCalStore";
 import { useMavlinkConnectionStore } from "../../stores/mavlinkConnectionStore/mavlinkConnectionStore";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
@@ -151,6 +159,18 @@ export function ArduPilotSetupView() {
   const setCompassCalReport = useMavlinkCompassCalStore((s) => s.setReport);
   const setCompassCalLastCommandAck = useMavlinkCompassCalStore((s) => s.setLastCommandAck);
   const resetCompassCal = useMavlinkCompassCalStore((s) => s.reset);
+  const accelCalActiveType = useMavlinkAccelCalStore((s) => s.activeCalType);
+  const accelCalRequestedPosition = useMavlinkAccelCalStore((s) => s.requestedPosition);
+  const accelCalConfirmedPositions = useMavlinkAccelCalStore((s) => s.confirmedPositions);
+  const accelCalResult = useMavlinkAccelCalStore((s) => s.result);
+  const accelCalLastCommandAck = useMavlinkAccelCalStore((s) => s.lastCommandAck);
+  const startLevelCal = useMavlinkAccelCalStore((s) => s.startLevel);
+  const startFullAccelCal = useMavlinkAccelCalStore((s) => s.startFull);
+  const setAccelCalRequestedPosition = useMavlinkAccelCalStore((s) => s.setRequestedPosition);
+  const confirmAccelCalPosition = useMavlinkAccelCalStore((s) => s.confirmPosition);
+  const setAccelCalResult = useMavlinkAccelCalStore((s) => s.setResult);
+  const setAccelCalLastCommandAck = useMavlinkAccelCalStore((s) => s.setLastCommandAck);
+  const resetAccelCal = useMavlinkAccelCalStore((s) => s.reset);
 
   const [mode, setMode] = useState<"serial" | "udp">("udp");
   const [ports, setPorts] = useState<SerialPortInfo[]>([]);
@@ -283,13 +303,34 @@ export function ArduPilotSetupView() {
           }
           case CommandAck.MSG_ID: {
             const msg = packet.message as CommandAck;
-            // Only the mag-cal commands are surfaced here - a NACK on any of them (e.g.
-            // DENIED because a compass is unhealthy) would otherwise look like nothing
-            // happened at all, since MAG_CAL_PROGRESS never arrives in that case. `command`
-            // is a plain uint16_t on the wire (not typed as MavCmd), hence the cast.
+            // Only the mag-cal and accel-cal commands are surfaced here - a NACK on any of
+            // them (e.g. DENIED because a compass/accelerometer is unhealthy) would otherwise
+            // look like nothing happened at all, since no further progress message ever
+            // arrives in that case. `command` is a plain uint16_t on the wire (not typed as
+            // MavCmd), hence the cast.
             const command = msg.command as MavCmd;
             if (command === MavCmd.DO_START_MAG_CAL || command === MavCmd.DO_ACCEPT_MAG_CAL || command === MavCmd.DO_CANCEL_MAG_CAL) {
               setCompassCalLastCommandAck({ command, result: msg.result });
+            } else if (command === MavCmd.PREFLIGHT_CALIBRATION) {
+              setAccelCalLastCommandAck({ command, result: msg.result });
+            }
+            break;
+          }
+          // Unlike every other COMMAND_LONG this app deals with, ACCELCAL_VEHICLE_POS is sent
+          // BY THE VEHICLE (not just to it) - it's how the vehicle tells the GCS which of the 6
+          // positions to move to next during a full accel cal (see registry.ts's export
+          // comment, verified against MAVLink's own ardupilotmega.xml).
+          case AccelcalVehiclePosCommand.MSG_ID: {
+            const command = (packet.message as CommandLong).command as MavCmd;
+            if (command === MavCmd.ACCELCAL_VEHICLE_POS) {
+              const posCmd = decodeMessage(AccelcalVehiclePosCommand, packet.payload);
+              // `position` is a plain uint32 getter on the wire (not typed as AccelcalVehiclePos) - the
+              // explicit type annotation (not a cast) is what satisfies both the assignment and the
+              // comparison below without eslint flagging either as redundant/unsafe.
+              const position: AccelcalVehiclePos = posCmd.position;
+              if (position === AccelcalVehiclePos.SUCCESS) setAccelCalResult("success");
+              else if (position === AccelcalVehiclePos.FAILED) setAccelCalResult("failed");
+              else setAccelCalRequestedPosition(position);
             }
             break;
           }
@@ -328,6 +369,7 @@ export function ArduPilotSetupView() {
         resetTelemetry();
         resetParameters();
         resetCompassCal();
+        resetAccelCal();
         pendingParamsRef.current.clear();
         pendingParamCountRef.current = null;
         streamsRequestedRef.current = false;
@@ -337,6 +379,7 @@ export function ArduPilotSetupView() {
         resetTelemetry();
         resetParameters();
         resetCompassCal();
+        resetAccelCal();
         pendingParamsRef.current.clear();
         pendingParamCountRef.current = null;
         streamsRequestedRef.current = false;
@@ -370,6 +413,10 @@ export function ArduPilotSetupView() {
     setCompassCalProgress,
     setCompassCalReport,
     setCompassCalLastCommandAck,
+    resetAccelCal,
+    setAccelCalLastCommandAck,
+    setAccelCalRequestedPosition,
+    setAccelCalResult,
   ]);
 
   // Flushes buffered PARAM_VALUE decodes (see pendingParamsRef above) to the store in one
@@ -492,6 +539,7 @@ export function ArduPilotSetupView() {
     resetTelemetry();
     resetParameters();
     resetCompassCal();
+    resetAccelCal();
     pendingParamsRef.current.clear();
     pendingParamCountRef.current = null;
     // Try the currently-selected baud rate first (fast path when it's already right - same
@@ -543,6 +591,7 @@ export function ArduPilotSetupView() {
     resetTelemetry();
     resetParameters();
     resetCompassCal();
+    resetAccelCal();
     pendingParamsRef.current.clear();
     pendingParamCountRef.current = null;
     try {
@@ -651,6 +700,43 @@ export function ArduPilotSetupView() {
     sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
   }
 
+  // One-shot board-level ("trim") calibration - unlike the full 6-position cal below, the
+  // vehicle does this immediately with no position prompts, so its only feedback is the
+  // COMMAND_ACK for this same PREFLIGHT_CALIBRATION command.
+  function handleStartLevelCal() {
+    if (!vehicle) return;
+    startLevelCal();
+    const cmd = new PreflightCalibrationCommand(vehicle.sysid, vehicle.compid);
+    cmd.accelerometer = 2; // PREFLIGHT_CALIBRATION_ACCELEROMETER_TRIM
+    sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+  }
+
+  function handleStartFullAccelCal() {
+    if (!vehicle) return;
+    startFullAccelCal();
+    const cmd = new PreflightCalibrationCommand(vehicle.sysid, vehicle.compid);
+    cmd.accelerometer = 1; // PREFLIGHT_CALIBRATION_ACCELEROMETER_FULL
+    sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+  }
+
+  // Echoes the vehicle's own ACCELCAL_VEHICLE_POS command back to it once the user confirms
+  // the vehicle is actually in the requested position - this is what tells the vehicle to
+  // sample this position and move on to the next one (see registry.ts's export comment).
+  function handleConfirmAccelCalPosition(position: number) {
+    if (!vehicle) return;
+    confirmAccelCalPosition(position);
+    const cmd = new AccelcalVehiclePosCommand(vehicle.sysid, vehicle.compid);
+    cmd.position = position;
+    sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+  }
+
+  // ArduPilot's accel-cal state machine has no MAVLink cancel command of its own (unlike mag
+  // cal's explicit DO_CANCEL_MAG_CAL) - confirmed against ardupilotmega.xml, not assumed - so
+  // "cancel" here is local-only - restarting a fresh attempt re-sends PREFLIGHT_CALIBRATION.
+  function handleCancelAccelCal() {
+    resetAccelCal();
+  }
+
   // Requests exactly the params the Motors/Servos section needs (function + travel range per
   // output channel) by name rather than depending on the full parameter list being loaded
   // elsewhere - self-contained, and far cheaper than a full 1000+ param dump.
@@ -676,10 +762,13 @@ export function ArduPilotSetupView() {
     sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
   }
 
-  // Requests exactly the two params the Copter half of Motors & Servos needs to know the
-  // vehicle's real motor layout (see frameDiagrams.ts) - same self-contained by-name pattern
-  // as handleLoadServoOutputs above, rather than depending on the full parameter list.
-  function handleLoadFrameInfo() {
+  // Requests everything the Copter half of Motors & Servos needs: the vehicle's real motor
+  // layout (FRAME_CLASS/FRAME_TYPE, see frameDiagrams.ts) plus each output channel's reverse
+  // flag (SERVOx_REVERSED - a real, generic param every servo/motor output has, confirmed
+  // against ArduCopter's own apm.pdef.xml: "Reverse servo operation... reverse this output
+  // channel") - same self-contained by-name pattern as handleLoadServoOutputs above, rather
+  // than depending on the full parameter list.
+  function handleLoadMotorSetup() {
     if (!vehicle) return;
     for (const name of ["FRAME_CLASS", "FRAME_TYPE"]) {
       const req = new ParamRequestRead();
@@ -689,6 +778,24 @@ export function ArduPilotSetupView() {
       req.paramIndex = -1;
       sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
     }
+    for (let channel = 1; channel <= SERVO_CHANNEL_COUNT; channel++) {
+      const req = new ParamRequestRead();
+      req.targetSystem = vehicle.sysid;
+      req.targetComponent = vehicle.compid;
+      req.paramId = `SERVO${channel}_REVERSED`;
+      req.paramIndex = -1;
+      sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+    }
+  }
+
+  // Reboots the flight controller - needed for RebootRequired params (e.g. FRAME_CLASS/
+  // FRAME_TYPE) to actually take effect; PARAM_SET itself already wrote the new value to the
+  // vehicle's persistent storage immediately, so there's no separate "save" step, only this.
+  function handleReboot() {
+    if (!vehicle) return;
+    const cmd = new PreflightRebootShutdownCommand(vehicle.sysid, vehicle.compid);
+    cmd.autopilot = RebootShutdownAction.REBOOT;
+    sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
   }
 
   // Press-and-hold motor identification test (the Copter counterpart to handleSetServoPwm's
@@ -774,15 +881,28 @@ export function ArduPilotSetupView() {
               onAccept={handleAcceptCompassCal}
               onCancel={handleCancelCompassCal}
             />
+          ) : activeSection === "accelCal" ? (
+            <AccelCalSection
+              activeCalType={accelCalActiveType}
+              requestedPosition={accelCalRequestedPosition}
+              confirmedPositions={accelCalConfirmedPositions}
+              result={accelCalResult}
+              lastCommandAck={accelCalLastCommandAck}
+              onStartLevel={handleStartLevelCal}
+              onStartFull={handleStartFullAccelCal}
+              onConfirmPosition={handleConfirmAccelCalPosition}
+              onCancel={handleCancelAccelCal}
+            />
           ) : activeSection === "motorsSetup" ? (
             <MotorsServosSection
               vehicleType={vehicle?.type ?? MavType.GENERIC}
               servoOutputs={servoOutputs}
               onLoad={handleLoadServoOutputs}
               onTestServo={handleSetServoPwm}
-              onLoadFrameInfo={handleLoadFrameInfo}
+              onLoadMotorSetup={handleLoadMotorSetup}
               onSetFrameParam={handleSetParam}
               onTestMotor={handleTestMotor}
+              onReboot={handleReboot}
             />
           ) : (
             <ComingSoonSection
