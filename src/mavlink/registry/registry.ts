@@ -34,6 +34,11 @@ export { DoSetServoCommand, ServoOutputRaw } from "mavlink-mappings/dist/lib/com
 // top of the explicit stop this app sends on release) - used for the motor-identification
 // test, which is the Copter counterpart to DO_SET_SERVO's Plane surface test above.
 export { DoMotorTestCommand, MotorTestThrottleType } from "mavlink-mappings/dist/lib/common";
+// RC_CHANNELS reports the receiver's raw per-channel PWM (chan1Raw..chan18Raw, us) plus
+// chancount - the live input side of the RC link, distinct from SERVO_OUTPUT_RAW's output
+// side above. `invalid="UINT16_MAX"` per-channel (confirmed against MAVLink's own common.xml)
+// marks a channel as unused, not 0.
+export { RcChannels } from "mavlink-mappings/dist/lib/common";
 // GLOBAL_POSITION_INT lives in the "standard" dialect file, not "common" - this package
 // splits a curated subset of core messages there even though they're not ArduPilot-specific.
 export { GlobalPositionInt } from "mavlink-mappings/dist/lib/standard";

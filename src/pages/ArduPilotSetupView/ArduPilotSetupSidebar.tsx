@@ -1,4 +1,4 @@
-import { ChevronsLeft, ChevronsRight, Cog, Compass, Gauge, List, MoveDiagonal, SlidersHorizontal } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, Cog, Compass, Gauge, Joystick, List, MoveDiagonal, SlidersHorizontal } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher/LanguageSwitcher";
@@ -6,13 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
-export type ArduPilotSetupSection = "telemetry" | "parameters" | "compassCal" | "accelCal" | "motorsSetup" | "pidTune";
+export type ArduPilotSetupSection = "telemetry" | "parameters" | "compassCal" | "accelCal" | "rcCal" | "motorsSetup" | "pidTune";
 
 const SECTIONS: readonly ArduPilotSetupSection[] = [
   "telemetry",
   "parameters",
   "compassCal",
   "accelCal",
+  "rcCal",
   "motorsSetup",
   "pidTune",
 ];
@@ -22,6 +23,7 @@ const SECTION_ICONS = {
   parameters: List,
   compassCal: Compass,
   accelCal: MoveDiagonal,
+  rcCal: Joystick,
   motorsSetup: Cog,
   pidTune: SlidersHorizontal,
 } as const satisfies Record<ArduPilotSetupSection, typeof Gauge>;

@@ -8,6 +8,7 @@ import { ComingSoonSection } from "./ComingSoonSection";
 import { CompassCalSection } from "./CompassCalSection";
 import { MotorsServosSection } from "./MotorsServosSection";
 import { ParametersPanel } from "./ParametersPanel";
+import { RcCalSection } from "./RcCalSection";
 import { TelemetrySection } from "./TelemetrySection";
 import { decodeMessage, encodePacket } from "../../mavlink/codec/codec";
 import { VERIFIED_FRAME_PRESETS } from "../../mavlink/frameDiagrams/frameDiagrams";
@@ -42,6 +43,7 @@ import {
   ParamValue,
   PreflightCalibrationCommand,
   PreflightRebootShutdownCommand,
+  RcChannels,
   RebootShutdownAction,
   RequestDataStream,
   ServoOutputRaw,
@@ -65,6 +67,7 @@ import { useMavlinkCompassCalStore } from "../../stores/mavlinkCompassCalStore/m
 import { useMavlinkConnectionStore } from "../../stores/mavlinkConnectionStore/mavlinkConnectionStore";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import type { ParamEntry } from "../../stores/mavlinkParameterStore/types";
+import { useMavlinkRcCalStore } from "../../stores/mavlinkRcCalStore/mavlinkRcCalStore";
 import { useMavlinkTelemetryStore } from "../../stores/mavlinkTelemetryStore/mavlinkTelemetryStore";
 import { useMavlinkVehicleStore } from "../../stores/mavlinkVehicleStore/mavlinkVehicleStore";
 
@@ -94,6 +97,7 @@ const REQUESTED_DATA_STREAMS = [
   MavDataStream.POSITION,
   MavDataStream.EXTRA1,
   MavDataStream.EXTRA2,
+  MavDataStream.RC_CHANNELS,
 ];
 const DATA_STREAM_RATE_HZ = 4;
 // Every ArduPilot board defines all of SERVO1_FUNCTION..SERVO16_FUNCTION regardless of how
@@ -171,6 +175,17 @@ export function ArduPilotSetupView() {
   const setAccelCalResult = useMavlinkAccelCalStore((s) => s.setResult);
   const setAccelCalLastCommandAck = useMavlinkAccelCalStore((s) => s.setLastCommandAck);
   const resetAccelCal = useMavlinkAccelCalStore((s) => s.reset);
+  const rcCalLive = useMavlinkRcCalStore((s) => s.live);
+  const rcCalChanCount = useMavlinkRcCalStore((s) => s.chanCount);
+  const rcCalActive = useMavlinkRcCalStore((s) => s.active);
+  const rcCalChannels = useMavlinkRcCalStore((s) => s.channels);
+  const rcCalLastCommandAck = useMavlinkRcCalStore((s) => s.lastCommandAck);
+  const startRcCal = useMavlinkRcCalStore((s) => s.start);
+  const observeRcCal = useMavlinkRcCalStore((s) => s.observe);
+  const toggleRcCalReversed = useMavlinkRcCalStore((s) => s.toggleReversed);
+  const setRcCalLastCommandAck = useMavlinkRcCalStore((s) => s.setLastCommandAck);
+  const stopRcCal = useMavlinkRcCalStore((s) => s.stop);
+  const resetRcCal = useMavlinkRcCalStore((s) => s.reset);
 
   const [mode, setMode] = useState<"serial" | "udp">("udp");
   const [ports, setPorts] = useState<SerialPortInfo[]>([]);
@@ -190,6 +205,10 @@ export function ArduPilotSetupView() {
   // one full-table React re-render - per packet.
   const pendingParamsRef = useRef<Map<string, ParamEntry>>(new Map());
   const pendingParamCountRef = useRef<number | null>(null);
+  // PREFLIGHT_CALIBRATION is shared by accel cal and RC cal (see registry.ts) - its CommandAck
+  // carries no field identifying which sub-calibration it answers, so this tracks whichever
+  // was sent most recently to route the next ack to the right store.
+  const pendingCalibrationKindRef = useRef<"accel" | "rc" | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -275,6 +294,35 @@ export function ArduPilotSetupView() {
             mergeServoOutputs(update);
             break;
           }
+          case RcChannels.MSG_ID: {
+            const msg = packet.message as RcChannels;
+            const raws = [
+              msg.chan1Raw,
+              msg.chan2Raw,
+              msg.chan3Raw,
+              msg.chan4Raw,
+              msg.chan5Raw,
+              msg.chan6Raw,
+              msg.chan7Raw,
+              msg.chan8Raw,
+              msg.chan9Raw,
+              msg.chan10Raw,
+              msg.chan11Raw,
+              msg.chan12Raw,
+              msg.chan13Raw,
+              msg.chan14Raw,
+              msg.chan15Raw,
+              msg.chan16Raw,
+            ];
+            const update: Record<number, number> = {};
+            // UINT16_MAX marks an unused channel (confirmed against MAVLink's own common.xml),
+            // not 0 - skipped rather than fed into the cal store as a bogus captured value.
+            raws.forEach((raw, i) => {
+              if (raw !== 0xffff) update[i + 1] = raw;
+            });
+            observeRcCal(update, msg.chancount);
+            break;
+          }
           case MagCalProgress.MSG_ID: {
             const msg = packet.message as MagCalProgress;
             setCompassCalProgress({
@@ -312,7 +360,8 @@ export function ArduPilotSetupView() {
             if (command === MavCmd.DO_START_MAG_CAL || command === MavCmd.DO_ACCEPT_MAG_CAL || command === MavCmd.DO_CANCEL_MAG_CAL) {
               setCompassCalLastCommandAck({ command, result: msg.result });
             } else if (command === MavCmd.PREFLIGHT_CALIBRATION) {
-              setAccelCalLastCommandAck({ command, result: msg.result });
+              if (pendingCalibrationKindRef.current === "rc") setRcCalLastCommandAck({ command, result: msg.result });
+              else setAccelCalLastCommandAck({ command, result: msg.result });
             }
             break;
           }
@@ -370,6 +419,7 @@ export function ArduPilotSetupView() {
         resetParameters();
         resetCompassCal();
         resetAccelCal();
+        resetRcCal();
         pendingParamsRef.current.clear();
         pendingParamCountRef.current = null;
         streamsRequestedRef.current = false;
@@ -380,6 +430,7 @@ export function ArduPilotSetupView() {
         resetParameters();
         resetCompassCal();
         resetAccelCal();
+        resetRcCal();
         pendingParamsRef.current.clear();
         pendingParamCountRef.current = null;
         streamsRequestedRef.current = false;
@@ -417,6 +468,9 @@ export function ArduPilotSetupView() {
     setAccelCalLastCommandAck,
     setAccelCalRequestedPosition,
     setAccelCalResult,
+    resetRcCal,
+    observeRcCal,
+    setRcCalLastCommandAck,
   ]);
 
   // Flushes buffered PARAM_VALUE decodes (see pendingParamsRef above) to the store in one
@@ -540,6 +594,7 @@ export function ArduPilotSetupView() {
     resetParameters();
     resetCompassCal();
     resetAccelCal();
+    resetRcCal();
     pendingParamsRef.current.clear();
     pendingParamCountRef.current = null;
     // Try the currently-selected baud rate first (fast path when it's already right - same
@@ -592,6 +647,7 @@ export function ArduPilotSetupView() {
     resetParameters();
     resetCompassCal();
     resetAccelCal();
+    resetRcCal();
     pendingParamsRef.current.clear();
     pendingParamCountRef.current = null;
     try {
@@ -705,6 +761,7 @@ export function ArduPilotSetupView() {
   // COMMAND_ACK for this same PREFLIGHT_CALIBRATION command.
   function handleStartLevelCal() {
     if (!vehicle) return;
+    pendingCalibrationKindRef.current = "accel";
     startLevelCal();
     const cmd = new PreflightCalibrationCommand(vehicle.sysid, vehicle.compid);
     cmd.accelerometer = 2; // PREFLIGHT_CALIBRATION_ACCELEROMETER_TRIM
@@ -713,6 +770,7 @@ export function ArduPilotSetupView() {
 
   function handleStartFullAccelCal() {
     if (!vehicle) return;
+    pendingCalibrationKindRef.current = "accel";
     startFullAccelCal();
     const cmd = new PreflightCalibrationCommand(vehicle.sysid, vehicle.compid);
     cmd.accelerometer = 1; // PREFLIGHT_CALIBRATION_ACCELEROMETER_FULL
@@ -735,6 +793,50 @@ export function ArduPilotSetupView() {
   // "cancel" here is local-only - restarting a fresh attempt re-sends PREFLIGHT_CALIBRATION.
   function handleCancelAccelCal() {
     resetAccelCal();
+  }
+
+  // Sends PREFLIGHT_CALIBRATION(remoteControl=1) - real ArduPilot sets its internal RC
+  // "calibrating" flag from this (see GCS_Common.cpp: `rc().calibrating(is_positive(param4))`),
+  // which blocks arming until Save/Cancel clears it again. Unlike accel cal, there is no
+  // further command handshake - min/max/trim are captured purely by watching RC_CHANNELS
+  // (see mavlinkRcCalStore's observe()), which the app already requests via
+  // MavDataStream.RC_CHANNELS regardless of whether this section is open.
+  function handleStartRcCal() {
+    if (!vehicle) return;
+    pendingCalibrationKindRef.current = "rc";
+    startRcCal();
+    const cmd = new PreflightCalibrationCommand(vehicle.sysid, vehicle.compid);
+    cmd.remoteControl = 1;
+    sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+  }
+
+  // Writes the captured range for every observed channel - RC{ch}_MIN/MAX/TRIM (INT16) and
+  // RC{ch}_REVERSED (INT8), the same real, generic per-channel params every ArduPilot board
+  // exposes (RC1_.. through RC16_.., confirmed against ArduCopter's own apm.pdef.xml) - typed
+  // the same way as the already-verified SERVOx_MIN/MAX/TRIM/REVERSED output-side params,
+  // since both are the same AP_Int16/AP_Int8 parameter classes in ArduPilot's own source.
+  function handleSaveRcCal() {
+    if (!vehicle) return;
+    pendingCalibrationKindRef.current = "rc";
+    for (const [channelKey, range] of Object.entries(rcCalChannels)) {
+      handleSetParam(`RC${channelKey}_MIN`, range.min, MavParamType.INT16);
+      handleSetParam(`RC${channelKey}_MAX`, range.max, MavParamType.INT16);
+      handleSetParam(`RC${channelKey}_TRIM`, range.trim, MavParamType.INT16);
+      handleSetParam(`RC${channelKey}_REVERSED`, range.reversed ? 1 : 0, MavParamType.INT8);
+    }
+    const cmd = new PreflightCalibrationCommand(vehicle.sysid, vehicle.compid);
+    cmd.remoteControl = 0;
+    sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+    stopRcCal();
+  }
+
+  function handleCancelRcCal() {
+    if (!vehicle) return;
+    pendingCalibrationKindRef.current = "rc";
+    const cmd = new PreflightCalibrationCommand(vehicle.sysid, vehicle.compid);
+    cmd.remoteControl = 0;
+    sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+    stopRcCal();
   }
 
   // Requests exactly the params the Motors/Servos section needs (function + travel range per
@@ -892,6 +994,18 @@ export function ArduPilotSetupView() {
               onStartFull={handleStartFullAccelCal}
               onConfirmPosition={handleConfirmAccelCalPosition}
               onCancel={handleCancelAccelCal}
+            />
+          ) : activeSection === "rcCal" ? (
+            <RcCalSection
+              live={rcCalLive}
+              chanCount={rcCalChanCount}
+              active={rcCalActive}
+              channels={rcCalChannels}
+              lastCommandAck={rcCalLastCommandAck}
+              onStart={handleStartRcCal}
+              onSave={handleSaveRcCal}
+              onCancel={handleCancelRcCal}
+              onToggleReversed={toggleRcCalReversed}
             />
           ) : activeSection === "motorsSetup" ? (
             <MotorsServosSection

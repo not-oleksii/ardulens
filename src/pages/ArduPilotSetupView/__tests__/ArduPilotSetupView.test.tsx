@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
 import { encodePacket } from "../../../mavlink/codec/codec";
 import { x25Crc } from "../../../mavlink/crc/crc";
-import { paramValueToWireBits } from "../../../mavlink/paramValueCodec/paramValueCodec";
+import { paramValueToWireBits, paramWireBitsToValue, readParamValueBits } from "../../../mavlink/paramValueCodec/paramValueCodec";
 import {
   AccelcalVehiclePos,
   AccelcalVehiclePosCommand,
@@ -30,6 +30,7 @@ import {
   ParamRequestRead,
   ParamSet,
   ParamValue,
+  RcChannels,
   RebootShutdownAction,
   RequestDataStream,
   ServoOutputRaw,
@@ -40,6 +41,7 @@ import { useMavlinkAccelCalStore } from "../../../stores/mavlinkAccelCalStore/ma
 import { useMavlinkCompassCalStore } from "../../../stores/mavlinkCompassCalStore/mavlinkCompassCalStore";
 import { useMavlinkConnectionStore } from "../../../stores/mavlinkConnectionStore/mavlinkConnectionStore";
 import { useMavlinkParameterStore } from "../../../stores/mavlinkParameterStore/mavlinkParameterStore";
+import { useMavlinkRcCalStore } from "../../../stores/mavlinkRcCalStore/mavlinkRcCalStore";
 import { useMavlinkTelemetryStore } from "../../../stores/mavlinkTelemetryStore/mavlinkTelemetryStore";
 import { useMavlinkVehicleStore } from "../../../stores/mavlinkVehicleStore/mavlinkVehicleStore";
 import { ArduPilotSetupView } from "../ArduPilotSetupView";
@@ -226,6 +228,35 @@ function buildServoOutputRawBytes(port: number, values: number[], seq: number): 
   return Array.from(encodePacket(msg, { seq, sysid: 1, compid: 1 }));
 }
 
+/** Builds real RC_CHANNELS wire bytes reporting the given per-channel raw PWM values (1-indexed
+ *  via `values[1]` = channel 1, etc.) - unset channels report UINT16_MAX (unused), not 0, per
+ *  MAVLink's own common.xml. */
+function buildRcChannelsBytes(values: Partial<Record<number, number>>, chancount: number, seq: number): number[] {
+  const msg = new RcChannels();
+  msg.chancount = chancount;
+  [
+    msg.chan1Raw,
+    msg.chan2Raw,
+    msg.chan3Raw,
+    msg.chan4Raw,
+    msg.chan5Raw,
+    msg.chan6Raw,
+    msg.chan7Raw,
+    msg.chan8Raw,
+    msg.chan9Raw,
+    msg.chan10Raw,
+    msg.chan11Raw,
+    msg.chan12Raw,
+    msg.chan13Raw,
+    msg.chan14Raw,
+    msg.chan15Raw,
+    msg.chan16Raw,
+    msg.chan17Raw,
+    msg.chan18Raw,
+  ] = Array.from({ length: 18 }, (_, i) => values[i + 1] ?? 0xffff);
+  return Array.from(encodePacket(msg, { seq, sysid: 1, compid: 1 }));
+}
+
 function mockBackend(invoked: (cmd: string, payload?: unknown) => void = () => {}) {
   mockIPC(
     (cmd, payload) => {
@@ -262,6 +293,7 @@ function getView() {
   const getParametersNavButton = () => screen.getByRole("tab", { name: "Параметри" });
   const getCompassCalNavButton = () => screen.getByRole("tab", { name: "Калібрування компаса" });
   const getAccelCalNavButton = () => screen.getByRole("tab", { name: "Калібрування акселерометра" });
+  const getRcCalNavButton = () => screen.getByRole("tab", { name: "Калібрування RC" });
   const getMotorsNavButton = () => screen.getByRole("tab", { name: "Налаштування моторів" });
   const getPidTuneNavButton = () => screen.getByRole("tab", { name: "Налаштування PID" });
 
@@ -276,6 +308,7 @@ function getView() {
   const clickTelemetryNav = () => user.click(getTelemetryNavButton());
   const clickCompassCalNav = () => user.click(getCompassCalNavButton());
   const clickAccelCalNav = () => user.click(getAccelCalNavButton());
+  const clickRcCalNav = () => user.click(getRcCalNavButton());
   const clickMotorsNav = () => user.click(getMotorsNavButton());
 
   return {
@@ -297,6 +330,7 @@ function getView() {
     getParametersNavButton,
     getCompassCalNavButton,
     getAccelCalNavButton,
+    getRcCalNavButton,
     getMotorsNavButton,
     getPidTuneNavButton,
     clickSerialMode,
@@ -310,6 +344,7 @@ function getView() {
     clickTelemetryNav,
     clickCompassCalNav,
     clickAccelCalNav,
+    clickRcCalNav,
     clickMotorsNav,
   };
 }
@@ -339,6 +374,7 @@ afterEach(async () => {
   useMavlinkParameterStore.getState().reset();
   useMavlinkCompassCalStore.getState().reset();
   useMavlinkAccelCalStore.getState().reset();
+  useMavlinkRcCalStore.getState().reset();
   vi.unstubAllGlobals();
 });
 
@@ -590,7 +626,7 @@ describe("ArduPilotSetupView", () => {
         const bytes = (payload as { bytes: number[] }).bytes;
         return bytes[7] === RequestDataStream.MSG_ID;
       });
-      expect(requestStreamCalls.length).toBe(4);
+      expect(requestStreamCalls.length).toBe(5);
     });
   });
 
@@ -1476,6 +1512,131 @@ describe("ArduPilotSetupView", () => {
       });
 
       expect(await screen.findByText("Апарат відхилив команду: Відхилено")).toBeInTheDocument();
+    });
+  });
+
+  describe("RC calibration", () => {
+    async function connectAndOpenRcCal() {
+      const view = getView();
+      await view.clickConnect();
+      await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit("mavlink-transport://data", { bytes: sampleHeartbeatBytes() });
+      await view.clickRcCalNav();
+      return view;
+    }
+
+    it("shows a no-signal message before any RC_CHANNELS arrives", async () => {
+      mockBackend();
+      await connectAndOpenRcCal();
+      expect(screen.getByText("Сигнал RC ще не отримано - перевірте передавач і приймач.")).toBeInTheDocument();
+    });
+
+    it("sends PREFLIGHT_CALIBRATION(remoteControl=1) when Start is clicked, and expands min/max as further RC_CHANNELS arrive", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenRcCal();
+
+      await emit("mavlink-transport://data", { bytes: buildRcChannelsBytes({ 1: 1500, 3: 1000 }, 8, 1) });
+      expect(await screen.findByText("1500")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Почати калібрування" }));
+      await vi.waitFor(() => {
+        expect(findCommandLongSend(invoked, MavCmd.PREFLIGHT_CALIBRATION)).toBeDefined();
+      });
+      const sent = findCommandLongSend(invoked, MavCmd.PREFLIGHT_CALIBRATION)!;
+      // remoteControl is param4 - a plain float32 at payload offset 12 (absolute byte 22).
+      const bytes = (sent[1] as { bytes: number[] }).bytes;
+      expect(new DataView(new Uint8Array(bytes).buffer).getFloat32(22, true)).toBe(1);
+
+      // The first packet after Start seeds min=max=trim=1500; a lower value afterwards should
+      // expand min without moving trim.
+      await emit("mavlink-transport://data", { bytes: buildRcChannelsBytes({ 1: 1500, 3: 1000 }, 8, 2) });
+      await emit("mavlink-transport://data", { bytes: buildRcChannelsBytes({ 1: 1000, 3: 1000 }, 8, 3) });
+      await emit("mavlink-transport://data", { bytes: buildRcChannelsBytes({ 1: 2000, 3: 1000 }, 8, 4) });
+
+      expect(await screen.findByText("2000")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Зберегти" })).toBeInTheDocument();
+    });
+
+    it("Save writes RC{ch}_MIN/MAX/TRIM/REVERSED via PARAM_SET for every captured channel and sends PREFLIGHT_CALIBRATION(remoteControl=0)", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenRcCal();
+
+      await user.click(screen.getByRole("button", { name: "Почати калібрування" }));
+      await emit("mavlink-transport://data", { bytes: buildRcChannelsBytes({ 1: 1500 }, 8, 1) });
+      await emit("mavlink-transport://data", { bytes: buildRcChannelsBytes({ 1: 1000 }, 8, 2) });
+      await emit("mavlink-transport://data", { bytes: buildRcChannelsBytes({ 1: 2000 }, 8, 3) });
+      await screen.findByText("2000");
+
+      const reverseCheckbox = screen.getByRole("checkbox", { name: "Реверс" });
+      await user.click(reverseCheckbox);
+
+      invoked.mockClear();
+      await user.click(screen.getByRole("button", { name: "Зберегти" }));
+
+      const paramSets = invoked.mock.calls.filter(
+        ([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamSet.MSG_ID,
+      );
+      function paramName(bytes: number[]): string {
+        // param_id: char[16] at payload offset 6 (after paramValue:float32, targetSystem/
+        // targetComponent:uint8), absolute byte 16 given the 10-byte v2 header.
+        const nameBytes = bytes.slice(16, 16 + 16);
+        const nullIndex = nameBytes.indexOf(0);
+        return String.fromCharCode(...nameBytes.slice(0, nullIndex === -1 ? undefined : nullIndex));
+      }
+      const names = paramSets.map(([, payload]) => paramName((payload as { bytes: number[] }).bytes));
+      expect(names).toEqual(
+        expect.arrayContaining(["RC1_MIN", "RC1_MAX", "RC1_TRIM", "RC1_REVERSED"]),
+      );
+      const reversedSet = paramSets.find(([, payload]) => paramName((payload as { bytes: number[] }).bytes) === "RC1_REVERSED")!;
+      const reversedBytes = (reversedSet[1] as { bytes: number[] }).bytes;
+      const reversedPayload = new Uint8Array(reversedBytes.slice(10)); // 10-byte v2 header
+      expect(paramWireBitsToValue(readParamValueBits(reversedPayload), MavParamType.INT8)).toBe(1);
+
+      expect(findCommandLongSend(invoked, MavCmd.PREFLIGHT_CALIBRATION)).toBeDefined();
+      // Back to the not-started view - Start Calibration is available again, Save/Cancel gone.
+      expect(await screen.findByRole("button", { name: "Почати калібрування" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Зберегти" })).not.toBeInTheDocument();
+    });
+
+    it("Cancel sends PREFLIGHT_CALIBRATION(remoteControl=0) without writing any params", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenRcCal();
+
+      await user.click(screen.getByRole("button", { name: "Почати калібрування" }));
+      await emit("mavlink-transport://data", { bytes: buildRcChannelsBytes({ 1: 1500 }, 8, 1) });
+      await screen.findByText("1500");
+
+      invoked.mockClear();
+      await user.click(screen.getByRole("button", { name: "Скасувати" }));
+
+      const paramSets = invoked.mock.calls.filter(
+        ([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamSet.MSG_ID,
+      );
+      expect(paramSets).toHaveLength(0);
+      const sent = findCommandLongSend(invoked, MavCmd.PREFLIGHT_CALIBRATION)!;
+      const bytes = (sent[1] as { bytes: number[] }).bytes;
+      expect(new DataView(new Uint8Array(bytes).buffer).getFloat32(22, true)).toBe(0);
+      expect(await screen.findByRole("button", { name: "Почати калібрування" })).toBeInTheDocument();
+    });
+
+    it("shows an armed-rejection alert on a FAILED ack, but treats the normal UNSUPPORTED ack as success (real ArduPilot quirk)", async () => {
+      mockBackend();
+      const { user } = await connectAndOpenRcCal();
+      await user.click(screen.getByRole("button", { name: "Почати калібрування" }));
+
+      await emit("mavlink-transport://data", {
+        bytes: buildCommandAckBytes(MavCmd.PREFLIGHT_CALIBRATION, MavResult.UNSUPPORTED, 1),
+      });
+      expect(screen.queryByText("Апарат озброєний - роззбройте перед калібруванням.")).not.toBeInTheDocument();
+
+      await emit("mavlink-transport://data", {
+        bytes: buildCommandAckBytes(MavCmd.PREFLIGHT_CALIBRATION, MavResult.FAILED, 2),
+      });
+      expect(await screen.findByText("Апарат озброєний - роззбройте перед калібруванням.")).toBeInTheDocument();
     });
   });
 });

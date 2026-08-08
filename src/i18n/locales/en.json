@@ -38,6 +38,7 @@
       "parameters": "Parameters",
       "compassCal": "Compass Cal",
       "accelCal": "Accel Cal",
+      "rcCal": "RC Cal",
       "motorsSetup": "Motors Setup",
       "pidTune": "PID Tune"
     },
@@ -125,6 +126,18 @@
         "back": "On its back",
         "unknown": "Unknown ({{value}})"
       }
+    },
+    "rcCal": {
+      "heading": "RC Calibration",
+      "description": "Make sure the transmitter is on and the receiver is connected. Start calibration, then move every stick and switch through its full range, including full throttle travel.",
+      "start": "Start Calibration",
+      "cancel": "Cancel",
+      "save": "Save",
+      "armedRejection": "The vehicle is armed - disarm before calibrating.",
+      "movePrompt": "Move every stick and switch through its full range of motion, including full throttle travel.",
+      "noSignal": "No RC signal received yet - check the transmitter and receiver.",
+      "liveHint": "Receiving {{count}} channel(s) from the receiver.",
+      "reverse": "Reverse"
     },
     "map": {
       "heading": "Map",

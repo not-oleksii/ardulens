@@ -15,6 +15,7 @@ import {
   ParamValue,
   PreflightCalibrationCommand,
   PreflightRebootShutdownCommand,
+  RcChannels,
   RebootShutdownAction,
   ServoOutputRaw,
 } from "../registry";
@@ -51,6 +52,16 @@ describe("MAVLINK_REGISTRY", () => {
     expect(cmd.instance).toBe(5);
     expect(cmd.pwm).toBe(1600);
     expect(MAVLINK_REGISTRY[36]).toBe(ServoOutputRaw);
+  });
+
+  it("RC_CHANNELS is msg 65, exposing chan1Raw..chan18Raw/chancount for the RC calibration screen", () => {
+    expect(MAVLINK_REGISTRY[65]).toBe(RcChannels);
+    expect(RcChannels.MSG_ID).toBe(65);
+    const msg = new RcChannels();
+    msg.chan1Raw = 1500;
+    msg.chancount = 8;
+    expect(msg.chan1Raw).toBe(1500);
+    expect(msg.chancount).toBe(8);
   });
 
   it("DO_MOTOR_TEST is a COMMAND_LONG wrapper exposing instance/throttleType/throttle/timeout", () => {

@@ -29,6 +29,7 @@ import {
   ParamSet,
   ParamValue,
   PreflightCalibrationCommand,
+  RcChannels,
   RequestDataStream,
   ServoOutputRaw,
   SysStatus,
@@ -45,6 +46,9 @@ const GCS_SYSID = 255;
 const GCS_COMPID = 190;
 const HEARTBEAT_INTERVAL_MS = 1000;
 const TELEMETRY_INTERVAL_MS = 250;
+// Simulated receiver channel count for the RC_CHANNELS sweep below - enough to exercise a
+// typical AETR + a few aux switches, well under the real RC1-16 param cap.
+const RC_CHANNEL_COUNT = 8;
 const COMPASS_CAL_TICK_MS = 300;
 const COMPASS_CAL_TOTAL_TICKS = 15; // ~4.5s to 100%
 // Delay before the simulator prompts for the next accel-cal position, or reports the final
@@ -183,6 +187,37 @@ export function startMockVehicle(
     pos.lon = Math.round(lon * 1e7);
     pos.relativeAlt = Math.round((100 + Math.sin(t * 0.05) * 10) * 1000);
     send(pos);
+
+    // Simulated stick/switch movement - a different phase per channel so Dev Mode's RC
+    // calibration screen has something real to capture min/max/trim from without needing an
+    // actual transmitter. Sweeps the full 1000-2000 PWM range over ~12.5s per channel.
+    const rc = new RcChannels();
+    rc.chancount = RC_CHANNEL_COUNT;
+    const rcRaws: number[] = [];
+    for (let channel = 0; channel < RC_CHANNEL_COUNT; channel++) {
+      rcRaws.push(Math.round(1500 + 500 * Math.sin(t * 0.5 + channel)));
+    }
+    [
+      rc.chan1Raw,
+      rc.chan2Raw,
+      rc.chan3Raw,
+      rc.chan4Raw,
+      rc.chan5Raw,
+      rc.chan6Raw,
+      rc.chan7Raw,
+      rc.chan8Raw,
+      rc.chan9Raw,
+      rc.chan10Raw,
+      rc.chan11Raw,
+      rc.chan12Raw,
+      rc.chan13Raw,
+      rc.chan14Raw,
+      rc.chan15Raw,
+      rc.chan16Raw,
+      rc.chan17Raw,
+      rc.chan18Raw,
+    ] = Array.from({ length: 18 }, (_, i) => rcRaws[i] ?? 0xffff); // UINT16_MAX = unused, not 0
+    send(rc);
   }
 
   function startTelemetry() {
@@ -399,10 +434,22 @@ export function startMockVehicle(
       handleSetServo(cmd.instance, pwm);
     } else if (command === MavCmd.PREFLIGHT_CALIBRATION) {
       const cmd = decodeMessage(PreflightCalibrationCommand, payload);
-      ackCommand(command, MavResult.ACCEPTED);
       // accelerometer: 1 = FULL (6-position), 2 = TRIM (one-shot level cal, nothing further
       // to send beyond this ack) - real codes confirmed against MAVLink's own common.xml.
-      if (cmd.accelerometer === 1) startFullAccelCal();
+      if (cmd.accelerometer === 1) {
+        ackCommand(command, MavResult.ACCEPTED);
+        startFullAccelCal();
+      } else if (cmd.accelerometer === 2) {
+        ackCommand(command, MavResult.ACCEPTED);
+      } else {
+        // A pure RC-only call (remoteControl set, nothing else) - real ArduPilot's dispatch
+        // (GCS_Common.cpp's _handle_command_preflight_calibration) applies the RC-calibrating
+        // flag as a side effect but falls through every accel/gyro/baro branch to the default
+        // MAV_RESULT_UNSUPPORTED return, since none of them match. Confirmed against
+        // ArduPilot's own source, not assumed - the app's RC cal UI already treats this ack
+        // as expected, not an error (only a FAILED/armed ack is).
+        ackCommand(command, MavResult.UNSUPPORTED);
+      }
     } else if (command === MavCmd.ACCELCAL_VEHICLE_POS) {
       const cmd = decodeMessage(AccelcalVehiclePosCommand, payload);
       handleAccelCalPositionConfirmed(cmd.position);
