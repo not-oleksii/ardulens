@@ -976,10 +976,30 @@ describe("ArduPilotSetupView", () => {
       // proves the selector actually changed what the simulator seeded, not just the label.
       expect(within(diagram).getAllByText(/^[1-8]$/)).toHaveLength(8);
 
-      const frameClassSelect = screen.getByRole("combobox", { name: "Клас рами" }) as HTMLSelectElement;
-      const frameTypeSelect = screen.getByRole("combobox", { name: "Тип рами" }) as HTMLSelectElement;
+      const frameClassSelect = screen.getByRole<HTMLSelectElement>("combobox", { name: "Клас рами" });
+      const frameTypeSelect = screen.getByRole<HTMLSelectElement>("combobox", { name: "Тип рами" });
       expect(frameClassSelect.value).toBe("3"); // Octa
       expect(frameTypeSelect.value).toBe("1"); // X
+    });
+  });
+
+  describe("browser build (no Tauri runtime)", () => {
+    it("hides live vehicle connect controls but keeps Dev Mode available", () => {
+      // The file-wide beforeEach's mockWindows("main") simulates a Tauri desktop runtime -
+      // undo that here to exercise what a plain browser tab (run-web) actually sees.
+      Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
+
+      const { getDevModeButton, getDevModeCopterButton } = getView();
+
+      expect(screen.queryByRole("button", { name: "USB / Серійний порт" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "UDP (WiFi / SITL)" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Підключити" })).not.toBeInTheDocument();
+      expect(
+        screen.getByText(/Підключення до реального апарата.*потребує десктоп-застосунку/),
+      ).toBeInTheDocument();
+
+      expect(getDevModeButton()).toBeInTheDocument();
+      expect(getDevModeCopterButton()).toBeInTheDocument();
     });
   });
 

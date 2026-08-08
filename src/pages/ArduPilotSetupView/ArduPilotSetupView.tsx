@@ -46,6 +46,7 @@ import {
   connectSerial,
   connectUdp,
   disconnect,
+  isTauriRuntime,
   listSerialPorts,
   onData,
   onStatus,
@@ -446,6 +447,7 @@ export function ArduPilotSetupView() {
   }, [status, vehicle, addBytesSent]);
 
   useEffect(() => {
+    if (!isTauriRuntime()) return; // browser build - no OS serial access, nothing to list
     let cancelled = false;
     listSerialPorts()
       .then((found) => {
@@ -709,6 +711,7 @@ export function ArduPilotSetupView() {
   return (
     <div className="ardupilot-setup-theme flex h-svh flex-col overflow-hidden">
       <ArduPilotSetupHeader
+        liveAvailable={isTauriRuntime()}
         mode={mode}
         setMode={setMode}
         ports={ports}
