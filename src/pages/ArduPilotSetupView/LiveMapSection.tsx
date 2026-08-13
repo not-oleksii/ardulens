@@ -9,6 +9,9 @@ import type { PositionTelemetry } from "../../stores/mavlinkTelemetryStore/types
 
 // Same key CesiumMapView uses - one Cesium ion token covers both the post-flight map and this
 // live one, so the user only has to enter it once.
+// TODO: this literal is independently re-declared as its own const in CesiumMapView.tsx -
+// move both to a single shared CESIUM_TOKEN_STORAGE_KEY constant (e.g. in src/constants.ts)
+// so the two can't silently drift apart.
 const TOKEN_STORAGE_KEY = "ardulens.cesiumIonToken";
 
 // Identical arrow icon to CesiumMapView's ARROW_ICON - rotation=0 points north, paired with

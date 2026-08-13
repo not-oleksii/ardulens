@@ -4,6 +4,11 @@ import type { MavType } from "../../mavlink/registry/registry";
 import { startMockVehicle, type MockVehicleHandle } from "./mockVehicleSimulator";
 import type { SerialPortInfo, TransportStatus } from "./types";
 
+// TODO: these two literals are independently re-declared in app/src-tauri/src/transport.rs
+// (DATA_EVENT/STATUS_EVENT) and re-typed raw as string literals throughout the test suite
+// (ArduPilotSetupView.test.tsx, mavlinkTransport.test.ts) instead of importing this constant -
+// a rename on either side fails silently (the listener just never fires, no compiler error).
+// Export these from here and have the tests import them instead of re-typing the string.
 const DATA_EVENT = "mavlink-transport://data";
 const STATUS_EVENT = "mavlink-transport://status";
 
