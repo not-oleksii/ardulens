@@ -4,13 +4,68 @@ use std::net::{SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, State};
 
 pub const DATA_EVENT: &str = "mavlink-transport://data";
 pub const STATUS_EVENT: &str = "mavlink-transport://status";
 
-const READ_TIMEOUT: Duration = Duration::from_millis(200);
+// Short enough that live telemetry/command latency is imperceptible, long enough to merge
+// the many tiny reads a real UART driver delivers (some FTDI/CH340-class chips have their own
+// 1-16ms internal latency timers) into far fewer IPC events - a real full ArduPilot parameter
+// dump (1000-1700+ small MAVLink packets) was previously emitting roughly one Tauri event
+// (JSON-serialized, cross-thread dispatched into the webview) per OS-level read(), regardless
+// of how few bytes it returned, which was enough sustained tiny-event traffic on the UI
+// thread to make the whole window report "Not Responding" in Windows even though the actual
+// frontend table re-render was already separately throttled.
+const COALESCE_WINDOW: Duration = Duration::from_millis(10);
+// Flushes early if a burst is large enough that waiting out the rest of the window would just
+// add latency without further reducing event count.
+const COALESCE_MAX_BYTES: usize = 4096;
+// Read timeout doubles as the coalescer's idle-flush polling interval - short enough that a
+// lone packet arriving during a quiet period (e.g. a 1Hz heartbeat with nothing else on the
+// link) still reaches the frontend promptly rather than sitting buffered until the next batch.
+const READ_TIMEOUT: Duration = Duration::from_millis(20);
+
+/// Accumulates bytes from many small reads into fewer, larger batches before they cross the
+/// Tauri IPC boundary - kept as a plain struct (no Tauri/serialport types) so the batching
+/// logic itself is directly unit-testable, independent of any real port.
+struct ByteCoalescer {
+    buf: Vec<u8>,
+    batch_started_at: Instant,
+}
+
+impl ByteCoalescer {
+    fn new() -> Self {
+        Self { buf: Vec::new(), batch_started_at: Instant::now() }
+    }
+
+    /// Adds bytes to the pending batch. Returns the batch (clearing it) once it's grown large
+    /// enough or been accumulating long enough that holding it any longer would only add
+    /// latency, not meaningfully reduce the number of emitted events.
+    fn push(&mut self, bytes: &[u8]) -> Option<Vec<u8>> {
+        if self.buf.is_empty() {
+            self.batch_started_at = Instant::now();
+        }
+        self.buf.extend_from_slice(bytes);
+        if self.buf.len() >= COALESCE_MAX_BYTES || self.batch_started_at.elapsed() >= COALESCE_WINDOW {
+            Some(std::mem::take(&mut self.buf))
+        } else {
+            None
+        }
+    }
+
+    /// Called whenever a read comes back empty (timeout/no new data) - flushes a pending
+    /// partial batch once it's been waiting long enough, so an isolated packet during a quiet
+    /// period doesn't sit buffered indefinitely just because nothing else arrived to fill it.
+    fn flush_if_stale(&mut self) -> Option<Vec<u8>> {
+        if !self.buf.is_empty() && self.batch_started_at.elapsed() >= COALESCE_WINDOW {
+            Some(std::mem::take(&mut self.buf))
+        } else {
+            None
+        }
+    }
+}
 
 #[derive(Serialize, Clone)]
 pub struct SerialPortInfo {
@@ -73,11 +128,20 @@ impl SerialBridge {
         let stop_reader = stop.clone();
         let thread = thread::spawn(move || {
             let mut buf = [0u8; 1024];
+            let mut coalescer = ByteCoalescer::new();
             while !stop_reader.load(Ordering::SeqCst) {
                 match reader.read(&mut buf) {
                     Ok(0) => {}
-                    Ok(n) => on_data(buf[..n].to_vec()),
-                    Err(e) if e.kind() == io::ErrorKind::TimedOut => {}
+                    Ok(n) => {
+                        if let Some(batch) = coalescer.push(&buf[..n]) {
+                            on_data(batch);
+                        }
+                    }
+                    Err(e) if e.kind() == io::ErrorKind::TimedOut => {
+                        if let Some(batch) = coalescer.flush_if_stale() {
+                            on_data(batch);
+                        }
+                    }
                     Err(e) => {
                         on_error(e.to_string());
                         break;
@@ -280,6 +344,44 @@ pub fn send_bytes(state: State<TransportState>, bytes: Vec<u8>) -> Result<(), St
 mod tests {
     use super::*;
     use std::sync::mpsc;
+
+    #[test]
+    fn coalescer_holds_a_small_batch_until_the_window_elapses() {
+        let mut c = ByteCoalescer::new();
+        assert_eq!(c.push(b"AB"), None, "a couple bytes, well under the window, shouldn't flush yet");
+        assert_eq!(c.push(b"CD"), None, "still under the window - keeps accumulating, not re-emitting per push");
+        thread::sleep(COALESCE_WINDOW + Duration::from_millis(5));
+        assert_eq!(c.push(b"EF"), Some(b"ABCDEF".to_vec()), "once the window elapses, the next push flushes everything accumulated so far");
+    }
+
+    #[test]
+    fn coalescer_flushes_early_once_the_byte_threshold_is_reached() {
+        let mut c = ByteCoalescer::new();
+        let big = vec![0u8; COALESCE_MAX_BYTES - 1];
+        assert_eq!(c.push(&big), None, "just under the byte threshold - still holding");
+        let batch = c.push(&[1, 2]).expect("crossing the byte threshold should flush immediately, without waiting out the window");
+        assert_eq!(batch.len(), COALESCE_MAX_BYTES + 1);
+    }
+
+    #[test]
+    fn coalescer_flush_if_stale_is_a_noop_on_an_empty_or_fresh_buffer() {
+        let mut c = ByteCoalescer::new();
+        assert_eq!(c.flush_if_stale(), None, "nothing buffered yet");
+        c.push(b"AB");
+        assert_eq!(c.flush_if_stale(), None, "buffered, but the window hasn't elapsed - a read timeout right after a fresh push shouldn't flush early");
+    }
+
+    #[test]
+    fn coalescer_flush_if_stale_flushes_a_lone_batch_once_the_window_elapses() {
+        // Simulates an isolated packet arriving during otherwise-quiet traffic (e.g. a single
+        // heartbeat with nothing else on the link) - it must still reach the frontend promptly
+        // rather than sitting buffered forever waiting for more bytes that may not come.
+        let mut c = ByteCoalescer::new();
+        assert_eq!(c.push(b"heartbeat"), None);
+        thread::sleep(COALESCE_WINDOW + Duration::from_millis(5));
+        assert_eq!(c.flush_if_stale(), Some(b"heartbeat".to_vec()));
+        assert_eq!(c.flush_if_stale(), None, "already flushed - nothing left to flush again");
+    }
 
     /// Proves UdpBridge actually binds, receives real packets, tracks the sender, and can
     /// reply to it - a genuine loopback exercise of the wire logic, not just a compile check.

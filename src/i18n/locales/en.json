@@ -141,7 +141,8 @@
     },
     "map": {
       "heading": "Map",
-      "comingSoon": "Live moving map - coming in a future release"
+      "recenter": "Recenter",
+      "noFix": "Waiting for a GPS fix..."
     },
     "parameters": {
       "heading": "Parameters",
