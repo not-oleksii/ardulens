@@ -1,5 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -34,11 +34,22 @@ const ROW_HEIGHT_PX = 36;
 // accurate and there's no need for react-virtual's dynamic measureElement.
 const COLUMN_WIDTHS = ["22%", "18%", "60%"] as const; // Name, Value, Description
 
+// table-layout: fixed makes each cell's box exactly COLUMN_WIDTHS wide, but doesn't clip
+// content that's too long to fit - real param names/values (e.g. AHRS_ORIENTATION, or a
+// REAL32's full decoded precision like 0.20000000298023224) can exceed a narrow column's width
+// and were bleeding visibly into the next column without this. Ellipsis-truncated in the
+// table; the full value is still visible via startEdit()'s input or the Description column's
+// own title tooltip.
+function cellStyle(index: 0 | 1 | 2): CSSProperties {
+  return { width: COLUMN_WIDTHS[index], overflow: "hidden", textOverflow: "ellipsis" };
+}
+
 export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissing, onSetParam }: ParametersPanelProps) {
   const { t } = useTranslation();
   const params = useMavlinkParameterStore((s) => s.params);
   const expectedCount = useMavlinkParameterStore((s) => s.expectedCount);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
   const [editingName, setEditingName] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
@@ -129,6 +140,50 @@ export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissin
     setConfirmOpen(false);
   }
 
+  // Exports every currently-loaded parameter as a plain NAME,VALUE file (the same convention
+  // Mission Planner and other GCS's use) - a local backup of the vehicle's exact configuration
+  // at this moment, independent of the vehicle's own persistent storage.
+  function handleSaveToFile() {
+    const lines = entries.map((p) => `${p.name},${p.value}`).join("\n");
+    const blob = new Blob([lines], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `ardulens-params-${vehicleFolder}-${new Date().toISOString().slice(0, 10)}.param`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function handleLoadFromFileClick() {
+    fileInputRef.current?.click();
+  }
+
+  // Parses a NAME,VALUE param file and stages every entry that both (a) names a param this
+  // vehicle actually has loaded (so its type is known - an unrecognized name can't be safely
+  // written) and (b) differs from its current value, into the SAME pendingChanges the manual
+  // inline editor uses. Nothing is written to the vehicle here - the user still reviews the
+  // full From/To list in the existing confirm dialog and clicks "Save all" themselves, exactly
+  // like every other edit path in this panel.
+  async function handleFileSelected(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // clears the input so selecting the same file again still fires onChange
+    if (!file) return;
+    const text = await file.text();
+    const loaded: Record<string, number> = {};
+    for (const rawLine of text.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#")) continue;
+      const [name, valueStr] = line.split(",").map((part) => part.trim());
+      if (!name || valueStr === undefined) continue;
+      const value = Number(valueStr);
+      if (!Number.isFinite(value)) continue;
+      const existing = params[name];
+      if (!existing || existing.value === value) continue;
+      loaded[name] = value;
+    }
+    setPendingChanges((prev) => ({ ...prev, ...loaded }));
+  }
+
   return (
     <div className="flex h-full flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -148,6 +203,24 @@ export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissin
             <Button type="button" size="sm" onClick={onLoadParameters}>
               {t("ardupilotSetup.parameters.load")}
             </Button>
+          )}
+          {hasStarted && (
+            <>
+              <Button type="button" size="sm" variant="outline" onClick={handleSaveToFile}>
+                {t("ardupilotSetup.parameters.saveToFile")}
+              </Button>
+              <Button type="button" size="sm" variant="outline" onClick={handleLoadFromFileClick}>
+                {t("ardupilotSetup.parameters.loadFromFile")}
+              </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".param,.txt"
+                data-testid="param-file-input"
+                className="hidden"
+                onChange={(e) => void handleFileSelected(e)}
+              />
+            </>
           )}
           {hasPendingChanges && (
             <>
@@ -192,9 +265,9 @@ export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissin
               <Table style={{ tableLayout: "fixed" }}>
                 <TableHeader className="sticky top-0 z-10 bg-card">
                   <TableRow>
-                    <TableHead style={{ width: COLUMN_WIDTHS[0] }}>{t("ardupilotSetup.parameters.name")}</TableHead>
-                    <TableHead style={{ width: COLUMN_WIDTHS[1] }}>{t("ardupilotSetup.parameters.value")}</TableHead>
-                    <TableHead style={{ width: COLUMN_WIDTHS[2] }}>{t("ardupilotSetup.parameters.description")}</TableHead>
+                    <TableHead style={cellStyle(0)}>{t("ardupilotSetup.parameters.name")}</TableHead>
+                    <TableHead style={cellStyle(1)}>{t("ardupilotSetup.parameters.value")}</TableHead>
+                    <TableHead style={cellStyle(2)}>{t("ardupilotSetup.parameters.description")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 {/* Only the rows actually scrolled into view (see rowVirtualizer above) get
@@ -223,10 +296,10 @@ export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissin
                           transform: `translateY(${virtualRow.start}px)`,
                         }}
                       >
-                        <TableCell style={{ width: COLUMN_WIDTHS[0] }} className="font-mono">
+                        <TableCell style={cellStyle(0)} className="font-mono">
                           {p.name}
                         </TableCell>
-                        <TableCell style={{ width: COLUMN_WIDTHS[1] }} className="font-mono">
+                        <TableCell style={cellStyle(1)} className="font-mono">
                           {editingName === p.name ? (
                             <Input
                               autoFocus
@@ -251,7 +324,7 @@ export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissin
                             <span className="ml-2 text-xs text-muted-foreground">{t("ardupilotSetup.parameters.dirty")}</span>
                           )}
                         </TableCell>
-                        <TableCell style={{ width: COLUMN_WIDTHS[2] }} className="max-w-xs">
+                        <TableCell style={cellStyle(2)} className="max-w-xs">
                           {doc ? (
                             <span title={doc.documentation}>
                               {doc.humanName}{" "}
