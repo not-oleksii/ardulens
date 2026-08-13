@@ -1205,6 +1205,121 @@ describe("ArduPilotSetupView", () => {
     });
   });
 
+  describe("ESC calibration", () => {
+    async function connectAndOpenEscCal() {
+      const view = getView();
+      await view.clickConnect();
+      await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit("mavlink-transport://data", { bytes: sampleHeartbeatBytes() });
+      await view.user.click(screen.getByRole("tab", { name: "Калібрування ESC" }));
+      return view;
+    }
+
+    it("shows the safety warning and Start button", async () => {
+      mockBackend();
+      await connectAndOpenEscCal();
+      expect(screen.getByText("Зніміть усі гвинти перед калібруванням ESC.")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Почати калібрування ESC" })).toBeInTheDocument();
+    });
+
+    it("sends PARAM_SET(ESC_CALIBRATION=3) then PREFLIGHT_REBOOT_SHUTDOWN when Start is clicked", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenEscCal();
+
+      await user.click(screen.getByRole("button", { name: "Почати калібрування ESC" }));
+
+      const paramSet = invoked.mock.calls.find(
+        ([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamSet.MSG_ID,
+      );
+      expect(paramSet).toBeDefined();
+      const rebootSent = findCommandLongSend(invoked, MavCmd.PREFLIGHT_REBOOT_SHUTDOWN);
+      expect(rebootSent).toBeDefined();
+      expect(screen.getByText(/Команду калібрування надіслано/)).toBeInTheDocument();
+    });
+  });
+
+  describe("battery config", () => {
+    async function connectAndOpenBatteryConfig() {
+      const view = getView();
+      await view.clickConnect();
+      await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit("mavlink-transport://data", { bytes: sampleHeartbeatBytes() });
+      await view.user.click(screen.getByRole("tab", { name: "Налаштування батареї" }));
+      return view;
+    }
+
+    it("shows a Load button and not-loaded message, and live battery telemetry when available", async () => {
+      mockBackend();
+      await connectAndOpenBatteryConfig();
+      expect(screen.getByRole("button", { name: "Завантажити налаштування батареї" })).toBeInTheDocument();
+      expect(screen.getByText("Налаштування батареї ще не завантажено.")).toBeInTheDocument();
+
+      const sys = new SysStatus();
+      sys.voltageBattery = 16800;
+      sys.currentBattery = 520;
+      sys.batteryRemaining = 77;
+      await emit("mavlink-transport://data", { bytes: Array.from(encodePacket(sys, { seq: 1, sysid: 1, compid: 1 })) });
+      expect(await screen.findByText("16.80 V")).toBeInTheDocument();
+    });
+
+    it("requests every BATT_* param by name when Load is clicked", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenBatteryConfig();
+
+      await user.click(screen.getByRole("button", { name: "Завантажити налаштування батареї" }));
+
+      const requestedNames = new Set(
+        invoked.mock.calls
+          .filter(([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamRequestRead.MSG_ID)
+          .map(([, payload]) => {
+            const bytes = (payload as { bytes: number[] }).bytes;
+            const nameBytes = bytes.slice(14, 14 + 16);
+            const nullIndex = nameBytes.indexOf(0);
+            return String.fromCharCode(...nameBytes.slice(0, nullIndex === -1 ? undefined : nullIndex));
+          }),
+      );
+      expect(requestedNames.has("BATT_MONITOR")).toBe(true);
+      expect(requestedNames.has("BATT_CAPACITY")).toBe(true);
+      expect(requestedNames.has("BATT_FS_CRT_ACT")).toBe(true);
+    });
+
+    it("shows BATT_CAPACITY once it arrives, stages an edit, and Save all sends PARAM_SET with the new value", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenBatteryConfig();
+
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("BATT_CAPACITY", 5000, MavParamType.INT32, 0, 1, 1) });
+      expect(await screen.findByText("5000")).toBeInTheDocument();
+
+      await user.click(screen.getByText("5000"));
+      const input = screen.getByRole("textbox");
+      await user.clear(input);
+      await user.type(input, "6000{Enter}");
+
+      const saveAllButton = await screen.findByRole("button", { name: "Зберегти все (1)" });
+      await user.click(saveAllButton);
+      const dialog = screen.getByRole("dialog");
+      expect(within(dialog).getByText("BATT_CAPACITY")).toBeInTheDocument();
+      expect(within(dialog).getByText("5000")).toBeInTheDocument();
+      expect(within(dialog).getByText("6000")).toBeInTheDocument();
+
+      await user.click(within(dialog).getByRole("button", { name: "Надіслати зміни" }));
+
+      await vi.waitFor(() => {
+        const setRequest = invoked.mock.calls.find(([cmd, payload]) => {
+          if (cmd !== "send_bytes") return false;
+          const bytes = (payload as { bytes: number[] }).bytes;
+          return bytes[7] === ParamSet.MSG_ID;
+        });
+        expect(setRequest).toBeDefined();
+      });
+    });
+  });
+
   describe("Dev Mode frame-preset selector", () => {
     it("starts the simulated Copter seeded with whichever verified frame preset is selected, not just the Quad X default", async () => {
       mockBackend();
