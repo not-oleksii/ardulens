@@ -7,6 +7,11 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, State};
 
+// TODO: these two literals are independently re-declared in
+// src/services/mavlinkTransport/mavlinkTransport.ts (same names) - a rename on either side
+// fails silently at runtime (listen()/emit() just stop matching, no compiler error across the
+// Rust/TS boundary). Keep both sides in sync by hand until/unless a shared-constants generator
+// is worth the setup cost.
 pub const DATA_EVENT: &str = "mavlink-transport://data";
 pub const STATUS_EVENT: &str = "mavlink-transport://status";
 

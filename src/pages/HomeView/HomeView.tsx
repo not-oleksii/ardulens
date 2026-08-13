@@ -91,6 +91,9 @@ export function HomeView() {
       </div>
 
       <div className="w-full max-w-md">
+        {/* TODO: "home" is re-typed raw in HomeView.test.tsx and App.test.tsx (as
+            "home-dropzone"/"home-file-input", built by FileDropzone's testId template) instead
+            of importing a shared constant - export a HOME_DROPZONE_TEST_ID from this file. */}
         <FileDropzone
           testId="home"
           accept=".skylog,.log,.txt,.bin,.BIN"

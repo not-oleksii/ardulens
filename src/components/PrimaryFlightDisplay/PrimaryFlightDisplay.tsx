@@ -262,6 +262,10 @@ export function PrimaryFlightDisplay({ rollRad, pitchRad, headingDeg, airspeed, 
       className="flex flex-col gap-1 rounded-lg p-3"
       style={{ background: COLORS.panel, border: `1px solid ${COLORS.border}`, fontFamily: FONT_SANS }}
     >
+      {/* TODO: "pfd-armed-badge"/"pfd-mode-badge" below are re-typed raw in two separate test
+          files (PrimaryFlightDisplay.test.tsx and ArduPilotSetupView.test.tsx) instead of
+          importing a shared constant - export a PFD_TEST_IDS object from this file and have
+          both tests import it, so a rename here can't silently break either test file. */}
       <div className="mb-1 flex items-center justify-center gap-2">
         <span
           data-testid="pfd-armed-badge"
