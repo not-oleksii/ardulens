@@ -4,10 +4,11 @@ import { useTranslation } from "react-i18next";
 import { ArduPilotSetupHeader } from "./ArduPilotSetupHeader";
 import { ArduPilotSetupSidebar, type ArduPilotSetupSection } from "./ArduPilotSetupSidebar";
 import { AccelCalSection } from "./AccelCalSection";
-import { ComingSoonSection } from "./ComingSoonSection";
 import { CompassCalSection } from "./CompassCalSection";
 import { MotorsServosSection } from "./MotorsServosSection";
 import { ParametersPanel } from "./ParametersPanel";
+import { allPidCandidateNames, pidConfigForVehicleFolder } from "./pidGroups";
+import { PidTuneSection } from "./PidTuneSection";
 import { RcCalSection } from "./RcCalSection";
 import { TelemetrySection } from "./TelemetrySection";
 import { decodeMessage, encodePacket } from "../../mavlink/codec/codec";
@@ -50,6 +51,7 @@ import {
   SysStatus,
   VfrHud,
 } from "../../mavlink/registry/registry";
+import { vehicleFolderForMavType } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import {
   connectMock,
   connectSerial,
@@ -890,6 +892,24 @@ export function ArduPilotSetupView() {
     }
   }
 
+  // Requests every candidate PID/rate-controller param name for the connected vehicle's
+  // family (see pidGroups.ts) - Plane's naming differs by firmware version, so both the
+  // modern and legacy candidates are requested and the UI shows whichever one actually
+  // responds, rather than this app guessing which scheme the vehicle runs.
+  function handleLoadPidParams() {
+    if (!vehicle) return;
+    const config = pidConfigForVehicleFolder(vehicleFolderForMavType(vehicle.type));
+    if (!config) return;
+    for (const name of allPidCandidateNames(config)) {
+      const req = new ParamRequestRead();
+      req.targetSystem = vehicle.sysid;
+      req.targetComponent = vehicle.compid;
+      req.paramId = name;
+      req.paramIndex = -1;
+      sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+    }
+  }
+
   // Reboots the flight controller - needed for RebootRequired params (e.g. FRAME_CLASS/
   // FRAME_TYPE) to actually take effect; PARAM_SET itself already wrote the new value to the
   // vehicle's persistent storage immediately, so there's no separate "save" step, only this.
@@ -1018,12 +1038,9 @@ export function ArduPilotSetupView() {
               onTestMotor={handleTestMotor}
               onReboot={handleReboot}
             />
-          ) : (
-            <ComingSoonSection
-              heading={t("ardupilotSetup.sidebar.pidTune")}
-              description={t("ardupilotSetup.comingSoon.pidTune")}
-            />
-          )}
+          ) : activeSection === "pidTune" ? (
+            <PidTuneSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoad={handleLoadPidParams} onSetParam={handleSetParam} />
+          ) : null}
         </main>
       </div>
     </div>

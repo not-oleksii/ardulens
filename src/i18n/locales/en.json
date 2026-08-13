@@ -169,6 +169,24 @@
       "cancel": "Cancel",
       "confirmSave": "Send changes"
     },
+    "pidTune": {
+      "heading": "PID Tune",
+      "description": "Rate and attitude controller gains. Changes take effect immediately once sent - land and re-test after any change before trusting it in more aggressive flight.",
+      "load": "Load PID parameters",
+      "notLoaded": "PID parameters haven't been loaded yet.",
+      "roll": "Roll",
+      "pitch": "Pitch",
+      "yaw": "Yaw",
+      "unavailableTerm": "Not reported by this vehicle's firmware.",
+      "reset": "Reset",
+      "saveAll": "Save all ({{count}})",
+      "confirmTitle": "Confirm PID changes",
+      "confirmDescription": "These {{count}} gain(s) will be sent to the vehicle:",
+      "from": "From",
+      "to": "To",
+      "cancel": "Cancel",
+      "confirmSave": "Send changes"
+    },
     "connect": {
       "modeSerial": "USB / Serial",
       "modeUdp": "UDP (WiFi / SITL)",

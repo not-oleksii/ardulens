@@ -240,6 +240,33 @@ export function startMockVehicle(
     for (let channel = 1; channel <= 8; channel++) {
       params.set(`SERVO${channel}_REVERSED`, { value: 0, type: MavParamType.INT8, index: params.size });
     }
+    // Rate + angle controller gains for the PID Tune tab - real ArduCopter stock defaults
+    // (confirmed against ardupilot.org's Copter parameter docs), so Dev Mode shows the same
+    // starting values a freshly-flashed real vehicle would.
+    for (const axis of ["RLL", "PIT", "YAW"] as const) {
+      const [p, i, d, ff] = axis === "YAW" ? [0.18, 0.018, 0, 0] : [0.135, 0.135, 0.0036, 0];
+      params.set(`ATC_RAT_${axis}_P`, { value: p, type: MavParamType.REAL32, index: params.size });
+      params.set(`ATC_RAT_${axis}_I`, { value: i, type: MavParamType.REAL32, index: params.size });
+      params.set(`ATC_RAT_${axis}_D`, { value: d, type: MavParamType.REAL32, index: params.size });
+      params.set(`ATC_RAT_${axis}_FF`, { value: ff, type: MavParamType.REAL32, index: params.size });
+      params.set(`ATC_ANG_${axis}_P`, { value: 4.5, type: MavParamType.REAL32, index: params.size });
+    }
+  } else if (vehicleFolderForMavType(vehicleType) === "ArduPlane") {
+    // Rate controller gains for the PID Tune tab (the modern RLL_RATE_*/PTCH_RATE_* naming,
+    // confirmed against ArduPilot's own AP_RollController.cpp/AP_PitchController.cpp source)
+    // plus the yaw damper's YAW2SRV_* gains - plausible demo values, not claimed to be exact
+    // stock defaults the way the Copter ones above are.
+    for (const axis of ["RLL", "PTCH"] as const) {
+      const prefix = axis === "RLL" ? "RLL_RATE" : "PTCH_RATE";
+      const [p, i, d, ff] = axis === "RLL" ? [0.6, 0.18, 0.02, 0.3] : [0.7, 0.2, 0.02, 0.35];
+      params.set(`${prefix}_P`, { value: p, type: MavParamType.REAL32, index: params.size });
+      params.set(`${prefix}_I`, { value: i, type: MavParamType.REAL32, index: params.size });
+      params.set(`${prefix}_D`, { value: d, type: MavParamType.REAL32, index: params.size });
+      params.set(`${prefix}_FF`, { value: ff, type: MavParamType.REAL32, index: params.size });
+    }
+    params.set("YAW2SRV_DAMP", { value: 0.5, type: MavParamType.REAL32, index: params.size });
+    params.set("YAW2SRV_INT", { value: 0, type: MavParamType.REAL32, index: params.size });
+    params.set("YAW2SRV_SLIP", { value: 0, type: MavParamType.REAL32, index: params.size });
   }
 
   function sendParamValue(name: string) {
