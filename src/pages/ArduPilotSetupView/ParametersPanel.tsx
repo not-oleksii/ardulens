@@ -45,6 +45,16 @@ const COLUMN_WIDTHS = "22% 18% 60%"; // Name, Value, Description - a CSS grid-te
 // row and every body row keeps them aligned with no special-casing.
 const CELL_STYLE: CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 };
 
+// table-layout: fixed makes each cell's box exactly COLUMN_WIDTHS wide, but doesn't clip
+// content that's too long to fit - real param names/values (e.g. AHRS_ORIENTATION, or a
+// REAL32's full decoded precision like 0.20000000298023224) can exceed a narrow column's width
+// and were bleeding visibly into the next column without this. Ellipsis-truncated in the
+// table; the full value is still visible via startEdit()'s input or the Description column's
+// own title tooltip.
+function cellStyle(index: 0 | 1 | 2): CSSProperties {
+  return { width: COLUMN_WIDTHS[index], overflow: "hidden", textOverflow: "ellipsis" };
+}
+
 export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissing, onSetParam }: ParametersPanelProps) {
   const { t } = useTranslation();
   const params = useMavlinkParameterStore((s) => s.params);
