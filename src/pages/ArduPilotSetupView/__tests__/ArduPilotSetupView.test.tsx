@@ -827,7 +827,10 @@ describe("ArduPilotSetupView", () => {
       expect(screen.getByText("Клас і тип рами ще не завантажено.")).toBeInTheDocument();
 
       await user.click(getPidTuneNavButton());
-      expect(screen.getByText("Налаштування PID - у наступному релізі.")).toBeInTheDocument();
+      // No vehicle heartbeat was emitted in this test, so vehicleType falls back to GENERIC
+      // -> ArduCopter folder, same as the Motors tab above - the real PID Tune UI, not a
+      // "coming soon" placeholder.
+      expect(screen.getByText("Параметри PID ще не завантажено.")).toBeInTheDocument();
     });
 
     it("shows a not-connected placeholder before any connection attempt", () => {
@@ -1084,6 +1087,121 @@ describe("ArduPilotSetupView", () => {
       expect(screen.getByRole("button", { name: /Утримуйте для тесту 1/ })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /Утримуйте для тесту 3/ })).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /Утримуйте для тесту 4/ })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("PID tune (Copter)", () => {
+    async function connectCopterAndOpenPidTune() {
+      const view = getView();
+      await view.clickConnect();
+      await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit("mavlink-transport://data", { bytes: sampleHeartbeatBytes() }); // QUADROTOR
+      await view.user.click(view.getPidTuneNavButton());
+      return view;
+    }
+
+    it("shows a Load button and not-loaded message for a connected Copter", async () => {
+      mockBackend();
+      await connectCopterAndOpenPidTune();
+      expect(screen.getByRole("button", { name: "Завантажити параметри PID" })).toBeInTheDocument();
+      expect(screen.getByText("Параметри PID ще не завантажено.")).toBeInTheDocument();
+    });
+
+    it("requests every ATC_RAT_*/ATC_ANG_* candidate by name when Load is clicked", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectCopterAndOpenPidTune();
+
+      await user.click(screen.getByRole("button", { name: "Завантажити параметри PID" }));
+
+      const requestedNames = new Set(
+        invoked.mock.calls
+          .filter(([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamRequestRead.MSG_ID)
+          .map(([, payload]) => {
+            const bytes = (payload as { bytes: number[] }).bytes;
+            const nameBytes = bytes.slice(14, 14 + 16);
+            const nullIndex = nameBytes.indexOf(0);
+            return String.fromCharCode(...nameBytes.slice(0, nullIndex === -1 ? undefined : nullIndex));
+          }),
+      );
+      expect(requestedNames.has("ATC_RAT_RLL_P")).toBe(true);
+      expect(requestedNames.has("ATC_RAT_PIT_FF")).toBe(true);
+      expect(requestedNames.has("ATC_RAT_YAW_D")).toBe(true);
+      expect(requestedNames.has("ATC_ANG_YAW_P")).toBe(true);
+    });
+
+    it("shows gain values once they arrive, stages an edit, and Save all sends PARAM_SET with the new value", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectCopterAndOpenPidTune();
+
+      // 0.125 and 0.25 are exactly representable in float32 - unlike e.g. 0.135 or 0.18, they
+      // round-trip through the REAL32 wire codec with no precision drift (see the ARSPD_RATIO
+      // comment in the "parameters" describe block below for the general phenomenon), so the
+      // rendered text matches these literals exactly.
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("ATC_RAT_RLL_P", 0.125, MavParamType.REAL32, 0, 1, 1) });
+      expect(await screen.findByText("0.125")).toBeInTheDocument();
+
+      await user.click(screen.getByText("0.125"));
+      const input = screen.getByRole("textbox");
+      await user.clear(input);
+      await user.type(input, "0.25{Enter}");
+
+      const saveAllButton = await screen.findByRole("button", { name: "Зберегти все (1)" });
+      await user.click(saveAllButton);
+      const dialog = screen.getByRole("dialog");
+      expect(within(dialog).getByText("ATC_RAT_RLL_P")).toBeInTheDocument();
+      expect(within(dialog).getByText("0.125")).toBeInTheDocument();
+      expect(within(dialog).getByText("0.25")).toBeInTheDocument();
+
+      await user.click(within(dialog).getByRole("button", { name: "Надіслати зміни" }));
+
+      await vi.waitFor(() => {
+        const setRequest = invoked.mock.calls.find(([cmd, payload]) => {
+          if (cmd !== "send_bytes") return false;
+          const bytes = (payload as { bytes: number[] }).bytes;
+          return bytes[7] === ParamSet.MSG_ID;
+        });
+        expect(setRequest).toBeDefined();
+      });
+    });
+  });
+
+  describe("PID tune (Plane)", () => {
+    async function connectPlaneAndOpenPidTune() {
+      const view = getView();
+      await view.clickConnect();
+      await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit("mavlink-transport://data", { bytes: samplePlaneHeartbeatBytes() });
+      await view.user.click(view.getPidTuneNavButton());
+      return view;
+    }
+
+    it("resolves the modern RLL_RATE_P candidate when that's the one the vehicle reports", async () => {
+      mockBackend();
+      await connectPlaneAndOpenPidTune();
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("RLL_RATE_P", 0.5, MavParamType.REAL32, 0, 1, 1) });
+      expect(await screen.findByText("0.5")).toBeInTheDocument();
+    });
+
+    it("falls back to the legacy RLL2SRV_P candidate when that's the only one the vehicle reports", async () => {
+      mockBackend();
+      await connectPlaneAndOpenPidTune();
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("RLL2SRV_P", 0.75, MavParamType.REAL32, 0, 1, 1) });
+      expect(await screen.findByText("0.75")).toBeInTheDocument();
+    });
+
+    it("shows the yaw damper's Damp/Int/Slip gains, which have no P/I/D naming", async () => {
+      mockBackend();
+      await connectPlaneAndOpenPidTune();
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("YAW2SRV_DAMP", 0.5, MavParamType.REAL32, 0, 3, 1) });
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("YAW2SRV_INT", 0.125, MavParamType.REAL32, 1, 3, 2) });
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("YAW2SRV_SLIP", 0.25, MavParamType.REAL32, 2, 3, 3) });
+      expect(await screen.findByText("0.5")).toBeInTheDocument();
+      expect(screen.getByText("0.125")).toBeInTheDocument();
+      expect(screen.getByText("0.25")).toBeInTheDocument();
     });
   });
 
