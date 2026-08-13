@@ -1,13 +1,16 @@
 import { create } from "zustand";
 import type { MavlinkAccelCalState } from "./types";
 
-const INITIAL = {
+const INITIAL: Pick<
+  MavlinkAccelCalState,
+  "activeCalType" | "requestedPosition" | "confirmedPositions" | "result" | "lastCommandAck"
+> = {
   activeCalType: null,
   requestedPosition: null,
   confirmedPositions: [],
   result: null,
   lastCommandAck: null,
-} as const;
+};
 
 export const useMavlinkAccelCalStore = create<MavlinkAccelCalState>((set) => ({
   ...INITIAL,

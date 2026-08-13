@@ -1,0 +1,56 @@
+name: Release
+
+# Builds the Windows desktop app and publishes it as a draft GitHub Release
+# whenever a version tag (v0.1.0, v1.2.3, ...) is pushed. The release is left
+# as a draft rather than published automatically, since this pipeline has no
+# other verification gate before real users could download it - review the
+# uploaded installer and hit "Publish" manually once it looks right.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build Tauri app
+        run: npm run tauri -- build
+
+      - name: Upload installers to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: ArduLens ${{ github.ref_name }}
+          files: |
+            app/src-tauri/target/release/bundle/nsis/*.exe
+            app/src-tauri/target/release/bundle/msi/*.msi
