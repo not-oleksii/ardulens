@@ -197,26 +197,25 @@ export function startMockVehicle(
     for (let channel = 0; channel < RC_CHANNEL_COUNT; channel++) {
       rcRaws.push(Math.round(1500 + 500 * Math.sin(t * 0.5 + channel)));
     }
-    [
-      rc.chan1Raw,
-      rc.chan2Raw,
-      rc.chan3Raw,
-      rc.chan4Raw,
-      rc.chan5Raw,
-      rc.chan6Raw,
-      rc.chan7Raw,
-      rc.chan8Raw,
-      rc.chan9Raw,
-      rc.chan10Raw,
-      rc.chan11Raw,
-      rc.chan12Raw,
-      rc.chan13Raw,
-      rc.chan14Raw,
-      rc.chan15Raw,
-      rc.chan16Raw,
-      rc.chan17Raw,
-      rc.chan18Raw,
-    ] = Array.from({ length: 18 }, (_, i) => rcRaws[i] ?? 0xffff); // UINT16_MAX = unused, not 0
+    const chan = (i: number) => rcRaws[i] ?? 0xffff; // UINT16_MAX = unused, not 0
+    rc.chan1Raw = chan(0);
+    rc.chan2Raw = chan(1);
+    rc.chan3Raw = chan(2);
+    rc.chan4Raw = chan(3);
+    rc.chan5Raw = chan(4);
+    rc.chan6Raw = chan(5);
+    rc.chan7Raw = chan(6);
+    rc.chan8Raw = chan(7);
+    rc.chan9Raw = chan(8);
+    rc.chan10Raw = chan(9);
+    rc.chan11Raw = chan(10);
+    rc.chan12Raw = chan(11);
+    rc.chan13Raw = chan(12);
+    rc.chan14Raw = chan(13);
+    rc.chan15Raw = chan(14);
+    rc.chan16Raw = chan(15);
+    rc.chan17Raw = chan(16);
+    rc.chan18Raw = chan(17);
     send(rc);
   }
 

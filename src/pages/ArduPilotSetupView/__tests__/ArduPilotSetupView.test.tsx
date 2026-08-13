@@ -250,26 +250,25 @@ function buildServoOutputRawBytes(port: number, values: number[], seq: number): 
 function buildRcChannelsBytes(values: Partial<Record<number, number>>, chancount: number, seq: number): number[] {
   const msg = new RcChannels();
   msg.chancount = chancount;
-  [
-    msg.chan1Raw,
-    msg.chan2Raw,
-    msg.chan3Raw,
-    msg.chan4Raw,
-    msg.chan5Raw,
-    msg.chan6Raw,
-    msg.chan7Raw,
-    msg.chan8Raw,
-    msg.chan9Raw,
-    msg.chan10Raw,
-    msg.chan11Raw,
-    msg.chan12Raw,
-    msg.chan13Raw,
-    msg.chan14Raw,
-    msg.chan15Raw,
-    msg.chan16Raw,
-    msg.chan17Raw,
-    msg.chan18Raw,
-  ] = Array.from({ length: 18 }, (_, i) => values[i + 1] ?? 0xffff);
+  const chan = (n: number) => values[n] ?? 0xffff;
+  msg.chan1Raw = chan(1);
+  msg.chan2Raw = chan(2);
+  msg.chan3Raw = chan(3);
+  msg.chan4Raw = chan(4);
+  msg.chan5Raw = chan(5);
+  msg.chan6Raw = chan(6);
+  msg.chan7Raw = chan(7);
+  msg.chan8Raw = chan(8);
+  msg.chan9Raw = chan(9);
+  msg.chan10Raw = chan(10);
+  msg.chan11Raw = chan(11);
+  msg.chan12Raw = chan(12);
+  msg.chan13Raw = chan(13);
+  msg.chan14Raw = chan(14);
+  msg.chan15Raw = chan(15);
+  msg.chan16Raw = chan(16);
+  msg.chan17Raw = chan(17);
+  msg.chan18Raw = chan(18);
   return Array.from(encodePacket(msg, { seq, sysid: 1, compid: 1 }));
 }
 
