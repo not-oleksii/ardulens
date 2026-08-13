@@ -95,6 +95,20 @@ const FAKE_PARAM_SEED: ReadonlyArray<readonly [string, number, MavParamType]> = 
   ["SERVO3_MAX", 2000, MavParamType.INT16],
   ["SERVO3_TRIM", 1500, MavParamType.INT16],
   ["SERVO4_FUNCTION", 0, MavParamType.INT16],
+  // ESC Cal + Battery Config tabs - generic params both Copter and Plane share, real names
+  // confirmed against ArduPilot's own esc_calibration.cpp/AP_BattMonitor_Params.cpp source.
+  // ESC_CALIBRATION=0 (NONE) is the real idle default; the BATT_* values below are plausible
+  // demo values for exercising the UI, not claimed to be exact stock defaults.
+  ["ESC_CALIBRATION", 0, MavParamType.INT8],
+  ["BATT_MONITOR", 4, MavParamType.INT8],
+  ["BATT_CAPACITY", 5000, MavParamType.INT32],
+  ["BATT_ARM_VOLT", 10.5, MavParamType.REAL32],
+  ["BATT_LOW_VOLT", 10.5, MavParamType.REAL32],
+  ["BATT_CRT_VOLT", 9.6, MavParamType.REAL32],
+  ["BATT_LOW_MAH", 0, MavParamType.INT32],
+  ["BATT_CRT_MAH", 0, MavParamType.INT32],
+  ["BATT_FS_LOW_ACT", 2, MavParamType.INT8],
+  ["BATT_FS_CRT_ACT", 1, MavParamType.INT8],
 ];
 
 export interface MockVehicleHandle {

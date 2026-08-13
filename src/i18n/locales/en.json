@@ -39,7 +39,9 @@
       "compassCal": "Compass Cal",
       "accelCal": "Accel Cal",
       "rcCal": "RC Cal",
+      "escCal": "ESC Cal",
       "motorsSetup": "Motors Setup",
+      "batteryConfig": "Battery Config",
       "pidTune": "PID Tune"
     },
     "comingSoon": {
@@ -139,6 +141,13 @@
       "liveHint": "Receiving {{count}} channel(s) from the receiver.",
       "reverse": "Reverse"
     },
+    "escCal": {
+      "heading": "ESC Calibration",
+      "description": "Sets ESC_CALIBRATION to Auto and reboots the flight controller - it will drive full throttle for a few seconds, then zero throttle, entirely on its own. Listen for the ESC confirmation tones.",
+      "safetyWarning": "Remove all propellers before calibrating ESCs.",
+      "start": "Start ESC Calibration",
+      "started": "Calibration command sent - the vehicle is rebooting and will calibrate automatically."
+    },
     "map": {
       "heading": "Map",
       "recenter": "Recenter",
@@ -182,6 +191,19 @@
       "saveAll": "Save all ({{count}})",
       "confirmTitle": "Confirm PID changes",
       "confirmDescription": "These {{count}} gain(s) will be sent to the vehicle:",
+      "from": "From",
+      "to": "To",
+      "cancel": "Cancel",
+      "confirmSave": "Send changes"
+    },
+    "batteryConfig": {
+      "heading": "Battery Config",
+      "load": "Load battery config",
+      "notLoaded": "Battery config hasn't been loaded yet.",
+      "reset": "Reset",
+      "saveAll": "Save all ({{count}})",
+      "confirmTitle": "Confirm battery config changes",
+      "confirmDescription": "These {{count}} setting(s) will be sent to the vehicle:",
       "from": "From",
       "to": "To",
       "cancel": "Cancel",

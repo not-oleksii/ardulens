@@ -4,7 +4,10 @@ import { useTranslation } from "react-i18next";
 import { ArduPilotSetupHeader } from "./ArduPilotSetupHeader";
 import { ArduPilotSetupSidebar, type ArduPilotSetupSection } from "./ArduPilotSetupSidebar";
 import { AccelCalSection } from "./AccelCalSection";
+import { BatteryConfigSection } from "./BatteryConfigSection";
+import { BATTERY_PARAM_NAMES } from "./batteryParams";
 import { CompassCalSection } from "./CompassCalSection";
+import { EscCalSection } from "./EscCalSection";
 import { MotorsServosSection } from "./MotorsServosSection";
 import { ParametersPanel } from "./ParametersPanel";
 import { allPidCandidateNames, pidConfigForVehicleFolder } from "./pidGroups";
@@ -910,6 +913,20 @@ export function ArduPilotSetupView() {
     }
   }
 
+  // Requests the primary battery monitor's config params by name - see
+  // BatteryConfigSection.tsx's BATTERY_PARAM_NAMES for the real param list.
+  function handleLoadBatteryConfig() {
+    if (!vehicle) return;
+    for (const name of BATTERY_PARAM_NAMES) {
+      const req = new ParamRequestRead();
+      req.targetSystem = vehicle.sysid;
+      req.targetComponent = vehicle.compid;
+      req.paramId = name;
+      req.paramIndex = -1;
+      sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+    }
+  }
+
   // Reboots the flight controller - needed for RebootRequired params (e.g. FRAME_CLASS/
   // FRAME_TYPE) to actually take effect; PARAM_SET itself already wrote the new value to the
   // vehicle's persistent storage immediately, so there's no separate "save" step, only this.
@@ -918,6 +935,14 @@ export function ArduPilotSetupView() {
     const cmd = new PreflightRebootShutdownCommand(vehicle.sysid, vehicle.compid);
     cmd.autopilot = RebootShutdownAction.REBOOT;
     sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+  }
+
+  // Sets ESC_CALIBRATION=3 ("Auto") and reboots - the firmware handles the whole passthrough
+  // sequence itself on the next boot (see EscCalSection.tsx's comment), so no further protocol
+  // interaction is needed after this.
+  function handleStartEscCalibration() {
+    handleSetParam("ESC_CALIBRATION", 3, MavParamType.INT8);
+    handleReboot();
   }
 
   // Press-and-hold motor identification test (the Copter counterpart to handleSetServoPwm's
@@ -1027,6 +1052,8 @@ export function ArduPilotSetupView() {
               onCancel={handleCancelRcCal}
               onToggleReversed={toggleRcCalReversed}
             />
+          ) : activeSection === "escCal" ? (
+            <EscCalSection onStart={handleStartEscCalibration} />
           ) : activeSection === "motorsSetup" ? (
             <MotorsServosSection
               vehicleType={vehicle?.type ?? MavType.GENERIC}
@@ -1037,6 +1064,13 @@ export function ArduPilotSetupView() {
               onSetFrameParam={handleSetParam}
               onTestMotor={handleTestMotor}
               onReboot={handleReboot}
+            />
+          ) : activeSection === "batteryConfig" ? (
+            <BatteryConfigSection
+              vehicleType={vehicle?.type ?? MavType.GENERIC}
+              battery={battery}
+              onLoad={handleLoadBatteryConfig}
+              onSetParam={handleSetParam}
             />
           ) : activeSection === "pidTune" ? (
             <PidTuneSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoad={handleLoadPidParams} onSetParam={handleSetParam} />
