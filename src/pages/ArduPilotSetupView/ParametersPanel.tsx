@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import type { MavParamType, MavType } from "../../mavlink/registry/registry";
 import {
   fetchParamDocs,
@@ -29,20 +30,20 @@ interface ParametersPanelProps {
 // rows actually scrolled into view are rendered (see rowVirtualizer below) - the rest exist
 // only as `filtered` data, not DOM.
 const ROW_HEIGHT_PX = 36;
-// Every row is a single, non-wrapping line (TableCell's own base className always applies
-// whitespace-nowrap - see src/components/ui/table.tsx), so a fixed row height is always
-// accurate and there's no need for react-virtual's dynamic measureElement.
-const COLUMN_WIDTHS = ["22%", "18%", "60%"] as const; // Name, Value, Description
+// Every row is a single, non-wrapping line, so a fixed row height is always accurate and
+// there's no need for react-virtual's dynamic measureElement.
+const COLUMN_WIDTHS = "22% 18% 60%"; // Name, Value, Description - a CSS grid-template-columns value
 
-// table-layout: fixed makes each cell's box exactly COLUMN_WIDTHS wide, but doesn't clip
-// content that's too long to fit - real param names/values (e.g. AHRS_ORIENTATION, or a
-// REAL32's full decoded precision like 0.20000000298023224) can exceed a narrow column's width
-// and were bleeding visibly into the next column without this. Ellipsis-truncated in the
-// table; the full value is still visible via startEdit()'s input or the Description column's
-// own title tooltip.
-function cellStyle(index: 0 | 1 | 2): CSSProperties {
-  return { width: COLUMN_WIDTHS[index], overflow: "hidden", textOverflow: "ellipsis" };
-}
+// The virtualized rows are plain CSS Grid divs (role="row"/"cell"), not a native <table>. A
+// native <table> was tried first with table-layout: fixed on both header and (per-row)
+// body - but a <tbody> with display: block (required so react-virtual can absolutely-position
+// individual rows by scroll offset) is still, in every tested browser, treated as an anonymous
+// cell inside the *outer* table's fixed-layout column grid: its width silently collapses to
+// the first column's width (22%) no matter what width is set on it directly, since
+// table-layout: fixed only reads column widths from the table's first row and ignores
+// everything after. CSS Grid has no such quirk - the same COLUMN_WIDTHS template on the header
+// row and every body row keeps them aligned with no special-casing.
+const CELL_STYLE: CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 };
 
 export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissing, onSetParam }: ParametersPanelProps) {
   const { t } = useTranslation();
@@ -262,22 +263,26 @@ export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissin
             <p className="shrink-0 text-xs text-muted-foreground">{t("ardupilotSetup.parameters.noMatches")}</p>
           ) : (
             <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-border">
-              <Table style={{ tableLayout: "fixed" }}>
-                <TableHeader className="sticky top-0 z-10 bg-card">
-                  <TableRow>
-                    <TableHead style={cellStyle(0)}>{t("ardupilotSetup.parameters.name")}</TableHead>
-                    <TableHead style={cellStyle(1)}>{t("ardupilotSetup.parameters.value")}</TableHead>
-                    <TableHead style={cellStyle(2)}>{t("ardupilotSetup.parameters.description")}</TableHead>
-                  </TableRow>
-                </TableHeader>
+              <div role="table" className="w-full text-sm">
+                <div role="rowgroup" className="sticky top-0 z-10 bg-card">
+                  <div role="row" className="grid border-b border-border" style={{ gridTemplateColumns: COLUMN_WIDTHS }}>
+                    <div role="columnheader" className="h-9 px-3 text-left align-middle font-medium text-muted-foreground" style={CELL_STYLE}>
+                      {t("ardupilotSetup.parameters.name")}
+                    </div>
+                    <div role="columnheader" className="h-9 px-3 text-left align-middle font-medium text-muted-foreground" style={CELL_STYLE}>
+                      {t("ardupilotSetup.parameters.value")}
+                    </div>
+                    <div role="columnheader" className="h-9 px-3 text-left align-middle font-medium text-muted-foreground" style={CELL_STYLE}>
+                      {t("ardupilotSetup.parameters.description")}
+                    </div>
+                  </div>
+                </div>
                 {/* Only the rows actually scrolled into view (see rowVirtualizer above) get
-                    real DOM/table-layout nodes - the rest of `filtered` stays plain data. The
-                    tbody's own block/relative layout (instead of table-row-group) is what lets
-                    rows be absolutely positioned by scroll offset; each row then gets its own
-                    table-layout context (display: table) so its cells still line up under the
-                    header's columns via the same explicit COLUMN_WIDTHS, since it's no longer
-                    sharing the header's automatic column-width negotiation. */}
-                <TableBody style={{ display: "block", position: "relative", height: rowVirtualizer.getTotalSize() }}>
+                    real DOM nodes - the rest of `filtered` stays plain data. This rowgroup's
+                    own relative positioning is what lets rows be absolutely positioned by
+                    scroll offset; each row shares the exact same COLUMN_WIDTHS grid template as
+                    the header above so their cells line up (see the CSS Grid comment above). */}
+                <div role="rowgroup" style={{ position: "relative", height: rowVirtualizer.getTotalSize() }}>
                   {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                     const p = filtered[virtualRow.index]!;
                     const doc = docs?.[p.name];
@@ -285,21 +290,23 @@ export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissin
                     const shownValue = pendingChanges[p.name] ?? p.value;
 
                     return (
-                      <TableRow
+                      <div
                         key={p.name}
+                        role="row"
+                        className={cn("grid border-b border-border", "hover:bg-muted/50")}
                         style={{
-                          display: "table",
-                          tableLayout: "fixed",
-                          width: "100%",
+                          gridTemplateColumns: COLUMN_WIDTHS,
                           position: "absolute",
                           top: 0,
+                          left: 0,
+                          right: 0,
                           transform: `translateY(${virtualRow.start}px)`,
                         }}
                       >
-                        <TableCell style={cellStyle(0)} className="font-mono">
+                        <div role="cell" className="px-3 py-2 font-mono" style={CELL_STYLE}>
                           {p.name}
-                        </TableCell>
-                        <TableCell style={cellStyle(1)} className="font-mono">
+                        </div>
+                        <div role="cell" className="px-3 py-2 font-mono" style={CELL_STYLE}>
                           {editingName === p.name ? (
                             <Input
                               autoFocus
@@ -323,8 +330,8 @@ export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissin
                           {!isModified && p.dirty && (
                             <span className="ml-2 text-xs text-muted-foreground">{t("ardupilotSetup.parameters.dirty")}</span>
                           )}
-                        </TableCell>
-                        <TableCell style={cellStyle(2)} className="max-w-xs">
+                        </div>
+                        <div role="cell" className="px-3 py-2" style={CELL_STYLE}>
                           {doc ? (
                             <span title={doc.documentation}>
                               {doc.humanName}{" "}
@@ -340,12 +347,12 @@ export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissin
                           ) : (
                             <span className="text-muted-foreground">-</span>
                           )}
-                        </TableCell>
-                      </TableRow>
+                        </div>
+                      </div>
                     );
                   })}
-                </TableBody>
-              </Table>
+                </div>
+              </div>
             </div>
           )}
         </>
