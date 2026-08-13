@@ -1193,6 +1193,78 @@ describe("ArduPilotSetupView", () => {
       expect(screen.queryByTestId("param-load-progress")).not.toBeInTheDocument();
     });
 
+    it("Save to file exports every loaded parameter as NAME,VALUE", async () => {
+      mockBackend();
+      const { user } = await connectWithVehicle();
+      await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 2, 1) });
+      await emit("mavlink-transport://data", {
+        bytes: buildParamValueBytes("ARSPD_RATIO", 1.98, MavParamType.REAL32, 1, 2, 2),
+      });
+      await screen.findByText("ARSPD_RATIO");
+
+      let capturedBlob: Blob | undefined;
+      URL.createObjectURL = vi.fn((blob) => {
+        capturedBlob = blob as Blob;
+        return "blob:mock-url";
+      });
+      URL.revokeObjectURL = vi.fn();
+      const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+      await user.click(screen.getByRole("button", { name: "Зберегти у файл" }));
+
+      expect(clickSpy).toHaveBeenCalledTimes(1);
+      expect(capturedBlob).toBeDefined();
+      const text = await capturedBlob!.text();
+      expect(text).toContain("ARSPD_USE,1");
+      expect(text).toContain("ARSPD_RATIO,1.98");
+
+      clickSpy.mockRestore();
+    });
+
+    it("Load from file stages only known, changed parameters into the same Save-all flow as manual edits", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectWithVehicle();
+      await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
+      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 2, 1) });
+      await emit("mavlink-transport://data", {
+        bytes: buildParamValueBytes("ARSPD_RATIO", 1.98, MavParamType.REAL32, 1, 2, 2),
+      });
+      await screen.findByText("ARSPD_RATIO");
+
+      // ARSPD_USE really changes (1 -> 0); ARSPD_RATIO is written back with its exact stored
+      // value (REAL32 decodes 1.98 to 1.9800000190734863, the classic float32-promoted-to-
+      // double artifact - a real Save-to-file export would write this same full-precision
+      // value, so matching it exactly here is what a genuine save/reload round trip looks
+      // like) so it shouldn't be staged; UNKNOWN_PARAM isn't a param this vehicle reported, so
+      // its type is unknown and it can't be safely written - also skipped.
+      const fileContent = "# comment line, ignored\nARSPD_USE,0\nARSPD_RATIO,1.9800000190734863\nUNKNOWN_PARAM,5\n";
+      const file = new File([fileContent], "backup.param", { type: "text/plain" });
+      const fileInput = screen.getByTestId("param-file-input");
+
+      invoked.mockClear();
+      await user.upload(fileInput, file);
+
+      const saveAllButton = await screen.findByRole("button", { name: "Зберегти все (1)" });
+      await user.click(saveAllButton);
+      const dialog = screen.getByRole("dialog");
+      expect(within(dialog).getByText("ARSPD_USE")).toBeInTheDocument();
+      expect(within(dialog).queryByText("ARSPD_RATIO")).not.toBeInTheDocument();
+      expect(within(dialog).queryByText("UNKNOWN_PARAM")).not.toBeInTheDocument();
+
+      await user.click(within(dialog).getByRole("button", { name: "Надіслати зміни" }));
+
+      await vi.waitFor(() => {
+        const setRequest = invoked.mock.calls.find(([cmd, payload]) => {
+          if (cmd !== "send_bytes") return false;
+          const bytes = (payload as { bytes: number[] }).bytes;
+          return bytes[7] === ParamSet.MSG_ID;
+        });
+        expect(setRequest).toBeDefined();
+      });
+    });
+
     it("orders the table columns as Name, Value, Description", async () => {
       mockBackend();
       const { user } = await connectWithVehicle();

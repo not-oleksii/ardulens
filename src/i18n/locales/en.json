@@ -158,6 +158,8 @@
       "noMatches": "No parameters match your search.",
       "descriptionsLoading": "Loading parameter descriptions...",
       "descriptionsUnavailable": "Parameter descriptions unavailable (couldn't reach ardupilot.org).",
+      "saveToFile": "Save to file",
+      "loadFromFile": "Load from file",
       "reset": "Reset",
       "saveAll": "Save all ({{count}})",
       "confirmTitle": "Confirm parameter changes",

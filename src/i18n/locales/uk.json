@@ -158,6 +158,8 @@
       "noMatches": "Немає параметрів, що відповідають пошуку.",
       "descriptionsLoading": "Завантаження описів параметрів...",
       "descriptionsUnavailable": "Описи параметрів недоступні (не вдалося з'єднатися з ardupilot.org).",
+      "saveToFile": "Зберегти у файл",
+      "loadFromFile": "Завантажити з файлу",
       "reset": "Скинути",
       "saveAll": "Зберегти все ({{count}})",
       "confirmTitle": "Підтвердіть зміни параметрів",
