@@ -11,6 +11,7 @@ import type {
   VfrHudTelemetry,
 } from "../../stores/mavlinkTelemetryStore/types";
 import type { VehicleInfo } from "../../stores/mavlinkVehicleStore/types";
+import { LiveMapSection } from "./LiveMapSection";
 
 interface TelemetrySectionProps {
   vehicle: VehicleInfo | null;
@@ -85,9 +86,8 @@ export function TelemetrySection({ vehicle, attitude, vfrHud, battery, gps, posi
         )}
       </div>
 
-      <div className="flex min-h-80 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-border">
-        <p className="text-sm font-medium">{t("ardupilotSetup.map.heading")}</p>
-        <p className="text-xs text-muted-foreground">{t("ardupilotSetup.map.comingSoon")}</p>
+      <div className="h-[560px]">
+        <LiveMapSection position={position} headingDeg={vfrHud?.headingDeg} />
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -21,10 +22,23 @@ interface ParametersPanelProps {
   onSetParam: (name: string, value: number, type: MavParamType) => void;
 }
 
+// A full ArduCopter/ArduPlane parameter list is 1000-1700+ entries - rendering every row's DOM
+// (even with the batched store flush in ArduPilotSetupView.tsx) meant reconciling a
+// 13,000+-node table on every flush during a load, which was enough main-thread work over a
+// real serial connection to make the whole window report "Not Responding" in Windows. Only the
+// rows actually scrolled into view are rendered (see rowVirtualizer below) - the rest exist
+// only as `filtered` data, not DOM.
+const ROW_HEIGHT_PX = 36;
+// Every row is a single, non-wrapping line (TableCell's own base className always applies
+// whitespace-nowrap - see src/components/ui/table.tsx), so a fixed row height is always
+// accurate and there's no need for react-virtual's dynamic measureElement.
+const COLUMN_WIDTHS = ["22%", "18%", "60%"] as const; // Name, Value, Description
+
 export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissing, onSetParam }: ParametersPanelProps) {
   const { t } = useTranslation();
   const params = useMavlinkParameterStore((s) => s.params);
   const expectedCount = useMavlinkParameterStore((s) => s.expectedCount);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState("");
   const [editingName, setEditingName] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
@@ -73,6 +87,13 @@ export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissin
   const isComplete = expectedCount !== null && receivedCount >= expectedCount;
   const pendingEntries = Object.entries(pendingChanges);
   const hasPendingChanges = pendingEntries.length > 0;
+
+  const rowVirtualizer = useVirtualizer({
+    count: filtered.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => ROW_HEIGHT_PX,
+    overscan: 12,
+  });
 
   function startEdit(name: string, currentValue: number) {
     setEditingName(name);
@@ -141,6 +162,15 @@ export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissin
         </div>
       </div>
 
+      {hasStarted && !isComplete && (
+        <div data-testid="param-load-progress" className="h-1.5 w-full shrink-0 overflow-hidden rounded-full bg-muted">
+          <div
+            className="h-full rounded-full bg-primary transition-[width]"
+            style={{ width: `${expectedCount ? Math.min(100, (receivedCount / expectedCount) * 100) : 0}%` }}
+          />
+        </div>
+      )}
+
       {hasStarted && (
         <>
           <Input
@@ -158,25 +188,45 @@ export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissin
           {filtered.length === 0 ? (
             <p className="shrink-0 text-xs text-muted-foreground">{t("ardupilotSetup.parameters.noMatches")}</p>
           ) : (
-            <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-border">
-              <Table>
-                <TableHeader className="sticky top-0 bg-card">
+            <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-border">
+              <Table style={{ tableLayout: "fixed" }}>
+                <TableHeader className="sticky top-0 z-10 bg-card">
                   <TableRow>
-                    <TableHead>{t("ardupilotSetup.parameters.name")}</TableHead>
-                    <TableHead>{t("ardupilotSetup.parameters.value")}</TableHead>
-                    <TableHead>{t("ardupilotSetup.parameters.description")}</TableHead>
+                    <TableHead style={{ width: COLUMN_WIDTHS[0] }}>{t("ardupilotSetup.parameters.name")}</TableHead>
+                    <TableHead style={{ width: COLUMN_WIDTHS[1] }}>{t("ardupilotSetup.parameters.value")}</TableHead>
+                    <TableHead style={{ width: COLUMN_WIDTHS[2] }}>{t("ardupilotSetup.parameters.description")}</TableHead>
                   </TableRow>
                 </TableHeader>
-                <TableBody>
-                  {filtered.map((p) => {
+                {/* Only the rows actually scrolled into view (see rowVirtualizer above) get
+                    real DOM/table-layout nodes - the rest of `filtered` stays plain data. The
+                    tbody's own block/relative layout (instead of table-row-group) is what lets
+                    rows be absolutely positioned by scroll offset; each row then gets its own
+                    table-layout context (display: table) so its cells still line up under the
+                    header's columns via the same explicit COLUMN_WIDTHS, since it's no longer
+                    sharing the header's automatic column-width negotiation. */}
+                <TableBody style={{ display: "block", position: "relative", height: rowVirtualizer.getTotalSize() }}>
+                  {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                    const p = filtered[virtualRow.index]!;
                     const doc = docs?.[p.name];
                     const isModified = pendingChanges[p.name] !== undefined;
                     const shownValue = pendingChanges[p.name] ?? p.value;
 
                     return (
-                      <TableRow key={p.name}>
-                        <TableCell className="font-mono">{p.name}</TableCell>
-                        <TableCell className="font-mono">
+                      <TableRow
+                        key={p.name}
+                        style={{
+                          display: "table",
+                          tableLayout: "fixed",
+                          width: "100%",
+                          position: "absolute",
+                          top: 0,
+                          transform: `translateY(${virtualRow.start}px)`,
+                        }}
+                      >
+                        <TableCell style={{ width: COLUMN_WIDTHS[0] }} className="font-mono">
+                          {p.name}
+                        </TableCell>
+                        <TableCell style={{ width: COLUMN_WIDTHS[1] }} className="font-mono">
                           {editingName === p.name ? (
                             <Input
                               autoFocus
@@ -201,7 +251,7 @@ export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissin
                             <span className="ml-2 text-xs text-muted-foreground">{t("ardupilotSetup.parameters.dirty")}</span>
                           )}
                         </TableCell>
-                        <TableCell className="max-w-xs">
+                        <TableCell style={{ width: COLUMN_WIDTHS[2] }} className="max-w-xs">
                           {doc ? (
                             <span title={doc.documentation}>
                               {doc.humanName}{" "}

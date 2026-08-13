@@ -46,6 +46,22 @@ import { useMavlinkTelemetryStore } from "../../../stores/mavlinkTelemetryStore/
 import { useMavlinkVehicleStore } from "../../../stores/mavlinkVehicleStore/mavlinkVehicleStore";
 import { ArduPilotSetupView } from "../ArduPilotSetupView";
 
+// ParametersPanel virtualizes its table (see ParametersPanel.tsx) via useVirtualizer, which
+// measures the real scroll container's height to decide which rows are "in view" - jsdom does
+// no real layout, so the container always measures 0 and every real virtualizer would render
+// zero rows regardless of how few params exist. Mocked the same way CesiumMapView.test.tsx
+// mocks Cesium's Viewer: only the piece that needs a real browser is replaced, here with a
+// "no windowing" stand-in that reports every item as visible, so these tests keep exercising
+// the real search/edit/save logic against a real (if small) DOM instead of an empty one.
+const PARAM_ROW_HEIGHT_PX = 36;
+vi.mock("@tanstack/react-virtual", () => ({
+  useVirtualizer: ({ count }: { count: number }) => ({
+    getVirtualItems: () =>
+      Array.from({ length: count }, (_, index) => ({ index, start: index * PARAM_ROW_HEIGHT_PX, size: PARAM_ROW_HEIGHT_PX, key: index })),
+    getTotalSize: () => count * PARAM_ROW_HEIGHT_PX,
+  }),
+}));
+
 const SAMPLE_PORTS = [
   { name: "COM3", description: "USB Serial" },
   { name: "COM4", description: null },
@@ -288,7 +304,12 @@ function getView() {
   const getDevModeButton = () => screen.getByRole("button", { name: "Режим розробника" });
   const getDevModeCopterButton = () => screen.getByRole("button", { name: "Режим розробника (мультикоптер)" });
   const getDevFramePresetSelect = () => screen.getByLabelText("Тип рами для тестового мультикоптера");
-  const getStatusAlert = () => screen.getByRole("alert");
+  // Scoped to the header (role="banner", the top-level <header>) rather than a bare
+  // screen.getByRole("alert") - the live map embedded on the Telemetry page (see
+  // LiveMapSection.tsx) renders its own "need a Cesium token" info alert in <main>, which
+  // would otherwise collide with this one whenever a test lands on Telemetry (the default
+  // section) after connecting.
+  const getStatusAlert = () => within(screen.getByRole("banner")).getByRole("alert");
   const getTelemetryNavButton = () => screen.getByRole("tab", { name: "Телеметрія" });
   const getParametersNavButton = () => screen.getByRole("tab", { name: "Параметри" });
   const getCompassCalNavButton = () => screen.getByRole("tab", { name: "Калібрування компаса" });
@@ -383,6 +404,15 @@ describe("ArduPilotSetupView", () => {
     mockBackend();
     getView();
     expect(screen.getByRole("heading", { name: "Налаштування ArduPilot" })).toBeInTheDocument();
+  });
+
+  it("shows the live map section (Cesium token gate, since no token is saved) inline on the Telemetry page, not as a separate tab", async () => {
+    const { clickDevMode, getStatusAlert } = getView();
+    await clickDevMode();
+    await within(getStatusAlert()).findByText("Підключено: Dev mode (simulated vehicle)");
+    // Telemetry is the default/starting section - no nav click needed to see the map.
+    expect(screen.getByPlaceholderText("Вставте сюди свій токен Cesium ion")).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Карта" })).not.toBeInTheDocument();
   });
 
   it("links back to Home", () => {
@@ -1138,6 +1168,29 @@ describe("ArduPilotSetupView", () => {
       expect(screen.getByText("1")).toBeInTheDocument();
       expect(screen.getByText("Отримано 1 / 2")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Запросити відсутні" })).toBeInTheDocument();
+    });
+
+    it("shows a visual progress bar while loading, reflecting received/expected, and hides it once complete", async () => {
+      mockBackend();
+      const { user } = await connectWithVehicle();
+      await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
+
+      await emit("mavlink-transport://data", {
+        bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 2, 1),
+      });
+      await screen.findByText("ARSPD_USE");
+
+      const bar = screen.getByTestId("param-load-progress");
+      expect(bar.firstElementChild).toHaveStyle({ width: "50%" });
+
+      await emit("mavlink-transport://data", {
+        bytes: buildParamValueBytes("ARSPD_RATIO", 2, MavParamType.INT8, 1, 2, 2),
+      });
+      await screen.findByText("ARSPD_RATIO");
+
+      // Now received (2) >= expected (2) - the bar disappears rather than sitting at 100%
+      // forever, since the load is done.
+      expect(screen.queryByTestId("param-load-progress")).not.toBeInTheDocument();
     });
 
     it("orders the table columns as Name, Value, Description", async () => {
