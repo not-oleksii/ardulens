@@ -24,7 +24,8 @@
       "title": "Drop a log: .skylog / .bin",
       "subtitle": "or click to choose a file",
       "reading": "Reading file...",
-      "parsing": "Parsing file..."
+      "parsing": "Parsing file...",
+      "replaceHint": "Drop to replace the loaded file"
     },
     "ardupilotSetupCta": "Set up a live vehicle"
   },
