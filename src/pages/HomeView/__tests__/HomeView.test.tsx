@@ -7,7 +7,7 @@ import { SkylogFileBuilder } from "../../../builders/SkylogFileBuilder/SkylogFil
 import { getCoreWorker } from "../../../services/coreWorkerClient/coreWorkerClient";
 import { useFileStore } from "../../../stores/fileStore/fileStore";
 import { dropFile } from "../../../test/dropFile";
-import { HomeView } from "../HomeView";
+import { HOME_DROPZONE_TEST_ID, HomeView } from "../HomeView";
 
 vi.mock("../../../services/coreWorkerClient/coreWorkerClient", async () => {
   const actual = await vi.importActual<typeof import("../../../services/coreWorkerClient/coreWorkerClient")>(
@@ -24,13 +24,13 @@ function getView() {
     </MemoryRouter>,
   );
 
-  const getFileInput = () => screen.getByTestId("home-file-input");
+  const getFileInput = () => screen.getByTestId(`${HOME_DROPZONE_TEST_ID}-file-input`);
   const getSampleBinButton = () => screen.getByRole("button", { name: "Приклад .bin" });
   const getSampleSkylogButton = () => screen.getByRole("button", { name: "Приклад .skylog" });
   const getArduPilotSetupLink = () => screen.getByRole("link", { name: "Налаштувати підключений апарат" });
 
   const uploadFile = (file: File) => user.upload(getFileInput(), file);
-  const dropFileOnZone = (file: File) => dropFile("home-dropzone", file);
+  const dropFileOnZone = (file: File) => dropFile(`${HOME_DROPZONE_TEST_ID}-dropzone`, file);
   const clickSampleBin = () => user.click(getSampleBinButton());
   const clickSampleSkylog = () => user.click(getSampleSkylogButton());
 
@@ -56,7 +56,7 @@ describe("HomeView", () => {
   it("renders the title, description, and dropzone", () => {
     getView();
     expect(screen.getByRole("heading", { name: "ArduLens" })).toBeInTheDocument();
-    expect(screen.getByTestId("home-dropzone")).toBeInTheDocument();
+    expect(screen.getByTestId(`${HOME_DROPZONE_TEST_ID}-dropzone`)).toBeInTheDocument();
   });
 
   it("links to the ArduPilot Setup page", () => {

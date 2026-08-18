@@ -24,6 +24,11 @@ export default defineConfig({
     // confirmed by comparing `npm run dev`'s env against `npm run tauri dev`'s - so this
     // is what stops a browser tab from also opening alongside the Tauri window.
     open: process.env.TAURI_ENV_PLATFORM ? false : '/app/',
+    // Without this, Vite silently falls back to the next free port when 5173 is taken,
+    // but tauri.conf.json's devUrl is hardcoded to 5173 - so Tauri just hangs forever
+    // waiting for a server that's actually listening on the wrong port. Failing fast
+    // here turns that into an immediate, legible error instead.
+    strictPort: true,
     watch: {
       // app/src-tauri/target is Cargo's build output. Vite has no reason to
       // watch it, and doing so races Cargo's file writes on Windows, where

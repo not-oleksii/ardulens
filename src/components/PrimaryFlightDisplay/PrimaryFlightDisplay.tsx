@@ -1,6 +1,7 @@
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { buildHeadingTapeTicks, buildPitchLadderRungs, buildRollScaleTicks, buildTapeTicks, radToDeg } from "./pfdMath";
+import { PFD_TEST_IDS } from "./pfdTestIds";
 import type { PrimaryFlightDisplayProps } from "./types";
 
 // Uses the app's own CSS custom properties (same ones Logs/Graphs/Map already render with)
@@ -262,20 +263,16 @@ export function PrimaryFlightDisplay({ rollRad, pitchRad, headingDeg, airspeed, 
       className="flex flex-col gap-1 rounded-lg p-3"
       style={{ background: COLORS.panel, border: `1px solid ${COLORS.border}`, fontFamily: FONT_SANS }}
     >
-      {/* TODO: "pfd-armed-badge"/"pfd-mode-badge" below are re-typed raw in two separate test
-          files (PrimaryFlightDisplay.test.tsx and ArduPilotSetupView.test.tsx) instead of
-          importing a shared constant - export a PFD_TEST_IDS object from this file and have
-          both tests import it, so a rename here can't silently break either test file. */}
       <div className="mb-1 flex items-center justify-center gap-2">
         <span
-          data-testid="pfd-armed-badge"
+          data-testid={PFD_TEST_IDS.armedBadge}
           className="rounded border px-2 py-0.5 text-xs font-bold tracking-wide"
           style={{ borderColor: COLORS.badgeBorder, color: COLORS.telemetry }}
         >
           {armed ? t("ardupilotSetup.vehicle.armed") : t("ardupilotSetup.vehicle.disarmed")}
         </span>
         <span
-          data-testid="pfd-mode-badge"
+          data-testid={PFD_TEST_IDS.modeBadge}
           className="rounded border px-2 py-0.5 text-xs font-bold tracking-wide"
           style={{ borderColor: COLORS.badgeBorder, color: COLORS.telemetry }}
         >

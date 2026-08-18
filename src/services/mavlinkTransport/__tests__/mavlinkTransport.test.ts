@@ -6,11 +6,13 @@ import {
   connectMock,
   connectSerial,
   connectUdp,
+  DATA_EVENT,
   disconnect,
   listSerialPorts,
   onData,
   onStatus,
   sendBytes,
+  STATUS_EVENT,
 } from "../mavlinkTransport";
 
 beforeEach(() => {
@@ -80,7 +82,7 @@ describe("mavlinkTransport", () => {
     const received = vi.fn();
 
     await onData(received);
-    await emit("mavlink-transport://data", { bytes: [4, 5, 6] });
+    await emit(DATA_EVENT, { bytes: [4, 5, 6] });
 
     expect(received).toHaveBeenCalledWith(new Uint8Array([4, 5, 6]));
   });
@@ -90,7 +92,7 @@ describe("mavlinkTransport", () => {
     const received = vi.fn();
 
     await onStatus(received);
-    await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+    await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
 
     expect(received).toHaveBeenCalledWith({ kind: "connected", detail: "udp:0.0.0.0:14550" });
   });

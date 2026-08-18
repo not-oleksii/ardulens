@@ -5,14 +5,8 @@ import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CESIUM_TOKEN_STORAGE_KEY } from "../../constants";
 import type { PositionTelemetry } from "../../stores/mavlinkTelemetryStore/types";
-
-// Same key CesiumMapView uses - one Cesium ion token covers both the post-flight map and this
-// live one, so the user only has to enter it once.
-// TODO: this literal is independently re-declared as its own const in CesiumMapView.tsx -
-// move both to a single shared CESIUM_TOKEN_STORAGE_KEY constant (e.g. in src/constants.ts)
-// so the two can't silently drift apart.
-const TOKEN_STORAGE_KEY = "ardulens.cesiumIonToken";
 
 // Identical arrow icon to CesiumMapView's ARROW_ICON - rotation=0 points north, paired with
 // alignedAxis: UNIT_Z below.
@@ -43,7 +37,7 @@ export function LiveMapSection({ position, headingDeg }: LiveMapSectionProps) {
   // rather than floating or sinking relative to Cesium World Terrain.
   const homeGroundHeightRef = useRef<number | null>(null);
   const hasFlownRef = useRef(false);
-  const [token, setToken] = useState(() => localStorage.getItem(TOKEN_STORAGE_KEY) ?? "");
+  const [token, setToken] = useState(() => localStorage.getItem(CESIUM_TOKEN_STORAGE_KEY) ?? "");
   const [tokenInput, setTokenInput] = useState("");
 
   useEffect(() => {
@@ -53,12 +47,12 @@ export function LiveMapSection({ position, headingDeg }: LiveMapSectionProps) {
   function saveToken() {
     const trimmed = tokenInput.trim();
     if (!trimmed) return;
-    localStorage.setItem(TOKEN_STORAGE_KEY, trimmed);
+    localStorage.setItem(CESIUM_TOKEN_STORAGE_KEY, trimmed);
     setToken(trimmed);
   }
 
   function clearToken() {
-    localStorage.removeItem(TOKEN_STORAGE_KEY);
+    localStorage.removeItem(CESIUM_TOKEN_STORAGE_KEY);
     setToken("");
     setTokenInput("");
   }

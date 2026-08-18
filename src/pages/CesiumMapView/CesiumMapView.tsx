@@ -26,11 +26,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { isFlightMapData, isFlightMapError, isFlightMapInfo, type FlightMapResult } from "../../analysis/flight-map/types";
 import type { TrackPoint } from "../../analysis/flight-map/types";
+import { CESIUM_TOKEN_STORAGE_KEY } from "../../constants";
 import { useDerivedFromFile } from "../../hooks/useDerivedFromFile/useDerivedFromFile";
 import { getCoreWorker } from "../../services/coreWorkerClient/coreWorkerClient";
 import { useFileStore } from "../../stores/fileStore/fileStore";
-
-const TOKEN_STORAGE_KEY = "ardulens.cesiumIonToken";
 
 // Colors distinguishing the fused/GCS, raw GPS, and cleaned tracks - matching the legend
 // swatches and the GPS-loss marker color below.
@@ -165,7 +164,7 @@ const EMPTY_LAYERS: MapLayers = { gcsTrack: null, gpsTrack: null, cleanedTrack: 
 export function CesiumMapView() {
   const { t } = useTranslation();
   const file = useFileStore((s) => s.file);
-  const [token, setToken] = useState(() => localStorage.getItem(TOKEN_STORAGE_KEY) ?? "");
+  const [token, setToken] = useState(() => localStorage.getItem(CESIUM_TOKEN_STORAGE_KEY) ?? "");
   const [tokenInput, setTokenInput] = useState("");
   const [showGcsTrack, setShowGcsTrack] = useState(true);
   const [showGpsTrack, setShowGpsTrack] = useState(true);
@@ -201,12 +200,12 @@ export function CesiumMapView() {
   function saveToken() {
     const trimmed = tokenInput.trim();
     if (!trimmed) return;
-    localStorage.setItem(TOKEN_STORAGE_KEY, trimmed);
+    localStorage.setItem(CESIUM_TOKEN_STORAGE_KEY, trimmed);
     setToken(trimmed);
   }
 
   function clearToken() {
-    localStorage.removeItem(TOKEN_STORAGE_KEY);
+    localStorage.removeItem(CESIUM_TOKEN_STORAGE_KEY);
     setToken("");
     setTokenInput("");
   }
