@@ -1125,6 +1125,72 @@ describe("ArduPilotSetupView", () => {
       await user.click(testTab);
       expect(await screen.findByRole("img", { name: "Motor layout" })).toBeInTheDocument();
     });
+
+    it("guided identification auto-spins each motor in turn, and confirming the correct position advances without the user holding anything", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectCopterAndOpenMotors();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_CLASS", 1, MavParamType.INT8, 0, 2, 1) }); // Quad
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_TYPE", 1, MavParamType.INT8, 1, 2, 2) }); // X
+      await user.click(await screen.findByRole("tab", { name: "2. Тест і реверс" }));
+      const diagram = await screen.findByRole("img", { name: "Motor layout" });
+
+      await user.click(screen.getByRole("button", { name: "Почати ідентифікацію" }));
+      // The app drives motor 1 on its own - no press-and-hold from the user.
+      expect(findMotorTestThrottle(invoked, 1)).toBe(10);
+      expect(screen.getByText("1 / 4")).toBeInTheDocument();
+
+      // Clicking motor 1's own position confirms it and stops it, then auto-starts motor 2.
+      const motor1Group = within(diagram).getByText("1").closest("g")!;
+      fireEvent.pointerDown(motor1Group);
+      expect(findMotorTestThrottle(invoked, 1)).toBe(0);
+      expect(findMotorTestThrottle(invoked, 2)).toBe(10);
+      expect(screen.getByText("2 / 4")).toBeInTheDocument();
+    });
+
+    it("clicking a different position than the one spinning records a mismatch, shown once identification finishes", async () => {
+      mockBackend();
+      const { user } = await connectCopterAndOpenMotors();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_CLASS", 1, MavParamType.INT8, 0, 2, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_TYPE", 1, MavParamType.INT8, 1, 2, 2) });
+      await user.click(await screen.findByRole("tab", { name: "2. Тест і реверс" }));
+      const diagram = await screen.findByRole("img", { name: "Motor layout" });
+
+      await user.click(screen.getByRole("button", { name: "Почати ідентифікацію" }));
+
+      // Motor 1 is the one actually spinning, but the user clicks position 2 instead - a real
+      // wiring/frame mismatch worth flagging, not silently accepted as confirming motor 2.
+      const clickPosition = (motor: number) => fireEvent.pointerDown(within(diagram).getByText(String(motor)).closest("g")!);
+      clickPosition(2);
+      clickPosition(2);
+      clickPosition(3);
+      clickPosition(4);
+
+      expect(await screen.findByText("Ідентифікацію завершено")).toBeInTheDocument();
+      expect(screen.getByText(/Ви клацнули 2, але обертався вихід 1/)).toBeInTheDocument();
+    });
+
+    it("manual test-and-reverse controls stay available while guided identification is idle", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectCopterAndOpenMotors();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_CLASS", 1, MavParamType.INT8, 0, 2, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_TYPE", 1, MavParamType.INT8, 1, 2, 2) });
+      await user.click(await screen.findByRole("tab", { name: "2. Тест і реверс" }));
+      const diagram = await screen.findByRole("img", { name: "Motor layout" });
+
+      // Not identifying - clicking the diagram still runs the existing free-form hold-to-test.
+      const motor1Group = within(diagram).getByText("1").closest("g")!;
+      fireEvent.pointerDown(motor1Group);
+      expect(findMotorTestThrottle(invoked, 1)).toBe(10);
+      fireEvent.pointerUp(motor1Group);
+      expect(findMotorTestThrottle(invoked, 1)).toBe(0);
+
+      expect(screen.getAllByRole("checkbox", { name: "Реверс" }).length).toBe(4);
+    });
   });
 
   describe("PID tune (Copter)", () => {

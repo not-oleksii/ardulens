@@ -99,7 +99,18 @@
         "testedSummary": "Spin-tested this session: {{list}}",
         "notTestedThisSession": "No motors were spin-tested this session.",
         "startOver": "Start Over",
-        "editSettings": "Edit Test & Reverse"
+        "editSettings": "Edit Test & Reverse",
+        "identifyHeading": "Guided Identification",
+        "identifyIntro": "The app spins each motor output one at a time. Watch the propeller, then click the position on the diagram (or its button below) where you see it actually spinning.",
+        "identifyStart": "Start Identification",
+        "identifyStop": "Stop",
+        "identifySpinning": "Output {{motor}} is spinning - click the position you see spinning",
+        "identifyProgress": "{{current}} / {{total}}",
+        "identifyMismatch": "You clicked {{clicked}}, but output {{expected}} was the one spinning - check the wiring/frame for output {{expected}}.",
+        "identifyDone": "Identification complete",
+        "identifyAllConfirmed": "All motors confirmed in the expected position.",
+        "identifyRestart": "Restart Identification",
+        "manualHeading": "Manual Test & Reverse"
       }
     },
     "compassCal": {
