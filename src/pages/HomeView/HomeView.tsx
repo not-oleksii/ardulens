@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher/LanguageSwitcher";
+import { ThemeSwitcher } from "@/components/ThemeSwitcher/ThemeSwitcher";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { FlightBinBuilder } from "../../builders/FlightBinBuilder/FlightBinBuilder";
@@ -83,7 +84,8 @@ export function HomeView() {
 
   return (
     <div className="relative flex h-svh flex-col items-center justify-center gap-6 px-6 text-center">
-      <div className="absolute right-4 top-4">
+      <div className="absolute right-4 top-4 flex gap-2">
+        <ThemeSwitcher />
         <LanguageSwitcher />
       </div>
 

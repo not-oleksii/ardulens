@@ -17,6 +17,8 @@
 }
 
 :root {
+  color-scheme: light;
+
   --background: #ffffff;
   --foreground: #08060d;
   --muted: #f4f3ec;
@@ -40,26 +42,31 @@
   --font-mono: ui-monospace, Consolas, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #16171d;
-    --foreground: #f3f4f6;
-    --muted: #1f2028;
-    --muted-foreground: #9ca3af;
-    --card: #16171d;
-    --card-foreground: #f3f4f6;
-    --border: #2e303a;
-    --input: #2e303a;
-    --primary: #c084fc;
-    --primary-foreground: #16171d;
-    --secondary: #1f2028;
-    --secondary-foreground: #f3f4f6;
-    --accent: #1f2028;
-    --accent-foreground: #f3f4f6;
-    --destructive: #f87171;
-    --destructive-foreground: #16171d;
-    --ring: #c084fc;
-  }
+/* Applied by themeStore.ts (via useThemeStore's initial applyDomClass() call, imported at the
+   top of main.tsx before first paint) - "dark" for an explicit choice, or resolved from
+   prefers-color-scheme for "system". A CSS class rather than the raw media query so a user's
+   explicit light/dark choice can override the OS setting; "system" mode is what makes it
+   track the OS again. */
+.dark {
+  color-scheme: dark;
+
+  --background: #16171d;
+  --foreground: #f3f4f6;
+  --muted: #1f2028;
+  --muted-foreground: #9ca3af;
+  --card: #16171d;
+  --card-foreground: #f3f4f6;
+  --border: #2e303a;
+  --input: #2e303a;
+  --primary: #c084fc;
+  --primary-foreground: #16171d;
+  --secondary: #1f2028;
+  --secondary-foreground: #f3f4f6;
+  --accent: #1f2028;
+  --accent-foreground: #f3f4f6;
+  --destructive: #f87171;
+  --destructive-foreground: #16171d;
+  --ring: #c084fc;
 }
 
 /* ArduPilot Setup uses the app's normal colors (same CSS variables as Logs/Graphs/Map -
@@ -113,7 +120,6 @@ body {
   margin: 0;
   font: 18px/145% var(--font-sans);
   letter-spacing: 0.18px;
-  color-scheme: light dark;
   color: var(--muted-foreground);
   background: var(--background);
   font-synthesis: none;

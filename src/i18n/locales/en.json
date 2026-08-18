@@ -4,6 +4,12 @@
     "uk": "UA",
     "en": "EN"
   },
+  "theme": {
+    "label": "Theme",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System"
+  },
   "tabs": {
     "logs": "Logs",
     "graphs": "Graphs",
