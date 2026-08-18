@@ -18,12 +18,14 @@ import {
   type ParamDocsMap,
 } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
+import { useMavlinkParamDefaultsStore } from "../../stores/mavlinkParamDefaultsStore/mavlinkParamDefaultsStore";
 
 interface ParametersPanelProps {
   vehicleType: MavType;
   onLoadParameters: () => void;
   onRequestMissing: () => void;
   onSetParam: (name: string, value: number, type: MavParamType) => void;
+  onLoadParamDefaults: () => void;
 }
 
 // A full ArduCopter/ArduPlane parameter list is 1000-1700+ entries - rendering every row's DOM
@@ -35,7 +37,21 @@ interface ParametersPanelProps {
 const ROW_HEIGHT_PX = 36;
 // Every row is a single, non-wrapping line, so a fixed row height is always accurate and
 // there's no need for react-virtual's dynamic measureElement.
-const COLUMN_WIDTHS = "18% 10% 8% 16% 48%"; // Name, Value, Units, Options, Description - a CSS grid-template-columns value
+// Column order matches Mission Planner's own Full Parameter List: Name, Value, Default, Units,
+// Options, Description - a CSS grid-template-columns value.
+const COLUMN_WIDTHS = "16% 9% 9% 6% 13% 47%";
+
+/** Formats a param.pck default the same way the raw Value column already displays a live
+ *  value (see the plain `{shownValue}` render below) - kept as its own function only so the
+ *  "no default known yet" fallback lives in one place. */
+function formatDefault(defaults: Record<string, number> | null, name: string): string {
+  if (!defaults || !(name in defaults)) return "-";
+  return String(defaults[name]);
+}
+
+function formatBytes(bytes: number): string {
+  return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
+}
 
 // Mission Planner's own "Full Parameter List" tree groups by the same simple heuristic: the
 // param name's segment before its first underscore (ACRO_BAL_PITCH/ACRO_RP_RATE -> "ACRO",
@@ -69,10 +85,21 @@ function optionsSummary(doc: ParamDoc | undefined): string {
   return "-";
 }
 
-export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissing, onSetParam }: ParametersPanelProps) {
+export function ParametersPanel({
+  vehicleType,
+  onLoadParameters,
+  onRequestMissing,
+  onSetParam,
+  onLoadParamDefaults,
+}: ParametersPanelProps) {
   const { t } = useTranslation();
   const params = useMavlinkParameterStore((s) => s.params);
   const expectedCount = useMavlinkParameterStore((s) => s.expectedCount);
+  const defaultsPhase = useMavlinkParamDefaultsStore((s) => s.phase);
+  const defaultsBytesReceived = useMavlinkParamDefaultsStore((s) => s.bytesReceived);
+  const defaultsTotalBytes = useMavlinkParamDefaultsStore((s) => s.totalBytes);
+  const defaults = useMavlinkParamDefaultsStore((s) => s.defaults);
+  const defaultsError = useMavlinkParamDefaultsStore((s) => s.error);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState("");
@@ -289,6 +316,24 @@ export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissin
               />
             </>
           )}
+          {hasStarted && (defaultsPhase === "idle" || defaultsPhase === "error") && (
+            <Button type="button" size="sm" variant="outline" onClick={onLoadParamDefaults}>
+              {t(defaultsPhase === "error" ? "ardupilotSetup.parameters.retryDefaults" : "ardupilotSetup.parameters.loadDefaults")}
+            </Button>
+          )}
+          {(defaultsPhase === "opening" || defaultsPhase === "downloading") && (
+            <span className="font-mono text-xs text-muted-foreground">
+              {t("ardupilotSetup.parameters.defaultsLoading", {
+                received: formatBytes(defaultsBytesReceived),
+                total: defaultsTotalBytes ? formatBytes(defaultsTotalBytes) : "?",
+              })}
+            </span>
+          )}
+          {defaultsPhase === "error" && defaultsError && (
+            <span className="text-xs text-destructive" title={defaultsError}>
+              {t("ardupilotSetup.parameters.defaultsErrorLabel")}
+            </span>
+          )}
           {hasPendingChanges && (
             <>
               <Button type="button" size="sm" variant="ghost" onClick={handleResetAll}>
@@ -434,6 +479,9 @@ export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissin
                         {t("ardupilotSetup.parameters.value")}
                       </div>
                       <div role="columnheader" className="h-9 px-3 text-left align-middle font-medium text-muted-foreground" style={CELL_STYLE}>
+                        {t("ardupilotSetup.parameters.default")}
+                      </div>
+                      <div role="columnheader" className="h-9 px-3 text-left align-middle font-medium text-muted-foreground" style={CELL_STYLE}>
                         {t("ardupilotSetup.parameters.units")}
                       </div>
                       <div role="columnheader" className="h-9 px-3 text-left align-middle font-medium text-muted-foreground" style={CELL_STYLE}>
@@ -500,6 +548,9 @@ export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissin
                             )}
                           </div>
                           <div role="cell" className="px-3 py-2 font-mono text-muted-foreground" style={CELL_STYLE}>
+                            {formatDefault(defaults, p.name)}
+                          </div>
+                          <div role="cell" className="px-3 py-2 font-mono text-muted-foreground" style={CELL_STYLE}>
                             {doc?.units ?? "-"}
                           </div>
                           <div role="cell" className="px-3 py-2 text-muted-foreground" style={CELL_STYLE} title={options}>
@@ -507,8 +558,15 @@ export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissin
                           </div>
                           <div role="cell" className="px-3 py-2" style={CELL_STYLE}>
                             {doc ? (
-                              <span title={doc.documentation}>
-                                {doc.humanName}{" "}
+                              // The real documentation sentence(s), not just the short humanName
+                              // title - CELL_STYLE truncates this to one line for the fixed row
+                              // height virtualization needs (see the comment on ROW_HEIGHT_PX
+                              // above), but the untruncated text is still reachable via this
+                              // title tooltip, and the Read More link goes to the full official
+                              // docs page for anything that needs more than a hover.
+                              <span title={`${doc.humanName}: ${doc.documentation}`}>
+                                <span className="font-semibold">{doc.humanName}</span>
+                                {doc.documentation ? ` — ${doc.documentation} ` : " "}
                                 <a
                                   href={paramDocsPageUrl(vehicleFolder, p.name)}
                                   target="_blank"

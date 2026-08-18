@@ -19,6 +19,13 @@ import { TelemetrySection } from "./TelemetrySection";
 import { decodeMessage, encodePacket } from "../../mavlink/codec/codec";
 import { VERIFIED_FRAME_PRESETS } from "../../mavlink/frameDiagrams/frameDiagrams";
 import { MavlinkFramer } from "../../mavlink/framer/framer";
+import {
+  decodeFtpNakError,
+  decodeFtpPayload,
+  encodeFtpPayload,
+  unpackParamPck,
+  type FtpPayloadHeader,
+} from "../../mavlink/mavFtpCodec/mavFtpCodec";
 import { buildParamSetPacket, paramValueToWireBits, paramWireBitsToValue, readParamValueBits } from "../../mavlink/paramValueCodec/paramValueCodec";
 import {
   AccelcalVehiclePos,
@@ -30,6 +37,7 @@ import {
   DoMotorTestCommand,
   DoSetServoCommand,
   DoStartMagCalCommand,
+  FileTransferProtocol,
   GlobalPositionInt,
   GpsRawInt,
   Heartbeat,
@@ -38,6 +46,8 @@ import {
   MavAutopilot,
   MavCmd,
   MavDataStream,
+  MavFtpErr,
+  MavFtpOpcode,
   MavModeFlag,
   MavParamType,
   MavState,
@@ -72,6 +82,7 @@ import type { SerialPortInfo } from "../../services/mavlinkTransport/types";
 import { useMavlinkAccelCalStore } from "../../stores/mavlinkAccelCalStore/mavlinkAccelCalStore";
 import { useMavlinkCompassCalStore } from "../../stores/mavlinkCompassCalStore/mavlinkCompassCalStore";
 import { useMavlinkConnectionStore } from "../../stores/mavlinkConnectionStore/mavlinkConnectionStore";
+import { useMavlinkParamDefaultsStore } from "../../stores/mavlinkParamDefaultsStore/mavlinkParamDefaultsStore";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import type { ParamEntry } from "../../stores/mavlinkParameterStore/types";
 import { useMavlinkRcCalStore } from "../../stores/mavlinkRcCalStore/mavlinkRcCalStore";
@@ -115,6 +126,27 @@ const SERVO_CHANNEL_COUNT = 16;
 // and in addition to, the explicit throttle=0 command this app sends on release, in case that
 // release command is ever lost.
 const MOTOR_TEST_TIMEOUT_S = 3;
+// ArduPilot's own virtual-file convention (not part of the general MAVLink FTP spec) for a
+// packed parameter list - `withdefaults=1` makes it include each parameter's factory default
+// alongside its current value (only when they differ - see mavFtpCodec.ts's unpackParamPck).
+const PARAM_PCK_PATH = "@PARAM/param.pck?withdefaults=1";
+
+/** Builds a full MAVLink v2 packet for one FTP payload - pure (no component state), so it's
+ *  safe to call both from click handlers (fresh `vehicle`) and from the persistent onData
+ *  effect closure below (via vehicleRef, since that closure can't see live render state). */
+function buildFtpPacket(
+  targetSysid: number,
+  targetCompid: number,
+  outSeq: number,
+  header: FtpPayloadHeader,
+  data?: Uint8Array,
+): Uint8Array {
+  const msg = new FileTransferProtocol();
+  msg.targetSystem = targetSysid;
+  msg.targetComponent = targetCompid;
+  msg.payload = Array.from(encodeFtpPayload(header, data));
+  return encodePacket(msg, { seq: outSeq, sysid: GCS_SYSID, compid: GCS_COMPID });
+}
 
 /** Resolves true if a heartbeat (any vehicle) arrives within `timeoutMs`, false otherwise. */
 function waitForHeartbeat(timeoutMs: number): Promise<boolean> {
@@ -163,6 +195,12 @@ export function ArduPilotSetupView() {
   const resetTelemetry = useMavlinkTelemetryStore((s) => s.reset);
   const setParams = useMavlinkParameterStore((s) => s.setParams);
   const resetParameters = useMavlinkParameterStore((s) => s.reset);
+  const startParamDefaults = useMavlinkParamDefaultsStore((s) => s.start);
+  const setParamDefaultsOpened = useMavlinkParamDefaultsStore((s) => s.setOpened);
+  const setParamDefaultsProgress = useMavlinkParamDefaultsStore((s) => s.setProgress);
+  const setParamDefaultsDone = useMavlinkParamDefaultsStore((s) => s.setDone);
+  const setParamDefaultsError = useMavlinkParamDefaultsStore((s) => s.setError);
+  const resetParamDefaults = useMavlinkParamDefaultsStore((s) => s.reset);
   const compassCalProgress = useMavlinkCompassCalStore((s) => s.progress);
   const compassCalReports = useMavlinkCompassCalStore((s) => s.reports);
   const compassCalLastCommandAck = useMavlinkCompassCalStore((s) => s.lastCommandAck);
@@ -216,11 +254,84 @@ export function ArduPilotSetupView() {
   // carries no field identifying which sub-calibration it answers, so this tracks whichever
   // was sent most recently to route the next ack to the right store.
   const pendingCalibrationKindRef = useRef<"accel" | "rc" | null>(null);
+  // The in-progress param.pck FTP download's session id and accumulated burst-read chunks
+  // (offset order, see the FileTransferProtocol.MSG_ID case below) - null when no download is
+  // active. A plain ref, not store state, since react-render doesn't need to see every chunk.
+  const ftpSessionRef = useRef<{ session: number; chunks: Uint8Array[]; bytesReceived: number } | null>(null);
+  // The FTP payload's own seq_number field - a separate counter from outgoingSeqRef's MAVLink
+  // packet seq (the FTP spec's sequence numbering is per sub-protocol, not per MAVLink packet).
+  const ftpSeqRef = useRef(0);
+  // Mirrors `vehicle` for the persistent onData effect closure below, which can't see fresh
+  // render-scope state (its own dependency array only re-subscribes on things like `status`,
+  // not on every heartbeat-driven `vehicle` update - see buildFtpPacket's comment for why).
+  const vehicleRef = useRef(vehicle);
+
+  useEffect(() => {
+    vehicleRef.current = vehicle;
+  }, [vehicle]);
 
   useEffect(() => {
     let cancelled = false;
     let unlistenData: (() => void) | undefined;
     let unlistenStatus: (() => void) | undefined;
+
+    // Sends one FTP request packet, reading `vehicle` from vehicleRef (this closure is set up
+    // once per effect run, not per render - see vehicleRef's own comment above).
+    function sendFtp(opcode: MavFtpOpcode, opts: { session?: number; offset?: number; data?: Uint8Array } = {}) {
+      const v = vehicleRef.current;
+      if (!v) return;
+      const ftpSeq = ftpSeqRef.current;
+      ftpSeqRef.current = (ftpSeq + 1) % 0x10000;
+      const outSeq = outgoingSeqRef.current;
+      outgoingSeqRef.current = (outSeq + 1) % 256;
+      const packet = buildFtpPacket(
+        v.sysid,
+        v.compid,
+        outSeq,
+        {
+          seqNumber: ftpSeq,
+          session: opts.session ?? 0,
+          opcode,
+          size: opts.data?.length ?? 0,
+          reqOpcode: MavFtpOpcode.NONE,
+          burstComplete: false,
+          offset: opts.offset ?? 0,
+        },
+        opts.data,
+      );
+      sendBytes(packet)
+        .then(() => addBytesSent(packet.length))
+        .catch(() => {
+          // Best-effort - a lost TERMINATESESSION just leaves an idle session on the vehicle
+          // (it'll time out on its own); a lost BURSTREADFILE request stalls the download,
+          // surfaced to the user as "stuck" rather than a hard error since there's no good
+          // local signal to distinguish that from a slow vehicle.
+        });
+    }
+
+    // Unpacks the fully-downloaded param.pck bytes and records {name -> default} for every
+    // entry (falling back to the entry's own current value when no distinct default was sent -
+    // see mavFtpCodec.ts's unpackParamPck comment on why ArduPilot omits those).
+    function finishParamDefaultsDownload() {
+      const session = ftpSessionRef.current;
+      if (!session) return;
+      ftpSessionRef.current = null;
+      try {
+        const totalLength = session.chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+        const combined = new Uint8Array(totalLength);
+        let writeOffset = 0;
+        for (const chunk of session.chunks) {
+          combined.set(chunk, writeOffset);
+          writeOffset += chunk.length;
+        }
+        const { entries } = unpackParamPck(combined);
+        const paramDefaults: Record<string, number> = {};
+        for (const entry of entries) paramDefaults[entry.name] = entry.default ?? entry.value;
+        setParamDefaultsDone(paramDefaults);
+      } catch (err) {
+        setParamDefaultsError(err instanceof Error ? err.message : String(err));
+      }
+    }
 
     void onData((bytes) => {
       addBytesReceived(bytes.length);
@@ -408,6 +519,47 @@ export function ArduPilotSetupView() {
             pendingParamCountRef.current = msg.paramCount;
             break;
           }
+          case FileTransferProtocol.MSG_ID: {
+            const ftpMsg = decodeMessage(FileTransferProtocol, packet.payload);
+            const { header, data } = decodeFtpPayload(ftpMsg.payload);
+            if (header.opcode === MavFtpOpcode.NAK) {
+              const errCode = decodeFtpNakError(data);
+              // Some firmware versions signal the end of a burst read with a NAK/EOF instead of
+              // ever setting burst_complete=1 on the last ACK - treated as a normal completion,
+              // not a failure.
+              if (header.reqOpcode === MavFtpOpcode.BURSTREADFILE && errCode === MavFtpErr.EOF && ftpSessionRef.current) {
+                finishParamDefaultsDownload();
+                sendFtp(MavFtpOpcode.TERMINATESESSION, { session: header.session });
+              } else if (header.reqOpcode === MavFtpOpcode.OPENFILERO || header.reqOpcode === MavFtpOpcode.BURSTREADFILE) {
+                setParamDefaultsError(`FTP error ${errCode}`);
+                ftpSessionRef.current = null;
+              }
+            } else if (header.opcode === MavFtpOpcode.ACK && header.reqOpcode === MavFtpOpcode.OPENFILERO) {
+              // OPEN_FILE_RO's ACK carries the new session id in the header and the file's real
+              // size as a little-endian uint32 in its data - confirmed against mavlink.io's FTP
+              // service spec.
+              const totalBytes = data.length >= 4 ? new DataView(data.buffer, data.byteOffset, data.byteLength).getUint32(0, true) : 0;
+              ftpSessionRef.current = { session: header.session, chunks: [], bytesReceived: 0 };
+              setParamDefaultsOpened(totalBytes);
+              sendFtp(MavFtpOpcode.BURSTREADFILE, { session: header.session, offset: 0 });
+            } else if (header.opcode === MavFtpOpcode.ACK && header.reqOpcode === MavFtpOpcode.BURSTREADFILE) {
+              const session = ftpSessionRef.current;
+              // Burst-read chunks are assumed to arrive in offset order with nothing dropped -
+              // true for the local serial/UDP links this app targets, and matches the same
+              // "no exotic retry/reorder handling" scope already accepted for every other
+              // protocol flow in this file (mag cal, accel cal, RC cal).
+              if (session && session.session === header.session) {
+                session.chunks.push(data);
+                session.bytesReceived += data.length;
+                setParamDefaultsProgress(session.bytesReceived);
+                if (header.burstComplete) {
+                  finishParamDefaultsDownload();
+                  sendFtp(MavFtpOpcode.TERMINATESESSION, { session: header.session });
+                }
+              }
+            }
+            break;
+          }
           default:
             break;
         }
@@ -427,8 +579,10 @@ export function ArduPilotSetupView() {
         resetCompassCal();
         resetAccelCal();
         resetRcCal();
+        resetParamDefaults();
         pendingParamsRef.current.clear();
         pendingParamCountRef.current = null;
+        ftpSessionRef.current = null;
         streamsRequestedRef.current = false;
       } else {
         setError(s.message);
@@ -438,8 +592,10 @@ export function ArduPilotSetupView() {
         resetCompassCal();
         resetAccelCal();
         resetRcCal();
+        resetParamDefaults();
         pendingParamsRef.current.clear();
         pendingParamCountRef.current = null;
+        ftpSessionRef.current = null;
         streamsRequestedRef.current = false;
       }
     }).then((unlisten) => {
@@ -454,6 +610,7 @@ export function ArduPilotSetupView() {
     };
   }, [
     addBytesReceived,
+    addBytesSent,
     setConnected,
     setDisconnected,
     setError,
@@ -478,6 +635,11 @@ export function ArduPilotSetupView() {
     resetRcCal,
     observeRcCal,
     setRcCalLastCommandAck,
+    setParamDefaultsOpened,
+    setParamDefaultsProgress,
+    setParamDefaultsDone,
+    setParamDefaultsError,
+    resetParamDefaults,
   ]);
 
   // Flushes buffered PARAM_VALUE decodes (see pendingParamsRef above) to the store in one
@@ -602,8 +764,10 @@ export function ArduPilotSetupView() {
     resetCompassCal();
     resetAccelCal();
     resetRcCal();
+    resetParamDefaults();
     pendingParamsRef.current.clear();
     pendingParamCountRef.current = null;
+    ftpSessionRef.current = null;
     // Try the currently-selected baud rate first (fast path when it's already right - same
     // speed as before), then fall back through the other standard rates per port. Without
     // this, a mismatched default baud (e.g. the header still on 57600 while the FC actually
@@ -655,8 +819,10 @@ export function ArduPilotSetupView() {
     resetCompassCal();
     resetAccelCal();
     resetRcCal();
+    resetParamDefaults();
     pendingParamsRef.current.clear();
     pendingParamCountRef.current = null;
+    ftpSessionRef.current = null;
     try {
       await connectMock(vehicleType, copterFrame);
     } catch (err) {
@@ -698,6 +864,36 @@ export function ArduPilotSetupView() {
     req.targetSystem = vehicle.sysid;
     req.targetComponent = vehicle.compid;
     sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+  }
+
+  // Opens the @PARAM/param.pck?withdefaults=1 virtual file over MAVLink FTP - the rest of the
+  // download (BURSTREADFILE, unpacking, TERMINATESESSION) is driven from the FileTransferProtocol
+  // response handling in the main onData effect above, since it has to react to whatever the
+  // vehicle sends back.
+  function handleLoadParamDefaults() {
+    if (!vehicle) return;
+    ftpSessionRef.current = null;
+    ftpSeqRef.current = 0;
+    startParamDefaults();
+    const pathBytes = new TextEncoder().encode(PARAM_PCK_PATH);
+    const ftpSeq = ftpSeqRef.current;
+    ftpSeqRef.current += 1;
+    const packet = buildFtpPacket(
+      vehicle.sysid,
+      vehicle.compid,
+      nextSeq(),
+      {
+        seqNumber: ftpSeq,
+        session: 0,
+        opcode: MavFtpOpcode.OPENFILERO,
+        size: pathBytes.length,
+        reqOpcode: MavFtpOpcode.NONE,
+        burstComplete: false,
+        offset: 0,
+      },
+      pathBytes,
+    );
+    sendGcsPacket(packet);
   }
 
   // Re-requests only the specific indices that never arrived, by index rather than name (the
@@ -1034,6 +1230,7 @@ export function ArduPilotSetupView() {
               onLoadParameters={handleLoadParameters}
               onRequestMissing={handleRequestMissingParameters}
               onSetParam={handleSetParam}
+              onLoadParamDefaults={handleLoadParamDefaults}
             />
           ) : activeSection === "compassCal" ? (
             <CompassCalSection

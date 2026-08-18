@@ -697,23 +697,52 @@ describe("ArduPilotSetupView", () => {
       expect(await screen.findByText("Літак (крило)")).toBeInTheDocument();
     });
 
-    it("loading parameters exercises the real load/list/missing-param round trip against the simulator", async () => {
-      const { user, clickDevMode, clickParametersNav, getStatusAlert } = getView();
-      await clickDevMode();
-      await within(getStatusAlert()).findByText(/Підключено/);
-      await clickParametersNav();
+    it(
+      "loading parameters exercises the real load/list/missing-param round trip against the simulator",
+      async () => {
+        const { user, clickDevMode, clickParametersNav, getStatusAlert } = getView();
+        await clickDevMode();
+        await within(getStatusAlert()).findByText(/Підключено/);
+        await clickParametersNav();
 
-      await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
+        await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
 
-      expect(await screen.findByText("ARSPD_USE")).toBeInTheDocument();
-      // SERVO3_TRIM is deliberately withheld from the initial dump by the simulator (see
-      // mockVehicleSimulator.ts) to give "Request missing" something real to do.
-      expect(screen.queryByText("SERVO3_TRIM")).not.toBeInTheDocument();
-      expect(await screen.findByRole("button", { name: "Запросити відсутні" })).toBeInTheDocument();
+        expect(await screen.findByText("ARSPD_USE")).toBeInTheDocument();
+        // SERVO3_TRIM is deliberately withheld from the initial dump by the simulator (see
+        // mockVehicleSimulator.ts) to give "Request missing" something real to do.
+        expect(screen.queryByText("SERVO3_TRIM")).not.toBeInTheDocument();
+        expect(await screen.findByRole("button", { name: "Запросити відсутні" })).toBeInTheDocument();
 
-      await user.click(screen.getByRole("button", { name: "Запросити відсутні" }));
-      expect(await screen.findByText("SERVO3_TRIM")).toBeInTheDocument();
-    });
+        await user.click(screen.getByRole("button", { name: "Запросити відсутні" }));
+        expect(await screen.findByText("SERVO3_TRIM")).toBeInTheDocument();
+      },
+      20000,
+    );
+
+    it(
+      "downloads parameter defaults over MAVLink FTP and shows them in the Default column",
+      async () => {
+        const { user, clickDevMode, clickParametersNav, getStatusAlert } = getView();
+        await clickDevMode();
+        await within(getStatusAlert()).findByText(/Підключено/);
+        await clickParametersNav();
+
+        await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
+        await screen.findByText("ARSPD_USE");
+
+        await user.click(screen.getByRole("button", { name: "Завантажити стандартні значення" }));
+
+        // ARSPD_RATIO is the one seeded param the mock simulator gives a genuinely different
+        // default (2.0) from its live value (1.98, see mockVehicleSimulator.ts's
+        // SIMULATED_PARAM_DEFAULTS) - proof the Default column reflects the real
+        // param.pck?withdefaults=1 download over MAVLink FTP, not just echoing the live value.
+        fireEvent.change(screen.getByPlaceholderText("Пошук параметрів..."), { target: { value: "ARSPD_RATIO" } });
+        const row = (await screen.findByText("ARSPD_RATIO")).closest('[role="row"]');
+        expect(row).not.toBeNull();
+        expect(within(row as HTMLElement).getByText("2")).toBeInTheDocument();
+      },
+      20000,
+    );
 
     it(
       "Motors & Servos lists the simulated channels and reflects a real press-and-hold test's live output",
@@ -1711,7 +1740,7 @@ describe("ArduPilotSetupView", () => {
       });
     });
 
-    it("orders the table columns as Name, Value, Units, Options, Description", async () => {
+    it("orders the table columns as Name, Value, Default, Units, Options, Description", async () => {
       mockBackend();
       const { user } = await connectWithVehicle();
       await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
@@ -1721,7 +1750,7 @@ describe("ArduPilotSetupView", () => {
       await screen.findByText("ARSPD_USE");
 
       const headers = screen.getAllByRole("columnheader").map((h) => h.textContent);
-      expect(headers).toEqual(["Назва", "Значення", "Одиниці", "Опції", "Опис"]);
+      expect(headers).toEqual(["Назва", "Значення", "За замовчуванням", "Одиниці", "Опції", "Опис"]);
     });
 
     it("batches a fast burst of PARAM_VALUE packets into the table instead of showing them one at a time", async () => {
@@ -1904,7 +1933,10 @@ describe("ArduPilotSetupView", () => {
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("PILOT_THR_FILT", 2, MavParamType.INT8, 1, 2, 2) });
       await screen.findByText("ARSPD_USE");
 
+      // The full documentation sentence is now shown directly in the cell, not just the short
+      // humanName title (previously only reachable via the title tooltip).
       expect(await screen.findByText("Use airspeed")).toBeInTheDocument();
+      expect(screen.getByText(/Enables airspeed use/)).toBeInTheDocument();
       // Both loaded params have docs now, so both get their own Read more link.
       const readMoreLinks = screen.getAllByRole("link", { name: "Детальніше →" });
       expect(readMoreLinks.map((a) => a.getAttribute("href"))).toEqual(
