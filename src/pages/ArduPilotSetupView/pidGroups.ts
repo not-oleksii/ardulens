@@ -19,6 +19,14 @@
  * Yaw is a different controller shape entirely (no P/I/D) - a rate/lateral-acceleration damper
  * with YAW2SRV_DAMP (rate damping), YAW2SRV_SLIP (lateral-accel to yaw-rate), YAW2SRV_INT
  * (integral trim) - this naming is stable across firmware versions.
+ *
+ * Roll/pitch also get an angle-loop shaping term group (confirmed against
+ * libraries/APM_Control/AP_RollController.cpp and AP_PitchController.cpp's own var_info/
+ * AP_GROUPINFO tables on GitHub) - RLL2SRV_ANGLE_P/PTCH2SRV_ANGLE_P (angle-error-to-rate gain,
+ * 0 means "use 1/TCONST"), RLL2SRV_TCONST/PTCH2SRV_TCONST (seconds from demanded to achieved
+ * angle), and RLL2SRV_RMAX (roll) / PTCH2SRV_RMAX_UP + PTCH2SRV_RMAX_DN (pitch has separate
+ * up/down rate caps, roll doesn't) - the max commanded rate in angle-stabilized modes, 0
+ * disables the limit. These names are stable across firmware versions, unlike the rate gains.
  */
 
 export interface PidTerm {
@@ -82,6 +90,9 @@ const PLANE_CONFIG: PidVehicleConfig = {
         { label: "I", candidates: ["RLL_RATE_I", "RLL2SRV_I"] },
         { label: "D", candidates: ["RLL_RATE_D", "RLL2SRV_D"] },
         { label: "FF", candidates: ["RLL_RATE_FF", "RLL2SRV_FF"] },
+        { label: "Angle P", candidates: ["RLL2SRV_ANGLE_P"] },
+        { label: "TC", candidates: ["RLL2SRV_TCONST"] },
+        { label: "Max Rate", candidates: ["RLL2SRV_RMAX"] },
       ],
     },
     {
@@ -91,6 +102,10 @@ const PLANE_CONFIG: PidVehicleConfig = {
         { label: "I", candidates: ["PTCH_RATE_I", "PTCH2SRV_I"] },
         { label: "D", candidates: ["PTCH_RATE_D", "PTCH2SRV_D"] },
         { label: "FF", candidates: ["PTCH_RATE_FF", "PTCH2SRV_FF"] },
+        { label: "Angle P", candidates: ["PTCH2SRV_ANGLE_P"] },
+        { label: "TC", candidates: ["PTCH2SRV_TCONST"] },
+        { label: "Max Rate Up", candidates: ["PTCH2SRV_RMAX_UP"] },
+        { label: "Max Rate Dn", candidates: ["PTCH2SRV_RMAX_DN"] },
       ],
     },
     {

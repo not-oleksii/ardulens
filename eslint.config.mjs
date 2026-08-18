@@ -10,7 +10,6 @@ export default tseslint.config(
       "**/dist/**",
       "coverage/**",
       "app/src-tauri/target/**",
-      "legacy/**",
       "app/public/cesium/**",
     ],
   },

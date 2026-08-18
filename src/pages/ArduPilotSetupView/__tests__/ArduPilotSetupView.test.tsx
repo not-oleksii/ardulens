@@ -1306,6 +1306,18 @@ describe("ArduPilotSetupView", () => {
       expect(screen.getByText("0.125")).toBeInTheDocument();
       expect(screen.getByText("0.25")).toBeInTheDocument();
     });
+
+    it("shows the roll/pitch angle-loop shaping terms (Angle P, TC, Max Rate)", async () => {
+      mockBackend();
+      await connectPlaneAndOpenPidTune();
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("RLL2SRV_ANGLE_P", 0, MavParamType.REAL32, 0, 4, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("RLL2SRV_TCONST", 0.5, MavParamType.REAL32, 1, 4, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("RLL2SRV_RMAX", 60, MavParamType.INT16, 2, 4, 3) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("PTCH2SRV_RMAX_UP", 40, MavParamType.INT16, 3, 4, 4) });
+      expect(await screen.findByText("0.5")).toBeInTheDocument();
+      expect(screen.getByText("60")).toBeInTheDocument();
+      expect(screen.getByText("40")).toBeInTheDocument();
+    });
   });
 
   describe("ESC calibration", () => {

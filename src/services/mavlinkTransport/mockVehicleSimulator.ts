@@ -266,19 +266,29 @@ export function startMockVehicle(
       params.set(`ATC_ANG_${axis}_P`, { value: 4.5, type: MavParamType.REAL32, index: params.size });
     }
   } else if (vehicleFolderForMavType(vehicleType) === "ArduPlane") {
-    // Rate controller gains for the PID Tune tab (the modern RLL_RATE_*/PTCH_RATE_* naming,
-    // confirmed against ArduPilot's own AP_RollController.cpp/AP_PitchController.cpp source)
-    // plus the yaw damper's YAW2SRV_* gains - plausible demo values, not claimed to be exact
-    // stock defaults the way the Copter ones above are.
+    // Rate + angle-loop-shaping gains for the PID Tune tab - real ArduPlane stock defaults,
+    // confirmed by reading the AC_PID::Defaults{} constructor args and AP_GROUPINFO tables in
+    // ArduPilot's own libraries/APM_Control/AP_RollController.cpp and AP_PitchController.cpp on
+    // GitHub (the modern RLL_RATE_*/PTCH_RATE_* rate gains; RLL2SRV_ANGLE_P/TCONST/RMAX and
+    // PTCH2SRV_ANGLE_P/TCONST/RMAX_UP/RMAX_DN for angle-loop shaping), plus the yaw damper's
+    // YAW2SRV_* gains from AP_YawController.cpp (all zero at stock default - the wiki's "0.5 is
+    // a good starting point" for YAW2SRV_DAMP is tuning guidance, not the factory default).
     for (const axis of ["RLL", "PTCH"] as const) {
       const prefix = axis === "RLL" ? "RLL_RATE" : "PTCH_RATE";
-      const [p, i, d, ff] = axis === "RLL" ? [0.6, 0.18, 0.02, 0.3] : [0.7, 0.2, 0.02, 0.35];
+      const [p, i, d, ff] = axis === "RLL" ? [0.08, 0.15, 0, 0.345] : [0.04, 0.15, 0, 0.345];
       params.set(`${prefix}_P`, { value: p, type: MavParamType.REAL32, index: params.size });
       params.set(`${prefix}_I`, { value: i, type: MavParamType.REAL32, index: params.size });
       params.set(`${prefix}_D`, { value: d, type: MavParamType.REAL32, index: params.size });
       params.set(`${prefix}_FF`, { value: ff, type: MavParamType.REAL32, index: params.size });
     }
-    params.set("YAW2SRV_DAMP", { value: 0.5, type: MavParamType.REAL32, index: params.size });
+    params.set("RLL2SRV_ANGLE_P", { value: 0, type: MavParamType.REAL32, index: params.size });
+    params.set("RLL2SRV_TCONST", { value: 0.5, type: MavParamType.REAL32, index: params.size });
+    params.set("RLL2SRV_RMAX", { value: 0, type: MavParamType.INT16, index: params.size });
+    params.set("PTCH2SRV_ANGLE_P", { value: 0, type: MavParamType.REAL32, index: params.size });
+    params.set("PTCH2SRV_TCONST", { value: 0.5, type: MavParamType.REAL32, index: params.size });
+    params.set("PTCH2SRV_RMAX_UP", { value: 0, type: MavParamType.INT16, index: params.size });
+    params.set("PTCH2SRV_RMAX_DN", { value: 0, type: MavParamType.INT16, index: params.size });
+    params.set("YAW2SRV_DAMP", { value: 0, type: MavParamType.REAL32, index: params.size });
     params.set("YAW2SRV_INT", { value: 0, type: MavParamType.REAL32, index: params.size });
     params.set("YAW2SRV_SLIP", { value: 0, type: MavParamType.REAL32, index: params.size });
   }
