@@ -71,7 +71,35 @@
       "motorSafetyWarning": "Remove propellers before testing motors. Hold a motor's number to spin it briefly and confirm it's wired to the correct position.",
       "reverseMotor": "Reverse",
       "reverseNote": "Reverse takes effect on the motor's next arm or after a reboot, and only works with DShot ESCs - PWM/OneShot ESCs still need two motor wires physically swapped.",
-      "holdToTestMotor": "Hold to test"
+      "holdToTestMotor": "Hold to test",
+      "wizard": {
+        "step": {
+          "frame": "Frame",
+          "test": "Test & Reverse",
+          "reboot": "Reboot",
+          "done": "Done"
+        },
+        "legendCw": "Clockwise (CW)",
+        "legendCcw": "Counter-clockwise (CCW)",
+        "testProgress": "{{tested}} / {{total}} motors spin-tested",
+        "testAllPrompt": "Spin each motor briefly to confirm it's wired to the correct position and spins the correct direction - do this for every motor before continuing.",
+        "back": "Back",
+        "next": "Next",
+        "rebootSummaryHeading": "Ready to apply",
+        "rebootSummaryFrame": "Frame: {{frame}}",
+        "rebootSummaryReversed": "Reversed motors: {{list}}",
+        "rebootSummaryNoneReversed": "No motors reversed",
+        "rebootSent": "Reboot command sent - wait a few seconds for the vehicle to restart and reconnect, then continue.",
+        "continueToSummary": "Continue to Summary",
+        "doneHeading": "Motor setup summary",
+        "confirmed": "Confirmed by vehicle",
+        "pending": "Awaiting confirmation...",
+        "reversedMotorLabel": "Motor {{motor}}: Reverse",
+        "testedSummary": "Spin-tested this session: {{list}}",
+        "notTestedThisSession": "No motors were spin-tested this session.",
+        "startOver": "Start Over",
+        "editSettings": "Edit Test & Reverse"
+      }
     },
     "compassCal": {
       "heading": "Compass Calibration",

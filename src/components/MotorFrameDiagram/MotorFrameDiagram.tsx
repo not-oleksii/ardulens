@@ -1,4 +1,4 @@
-import type { MotorPosition } from "../../mavlink/frameDiagrams/frameDiagrams";
+import { MOTOR_DIRECTION_COLORS, type MotorPosition } from "../../mavlink/frameDiagrams/frameDiagrams";
 
 interface MotorFrameDiagramProps {
   motors: MotorPosition[];
@@ -15,10 +15,6 @@ const RADIUS = 100;
 // that same angle instead of overlapping at one point.
 const COAXIAL_INNER_RADIUS = 62;
 const COAXIAL_OUTER_RADIUS = 138;
-// Exact colors from ArduPilot's own motor diagrams (m_01_01_quad_x.svg etc.) - CW is green,
-// CCW is blue, matching what users already see in Mission Planner/the ArduPilot docs.
-const CW_COLOR = "#33cc33";
-const CCW_COLOR = "#00b8e6";
 const MOTOR_RADIUS = 26;
 const COAXIAL_MOTOR_RADIUS = 20;
 
@@ -98,7 +94,7 @@ export function MotorFrameDiagram({ motors, activeMotor, onTestStart, onTestStop
           >
             <circle
               r={isActive ? radius + 6 : radius}
-              fill={direction === "CW" ? CW_COLOR : CCW_COLOR}
+              fill={MOTOR_DIRECTION_COLORS[direction]}
               stroke={isActive ? "var(--foreground)" : "none"}
               strokeWidth={3}
             />
