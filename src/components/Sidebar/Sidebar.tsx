@@ -12,6 +12,7 @@ import {
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher/LanguageSwitcher";
+import { ThemeSwitcher } from "@/components/ThemeSwitcher/ThemeSwitcher";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -86,7 +87,10 @@ export function Sidebar() {
         <Upload className="h-4 w-4 shrink-0" />
         {!collapsed && <span>{t("sidebar.changeFile")}</span>}
       </Button>
-      <LanguageSwitcher compact={collapsed} />
+      <div className={cn("flex flex-wrap gap-2", collapsed && "flex-col")}>
+        <ThemeSwitcher compact={collapsed} />
+        <LanguageSwitcher compact={collapsed} />
+      </div>
     </aside>
   );
 }
