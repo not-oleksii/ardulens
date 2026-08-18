@@ -506,3 +506,49 @@ const MOTOR_COUNT_BY_FRAME_CLASS: Record<number, number> = {
 export function motorCountForFrameClass(frameClass: number): number | null {
   return MOTOR_COUNT_BY_FRAME_CLASS[frameClass] ?? null;
 }
+
+// Real FRAME_CLASS/FRAME_TYPE enums, hardcoded from ArduCopter's own apm.pdef.xml (fetched
+// directly and confirmed, not guessed) - a fully offline fallback for MotorsCopterSection's
+// pickers so a network hiccup fetching fetchParamDocs() never locks these two safety-critical,
+// reboot-required params to a single undeletable "whatever the vehicle already has" option (the
+// bug this was added to fix: a real vehicle connection with the docs fetch blocked showed only
+// "0" for both, with no way to change either from the UI). Kept independent from
+// VERIFIED_FRAME_PRESETS above, which is deliberately a *smaller* verified-diagram subset - the
+// picker should offer every real class/type ArduPilot supports, even ones with no diagram yet.
+export const FRAME_CLASS_NAMES: Record<number, string> = {
+  0: "Undefined",
+  1: "Quad",
+  2: "Hexa",
+  3: "Octa",
+  4: "OctaQuad",
+  5: "Y6",
+  6: "Heli",
+  7: "Tri",
+  8: "SingleCopter",
+  9: "CoaxCopter",
+  10: "BiCopter",
+  11: "Heli_Dual",
+  12: "DodecaHexa",
+  13: "HeliQuad",
+  14: "Deca",
+  15: "Scripting Matrix",
+  16: "6DoF Scripting",
+  17: "Dynamic Scripting Matrix",
+};
+
+export const FRAME_TYPE_NAMES: Record<number, string> = {
+  0: "Plus",
+  1: "X",
+  2: "V",
+  3: "H",
+  4: "V-Tail",
+  5: "A-Tail",
+  10: "Y6B",
+  11: "Y6F",
+  12: "BetaFlightX",
+  13: "DJIX",
+  14: "ClockwiseX",
+  15: "I",
+  18: "BetaFlightXReversed",
+  19: "Y4",
+};

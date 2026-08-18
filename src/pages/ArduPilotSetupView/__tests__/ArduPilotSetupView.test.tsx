@@ -1025,7 +1025,12 @@ describe("ArduPilotSetupView", () => {
       // block's docs tests below) - fetchParamDocs caches successful ArduCopter results at
       // module scope (in-memory + localStorage), and this file's tests share that module, so a
       // real fetch here would leak cached docs into those later tests. The file-wide beforeEach
-      // already stubs fetch to reject, which exercises the raw-numeric-fallback <option> path.
+      // already stubs fetch to reject, which exercises MotorsCopterSection's offline
+      // FRAME_CLASS_NAMES/FRAME_TYPE_NAMES fallback (see frameDiagrams.ts) - a real user must be
+      // able to pick a genuinely different class/type here, not just re-submit the one the
+      // vehicle already reported (a single-option <select> can't be changed by a real user at
+      // all, even though a test could still fire a same-value change event on it and get a false
+      // pass - this bug shipped once already and was reported against a real vehicle).
       const invoked = vi.fn();
       mockBackend(invoked);
       await connectCopterAndOpenMotors();
@@ -1039,13 +1044,21 @@ describe("ArduPilotSetupView", () => {
         screen.getByText("Зміна класу або типу рами вимагає перезавантаження - вона не застосується одразу."),
       ).toBeInTheDocument();
 
+      // Real, human-readable option labels are present without needing the docs fetch to
+      // succeed - the offline enum, not a single locked-in numeric option.
+      expect(screen.getByRole("option", { name: "Quad" })).toBeInTheDocument();
+      expect(screen.getByRole("option", { name: "Hexa" })).toBeInTheDocument();
+
       const frameClassSelect = screen.getByRole("combobox", { name: "Клас рами" });
-      fireEvent.change(frameClassSelect, { target: { value: "1" } });
+      fireEvent.change(frameClassSelect, { target: { value: "2" } }); // Quad -> Hexa
 
       const paramSet = invoked.mock.calls.find(
         ([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamSet.MSG_ID,
       );
       expect(paramSet).toBeDefined();
+      const bytes = (paramSet![1] as { bytes: number[] }).bytes;
+      const payload = new Uint8Array(bytes.slice(10)); // 10-byte v2 header
+      expect(paramWireBitsToValue(readParamValueBits(payload), MavParamType.INT8)).toBe(2);
     });
 
     it("clicking Reboot Now on the Reboot tab sends PREFLIGHT_REBOOT_SHUTDOWN(autopilot=REBOOT)", async () => {
