@@ -2051,7 +2051,7 @@ describe("ArduPilotSetupView", () => {
       mockBackend();
       await connectAndOpenRcSetup();
       expect(screen.getByRole("button", { name: "Завантажити налаштування RC" })).toBeInTheDocument();
-      expect(screen.getByText("Налаштування режимів польоту та функцій каналів ще не завантажено.")).toBeInTheDocument();
+      expect(screen.getByText("Налаштування RC-входів ще не завантажено.")).toBeInTheDocument();
     });
 
     it("requests FLTMODE_CH, FLTMODE1-6, and RC1-16_OPTION by name when Load is clicked", async () => {
@@ -2086,8 +2086,9 @@ describe("ArduPilotSetupView", () => {
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("FLTMODE_CH", 5, MavParamType.INT8, 0, 7, 1) });
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("FLTMODE1", 0, MavParamType.INT8, 1, 7, 2) });
 
-      const channelSelect = await screen.findByRole("combobox", { name: "Канал режиму польоту" });
-      await user.selectOptions(channelSelect, "6");
+      const fltModeChannelFunction = await screen.findByRole("button", { name: "Канал режиму польоту" });
+      await user.click(fltModeChannelFunction);
+      await user.click(screen.getByRole("button", { name: "Канал 6" }));
 
       const saveAllButton = await screen.findByRole("button", { name: "Зберегти все (1)" });
       await user.click(saveAllButton);
@@ -2109,7 +2110,7 @@ describe("ArduPilotSetupView", () => {
 
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("FLTMODE_CH", 5, MavParamType.INT8, 0, 7, 1) });
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("FLTMODE1", 0, MavParamType.INT8, 1, 7, 2) });
-      await screen.findByRole("combobox", { name: "Канал режиму польоту" });
+      await screen.findByRole("heading", { name: "Функції" });
 
       // Band 3 (1361-1490us, third FLTMODE slot) - see rcBands.ts's documented boundaries.
       await emit(DATA_EVENT, { bytes: buildRcChannelsBytes({ 5: 1425 }, 8, 1) });
@@ -2125,12 +2126,13 @@ describe("ArduPilotSetupView", () => {
 
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("FLTMODE_CH", 5, MavParamType.INT8, 0, 7, 1) });
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("RC7_OPTION", 0, MavParamType.INT16, 1, 7, 2) });
-      await screen.findByText("0");
 
-      await user.click(screen.getByText("0"));
-      const input = screen.getByRole("textbox");
-      await user.clear(input);
-      await user.type(input, "153{Enter}");
+      // Docs fetch is stubbed to reject in this suite, so the RCx_OPTION enum never loads -
+      // this exercises the custom-function-code fallback path instead of the docs-driven list.
+      const customCodeInput = await screen.findByPlaceholderText("Або введіть код функції...");
+      await user.type(customCodeInput, "153");
+      await user.click(screen.getByRole("button", { name: "Застосувати" }));
+      await user.click(screen.getByRole("button", { name: "Канал 7" }));
 
       const saveAllButton = await screen.findByRole("button", { name: "Зберегти все (1)" });
       await user.click(saveAllButton);
