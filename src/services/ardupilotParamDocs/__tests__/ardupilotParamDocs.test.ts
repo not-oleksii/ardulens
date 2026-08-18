@@ -16,6 +16,10 @@ const SAMPLE_XML = `<?xml version="1.0" encoding="utf-8"?>
       </param>
       <param humanName="Roll P gain (multirotor)" name="ArduCopter:ATC_RAT_RLL_P" documentation="Multirotor roll rate P gain">
       </param>
+      <param humanName="Angle Max" name="ArduCopter:ANGLE_MAX" documentation="Maximum lean angle in all flight modes">
+        <field name="Units">deg</field>
+        <field name="Range">10.0 80.0</field>
+      </param>
       <param humanName="Servo output function" name="ArduCopter:SERVO1_FUNCTION" documentation="Function assigned to this servo">
         <values>
           <value code="-1">GPIO</value>
@@ -41,7 +45,19 @@ describe("parsePdefXml", () => {
     expect(docs["PILOT_THR_FILT"]).toEqual({
       humanName: "Throttle filter cutoff",
       documentation: "Throttle filter cutoff (Hz)",
+      units: "Hz",
     });
+  });
+
+  it("parses a <field name=\"Range\"> into a {min, max} pair", () => {
+    const docs = parsePdefXml(SAMPLE_XML);
+    expect(docs["ANGLE_MAX"]?.range).toEqual({ min: 10, max: 80 });
+  });
+
+  it("omits units/range for params with neither field", () => {
+    const docs = parsePdefXml(SAMPLE_XML);
+    expect(docs["ATC_RAT_RLL_P"]).not.toHaveProperty("units");
+    expect(docs["ATC_RAT_RLL_P"]).not.toHaveProperty("range");
   });
 
   it("keeps library-section param names as-is (no vehicle prefix)", () => {
