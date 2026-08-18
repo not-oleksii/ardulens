@@ -29,6 +29,38 @@ export const PLANE_MODE_NAMES: Readonly<Record<number, string>> = {
   23: "QACRO",
   24: "THERMAL",
 };
+/** ArduCopter flight mode numbers -> names (Mode::Number enum, ArduCopter/mode.h) - used for the
+ *  live PFD mode label and the Flight Modes setup dropdowns. Gaps (8, 10, 12) are unassigned
+ *  numbers in the real firmware, not omissions here. */
+export const COPTER_MODE_NAMES: Readonly<Record<number, string>> = {
+  0: "STABILIZE",
+  1: "ACRO",
+  2: "ALT_HOLD",
+  3: "AUTO",
+  4: "GUIDED",
+  5: "LOITER",
+  6: "RTL",
+  7: "CIRCLE",
+  9: "LAND",
+  11: "DRIFT",
+  13: "SPORT",
+  14: "FLIP",
+  15: "AUTOTUNE",
+  16: "POSHOLD",
+  17: "BRAKE",
+  18: "THROW",
+  19: "AVOID_ADSB",
+  20: "GUIDED_NOGPS",
+  21: "SMART_RTL",
+  22: "FLOWHOLD",
+  23: "FOLLOW",
+  24: "ZIGZAG",
+  25: "SYSTEMID",
+  26: "AUTOROTATE",
+  27: "AUTO_RTL",
+  28: "TURTLE",
+};
+
 export const AIRBORNE_SPEED = 10; // m/s -> considered flying
 export const MAX_FROM_CENTER = 300_000; // 300 km -> reject cross-country teleports
 export const MAX_STEP_SPEED = 150; // m/s -> reject impossible jumps between samples

@@ -40,6 +40,7 @@
       "compassCal": "Compass Cal",
       "accelCal": "Accel Cal",
       "rcCal": "RC Cal",
+      "rcSetup": "RC Setup",
       "escCal": "ESC Cal",
       "motorsSetup": "Motors Setup",
       "batteryConfig": "Battery Config",
@@ -169,6 +170,28 @@
       "noSignal": "No RC signal received yet - check the transmitter and receiver.",
       "liveHint": "Receiving {{count}} channel(s) from the receiver.",
       "reverse": "Reverse"
+    },
+    "rcSetup": {
+      "heading": "RC Input Setup",
+      "load": "Load RC Setup",
+      "notLoaded": "Flight mode and channel option settings haven't been loaded yet.",
+      "reset": "Reset",
+      "saveAll": "Save All ({{count}})",
+      "flightModesHeading": "Flight Modes",
+      "fltmodeChannel": "Flight mode channel",
+      "active": "active",
+      "optionsHeading": "Channel Options",
+      "pos": {
+        "low": "LOW",
+        "middle": "MID",
+        "high": "HIGH"
+      },
+      "confirmTitle": "Apply RC setup changes?",
+      "confirmDescription": "This will write {{count}} parameter(s) to the vehicle.",
+      "from": "From",
+      "to": "To",
+      "cancel": "Cancel",
+      "confirmSave": "Save"
     },
     "escCal": {
       "heading": "ESC Calibration",

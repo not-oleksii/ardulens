@@ -8,6 +8,7 @@ import {
   Joystick,
   List,
   MoveDiagonal,
+  Radio,
   SlidersHorizontal,
   Zap,
 } from "lucide-react";
@@ -24,6 +25,7 @@ export type ArduPilotSetupSection =
   | "compassCal"
   | "accelCal"
   | "rcCal"
+  | "rcSetup"
   | "escCal"
   | "motorsSetup"
   | "batteryConfig"
@@ -35,6 +37,7 @@ const SECTIONS: readonly ArduPilotSetupSection[] = [
   "compassCal",
   "accelCal",
   "rcCal",
+  "rcSetup",
   "escCal",
   "motorsSetup",
   "batteryConfig",
@@ -47,6 +50,7 @@ const SECTION_ICONS = {
   compassCal: Compass,
   accelCal: MoveDiagonal,
   rcCal: Joystick,
+  rcSetup: Radio,
   escCal: Zap,
   motorsSetup: Cog,
   batteryConfig: BatteryMedium,

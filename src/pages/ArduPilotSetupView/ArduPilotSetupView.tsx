@@ -13,6 +13,8 @@ import { ParametersPanel } from "./ParametersPanel";
 import { allPidCandidateNames, pidConfigForVehicleFolder } from "./pidGroups";
 import { PidTuneSection } from "./PidTuneSection";
 import { RcCalSection } from "./RcCalSection";
+import { RC_SETUP_PARAM_NAMES } from "./rcSetupParams";
+import { RcSetupSection } from "./RcSetupSection";
 import { TelemetrySection } from "./TelemetrySection";
 import { decodeMessage, encodePacket } from "../../mavlink/codec/codec";
 import { VERIFIED_FRAME_PRESETS } from "../../mavlink/frameDiagrams/frameDiagrams";
@@ -927,6 +929,20 @@ export function ArduPilotSetupView() {
     }
   }
 
+  // Requests the flight-mode-switch and per-channel option params by name - see
+  // rcSetupParams.ts for the real, generic (not vehicle-specific) param list.
+  function handleLoadRcSetup() {
+    if (!vehicle) return;
+    for (const name of RC_SETUP_PARAM_NAMES) {
+      const req = new ParamRequestRead();
+      req.targetSystem = vehicle.sysid;
+      req.targetComponent = vehicle.compid;
+      req.paramId = name;
+      req.paramIndex = -1;
+      sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+    }
+  }
+
   // Reboots the flight controller - needed for RebootRequired params (e.g. FRAME_CLASS/
   // FRAME_TYPE) to actually take effect; PARAM_SET itself already wrote the new value to the
   // vehicle's persistent storage immediately, so there's no separate "save" step, only this.
@@ -1051,6 +1067,13 @@ export function ArduPilotSetupView() {
               onSave={handleSaveRcCal}
               onCancel={handleCancelRcCal}
               onToggleReversed={toggleRcCalReversed}
+            />
+          ) : activeSection === "rcSetup" ? (
+            <RcSetupSection
+              vehicleType={vehicle?.type ?? MavType.GENERIC}
+              live={rcCalLive}
+              onLoad={handleLoadRcSetup}
+              onSetParam={handleSetParam}
             />
           ) : activeSection === "escCal" ? (
             <EscCalSection onStart={handleStartEscCalibration} />
