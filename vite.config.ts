@@ -18,7 +18,12 @@ export default defineConfig({
   },
   publicDir: 'app/public',
   server: {
-    open: '/app/',
+    // Only auto-open a browser tab for a plain `npm run dev` - when Vite is started as
+    // Tauri's own beforeDevCommand (run-desktop.bat -> `npm run tauri dev`), the desktop
+    // window is the app; TAURI_ENV_PLATFORM (among others) is only set in that case,
+    // confirmed by comparing `npm run dev`'s env against `npm run tauri dev`'s - so this
+    // is what stops a browser tab from also opening alongside the Tauri window.
+    open: process.env.TAURI_ENV_PLATFORM ? false : '/app/',
     watch: {
       // app/src-tauri/target is Cargo's build output. Vite has no reason to
       // watch it, and doing so races Cargo's file writes on Windows, where
