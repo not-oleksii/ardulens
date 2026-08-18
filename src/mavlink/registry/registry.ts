@@ -39,6 +39,15 @@ export { DoMotorTestCommand, MotorTestThrottleType } from "mavlink-mappings/dist
 // side above. `invalid="UINT16_MAX"` per-channel (confirmed against MAVLink's own common.xml)
 // marks a channel as unused, not 0.
 export { RcChannels } from "mavlink-mappings/dist/lib/common";
+// FILE_TRANSFER_PROTOCOL (MSG_ID 110) is ArduPilot's MAVLink FTP microservice - the only real
+// mechanism it exposes for parameter DEFAULT values (confirmed: neither PARAM_VALUE nor the
+// apm.pdef.xml docs carry a default). `payload` (uint8_t[251]) carries a 12-byte PayloadHeader
+// (seq/session/opcode/size/req_opcode/burst_complete/offset) plus up to 239 bytes of data, per
+// https://mavlink.io/en/services/ftp.html - encoded/decoded by mavFtpCodec.ts, not by this
+// package's own field codec (the payload is opaque uint8_t[] as far as MAVLink itself is
+// concerned). MavFtpOpcode/MavFtpErr are this session's own re-verified (against the package's
+// raw common.d.ts/common.js, not a paraphrase) exact enum members for that sub-protocol.
+export { FileTransferProtocol, MavFtpOpcode, MavFtpErr } from "mavlink-mappings/dist/lib/common";
 // GLOBAL_POSITION_INT lives in the "standard" dialect file, not "common" - this package
 // splits a curated subset of core messages there even though they're not ArduPilot-specific.
 export { GlobalPositionInt } from "mavlink-mappings/dist/lib/standard";

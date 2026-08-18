@@ -2,6 +2,15 @@ import type { CommandLong } from "mavlink-mappings/dist/lib/common";
 import type { MavLinkData } from "mavlink-mappings/dist/lib/mavlink";
 import { decodeMessage, encodePacket } from "../../mavlink/codec/codec";
 import { MavlinkFramer } from "../../mavlink/framer/framer";
+import {
+  ApParamType,
+  decodeFtpPayload,
+  encodeFtpPayload,
+  FTP_MAX_DATA_LENGTH,
+  packParamPck,
+  type ApParamTypeCode,
+  type FtpPayloadHeader,
+} from "../../mavlink/mavFtpCodec/mavFtpCodec";
 import { buildParamValuePacket, paramValueToWireBits, paramWireBitsToValue, readParamValueBits } from "../../mavlink/paramValueCodec/paramValueCodec";
 import {
   AccelcalVehiclePos,
@@ -10,6 +19,7 @@ import {
   CommandAck,
   DoMotorTestCommand,
   DoSetServoCommand,
+  FileTransferProtocol,
   GlobalPositionInt,
   GpsFixType,
   GpsRawInt,
@@ -19,6 +29,8 @@ import {
   MagCalStatus,
   MavAutopilot,
   MavCmd,
+  MavFtpErr,
+  MavFtpOpcode,
   MavModeFlag,
   MavParamType,
   MavResult,
@@ -68,6 +80,16 @@ const COMMAND_LONG_MSG_ID = 76;
 // deliberately withheld from the initial PARAM_REQUEST_LIST dump, and only ever answers to a
 // specific PARAM_REQUEST_READ, so the "Request missing" feature has something real to do.
 const SIMULATED_DROPPED_PARAM = "SERVO3_TRIM";
+// Real ArduPilot's factory default for ARSPD_RATIO is 2.0 - the mock seeds 1.98 (see
+// FAKE_PARAM_SEED's own comment) so this one param has a genuinely different default, giving
+// the Default column (served over MAVLink FTP's @PARAM/param.pck?withdefaults=1, see
+// handleFtpRequest below) something real to show without hand-crafting one for every param.
+const SIMULATED_PARAM_DEFAULTS: Record<string, number> = {
+  ARSPD_RATIO: 2.0,
+};
+// ArduPilot's own virtual-file path (see ArduPilotSetupView.tsx's PARAM_PCK_PATH) - only the
+// path portion (before any "?query") is checked, matching the real firmware's file lookup.
+const PARAM_PCK_FILE_PATH = "@PARAM/param.pck";
 
 interface FakeParam {
   value: number;
@@ -536,6 +558,98 @@ export function startMockVehicle(
     }
   }
 
+  // --- MAVLink FTP (param.pck defaults download) ---
+  // A real, minimal FTP server: enough of OPEN_FILE_RO/BURSTREADFILE/TERMINATESESSION to serve
+  // exactly one virtual file, @PARAM/param.pck?withdefaults=1 - the only file this app's FTP
+  // client (ArduPilotSetupView.tsx) ever requests. Reuses the exact same mavFtpCodec.ts the
+  // real app and its tests use, so nothing about the wire format is faked.
+  let ftpSession: { id: number; bytes: Uint8Array } | null = null;
+  let nextFtpSessionId = 1;
+  let ftpRespSeq = 0;
+
+  function apParamTypeFor(type: MavParamType): ApParamTypeCode {
+    switch (type) {
+      case MavParamType.INT8:
+      case MavParamType.UINT8:
+        return ApParamType.INT8;
+      case MavParamType.INT16:
+      case MavParamType.UINT16:
+        return ApParamType.INT16;
+      case MavParamType.INT32:
+      case MavParamType.UINT32:
+        return ApParamType.INT32;
+      default:
+        return ApParamType.FLOAT;
+    }
+  }
+
+  function buildParamPckBytes(): Uint8Array {
+    const entries = Array.from(params.entries())
+      .sort((a, b) => a[1].index - b[1].index)
+      .map(([name, p]) => {
+        const defaultValue = SIMULATED_PARAM_DEFAULTS[name];
+        return {
+          name,
+          type: apParamTypeFor(p.type),
+          value: p.value,
+          ...(defaultValue !== undefined && defaultValue !== p.value ? { default: defaultValue } : {}),
+        };
+      });
+    return packParamPck(entries);
+  }
+
+  function ftpSend(opcode: MavFtpOpcode, reqOpcode: MavFtpOpcode, opts: { session?: number; offset?: number; data?: Uint8Array; burstComplete?: boolean } = {}) {
+    const msg = new FileTransferProtocol();
+    msg.targetSystem = GCS_SYSID;
+    msg.targetComponent = GCS_COMPID;
+    const header: FtpPayloadHeader = {
+      seqNumber: ftpRespSeq++,
+      session: opts.session ?? 0,
+      opcode,
+      size: opts.data?.length ?? 0,
+      reqOpcode,
+      burstComplete: opts.burstComplete ?? false,
+      offset: opts.offset ?? 0,
+    };
+    msg.payload = Array.from(encodeFtpPayload(header, opts.data));
+    send(msg);
+  }
+
+  function handleFtpRequest(header: FtpPayloadHeader, data: Uint8Array) {
+    if (header.opcode === MavFtpOpcode.OPENFILERO) {
+      const path = new TextDecoder().decode(data);
+      if (!path.startsWith(PARAM_PCK_FILE_PATH)) {
+        ftpSend(MavFtpOpcode.NAK, MavFtpOpcode.OPENFILERO, { data: new Uint8Array([MavFtpErr.FILENOTFOUND]) });
+        return;
+      }
+      const fileBytes = buildParamPckBytes();
+      const sessionId = nextFtpSessionId++;
+      ftpSession = { id: sessionId, bytes: fileBytes };
+      const sizeData = new Uint8Array(4);
+      new DataView(sizeData.buffer).setUint32(0, fileBytes.length, true);
+      ftpSend(MavFtpOpcode.ACK, MavFtpOpcode.OPENFILERO, { session: sessionId, data: sizeData });
+    } else if (header.opcode === MavFtpOpcode.BURSTREADFILE) {
+      if (!ftpSession || ftpSession.id !== header.session) {
+        ftpSend(MavFtpOpcode.NAK, MavFtpOpcode.BURSTREADFILE, { session: header.session, data: new Uint8Array([MavFtpErr.INVALIDSESSION]) });
+        return;
+      }
+      // Streams the whole file as consecutive FTP_MAX_DATA_LENGTH-byte chunks in one
+      // synchronous burst - a real vehicle paces these more slowly, but there's no reason to
+      // add artificial delay here just to mimic that.
+      const { bytes: fileBytes, id: sessionId } = ftpSession;
+      let offset = header.offset;
+      while (offset < fileBytes.length) {
+        const chunk = fileBytes.subarray(offset, Math.min(offset + FTP_MAX_DATA_LENGTH, fileBytes.length));
+        const isLast = offset + chunk.length >= fileBytes.length;
+        ftpSend(MavFtpOpcode.ACK, MavFtpOpcode.BURSTREADFILE, { session: sessionId, offset, data: chunk, burstComplete: isLast });
+        offset += chunk.length;
+      }
+    } else if (header.opcode === MavFtpOpcode.TERMINATESESSION) {
+      if (ftpSession && ftpSession.id === header.session) ftpSession = null;
+      ftpSend(MavFtpOpcode.ACK, MavFtpOpcode.TERMINATESESSION, { session: header.session });
+    }
+  }
+
   function handleAppBytes(bytes: Uint8Array) {
     for (const packet of framer.push(bytes)) {
       switch (packet.msgId) {
@@ -554,6 +668,12 @@ export function startMockVehicle(
         case COMMAND_LONG_MSG_ID:
           handleCommandLong(packet.message, packet.payload);
           break;
+        case FileTransferProtocol.MSG_ID: {
+          const ftpMsg = decodeMessage(FileTransferProtocol, packet.payload);
+          const { header, data } = decodeFtpPayload(ftpMsg.payload);
+          handleFtpRequest(header, data);
+          break;
+        }
         default:
           break;
       }
