@@ -298,6 +298,15 @@ export function startMockVehicle(
   for (let channel = 1; channel <= 16; channel++) {
     params.set(`RC${channel}_OPTION`, { value: 0, type: MavParamType.INT16, index: params.size });
   }
+  // RCMAP_ROLL/PITCH/THROTTLE/YAW - real ArduPilot factory defaults (channels 1/2/3/4, confirmed
+  // against common-rcmap.html). FS_THR_ENABLE/FS_THR_VALUE - real throttle-failsafe params;
+  // Disabled + the documented 975us default so Dev Mode doesn't start mid-failsafe.
+  params.set("RCMAP_ROLL", { value: 1, type: MavParamType.INT8, index: params.size });
+  params.set("RCMAP_PITCH", { value: 2, type: MavParamType.INT8, index: params.size });
+  params.set("RCMAP_THROTTLE", { value: 3, type: MavParamType.INT8, index: params.size });
+  params.set("RCMAP_YAW", { value: 4, type: MavParamType.INT8, index: params.size });
+  params.set("FS_THR_ENABLE", { value: 0, type: MavParamType.INT8, index: params.size });
+  params.set("FS_THR_VALUE", { value: 975, type: MavParamType.INT16, index: params.size });
 
   function sendParamValue(name: string) {
     const p = params.get(name);
