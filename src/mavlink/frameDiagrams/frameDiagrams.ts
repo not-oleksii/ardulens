@@ -28,6 +28,15 @@ export interface MotorPosition {
   direction: "CW" | "CCW";
 }
 
+// Exact colors from ArduPilot's own motor diagrams (m_01_01_quad_x.svg etc.) - CW is green,
+// CCW is blue, matching what users already see in Mission Planner/the ArduPilot docs. Shared
+// between MotorFrameDiagram (the SVG itself) and the Motors wizard's color legend, so the two
+// can't silently drift apart.
+export const MOTOR_DIRECTION_COLORS: Record<"CW" | "CCW", string> = {
+  CW: "#33cc33",
+  CCW: "#00b8e6",
+};
+
 // FRAME_CLASS 1 (Quad). FRAME_TYPE codes from ArduCopter's own apm.pdef.xml.
 const QUAD_PLUS: MotorPosition[] = [
   { motor: 1, angleDeg: 90, direction: "CCW" },

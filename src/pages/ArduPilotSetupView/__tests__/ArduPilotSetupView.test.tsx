@@ -987,18 +987,17 @@ describe("ArduPilotSetupView", () => {
       expect(requestedNames.has("SERVO16_REVERSED")).toBe(true);
     });
 
-    it("renders the verified Quad X diagram once FRAME_CLASS/FRAME_TYPE arrive, and press-and-hold sends DO_MOTOR_TEST", async () => {
+    it("renders the verified Quad X diagram on the Test & Reverse tab, and press-and-hold sends DO_MOTOR_TEST", async () => {
       const invoked = vi.fn();
       mockBackend(invoked);
-      await connectCopterAndOpenMotors();
+      const { user } = await connectCopterAndOpenMotors();
 
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_CLASS", 1, MavParamType.INT8, 0, 2, 1) }); // Quad
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_TYPE", 1, MavParamType.INT8, 1, 2, 2) }); // X
+      await user.click(await screen.findByRole("tab", { name: "2. Тест і реверс" }));
 
       const diagram = await screen.findByRole("img", { name: "Motor layout" });
       expect(diagram).toBeInTheDocument();
-      // Scoped to the diagram itself - the frame class/type <select> fallback options (docs
-      // haven't loaded in this test) also render a plain "1", which would otherwise collide.
       const motor1Group = within(diagram).getByText("1").closest("g")!;
 
       fireEvent.pointerDown(motor1Group);
@@ -1020,7 +1019,8 @@ describe("ArduPilotSetupView", () => {
 
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_CLASS", 1, MavParamType.INT8, 0, 2, 1) });
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_TYPE", 1, MavParamType.INT8, 1, 2, 2) });
-      await screen.findByRole("img", { name: "Motor layout" });
+      // The Frame tab is the wizard's default landing step - no navigation needed.
+      await screen.findByRole("combobox", { name: "Клас рами" });
 
       expect(
         screen.getByText("Зміна класу або типу рами вимагає перезавантаження - вона не застосується одразу."),
@@ -1035,14 +1035,14 @@ describe("ArduPilotSetupView", () => {
       expect(paramSet).toBeDefined();
     });
 
-    it("clicking Reboot Now sends PREFLIGHT_REBOOT_SHUTDOWN(autopilot=REBOOT)", async () => {
+    it("clicking Reboot Now on the Reboot tab sends PREFLIGHT_REBOOT_SHUTDOWN(autopilot=REBOOT)", async () => {
       const invoked = vi.fn();
       mockBackend(invoked);
       const { user } = await connectCopterAndOpenMotors();
 
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_CLASS", 1, MavParamType.INT8, 0, 2, 1) });
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_TYPE", 1, MavParamType.INT8, 1, 2, 2) });
-      await screen.findByRole("img", { name: "Motor layout" });
+      await user.click(await screen.findByRole("tab", { name: "3. Перезавантаження" }));
 
       await user.click(screen.getByRole("button", { name: "Перезавантажити зараз" }));
 
@@ -1053,16 +1053,22 @@ describe("ArduPilotSetupView", () => {
       // param1 (autopilot) is COMMAND_LONG's first float32 field - payload starts at absolute
       // byte 10 (10-byte v2 header), same base findCommandLongSend uses for `command` at 38.
       expect(view.getFloat32(10, true)).toBe(RebootShutdownAction.REBOOT);
+
+      // Reboot tab now shows an info alert and gates "Continue to Summary" until it's sent.
+      expect(await screen.findByText(/Команду перезавантаження надіслано/)).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Перейти до підсумку" }));
+      expect(await screen.findByText("Підсумок налаштування моторів")).toBeInTheDocument();
     });
 
-    it("toggling a motor's Reverse checkbox sends SERVOx_REVERSED via PARAM_SET", async () => {
+    it("toggling a motor's Reverse checkbox on the Test & Reverse tab sends SERVOx_REVERSED via PARAM_SET", async () => {
       const invoked = vi.fn();
       mockBackend(invoked);
-      await connectCopterAndOpenMotors();
+      const { user } = await connectCopterAndOpenMotors();
 
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_CLASS", 1, MavParamType.INT8, 0, 2, 1) });
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_TYPE", 1, MavParamType.INT8, 1, 2, 2) });
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERVO1_REVERSED", 0, MavParamType.INT8, 2, 2, 3) });
+      await user.click(await screen.findByRole("tab", { name: "2. Тест і реверс" }));
       await screen.findByRole("img", { name: "Motor layout" });
 
       const checkbox = screen.getAllByRole("checkbox", { name: "Реверс" })[0]!;
@@ -1080,14 +1086,15 @@ describe("ArduPilotSetupView", () => {
       expect(String.fromCharCode(...nameBytes.slice(0, nullIndex === -1 ? undefined : nullIndex))).toBe("SERVO1_REVERSED");
     });
 
-    it("falls back to a plain per-motor list (with live PWM) for an unverified frame class/type", async () => {
+    it("falls back to a plain per-motor list (with live PWM) on the Test & Reverse tab for an unverified frame class/type", async () => {
       mockBackend();
-      await connectCopterAndOpenMotors();
+      const { user } = await connectCopterAndOpenMotors();
 
       // Tri (class 7) has no verified position/rotation diagram, but its motor count (3) is
       // still known - see motorCountForFrameClass in frameDiagrams.ts.
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_CLASS", 7, MavParamType.INT8, 0, 2, 1) });
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_TYPE", 0, MavParamType.INT8, 1, 2, 2) });
+      await user.click(await screen.findByRole("tab", { name: "2. Тест і реверс" }));
 
       expect(
         await screen.findByText(
@@ -1097,6 +1104,22 @@ describe("ArduPilotSetupView", () => {
       expect(screen.getByRole("button", { name: /Утримуйте для тесту 1/ })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /Утримуйте для тесту 3/ })).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /Утримуйте для тесту 4/ })).not.toBeInTheDocument();
+    });
+
+    it("lets a user jump straight to Test & Reverse without walking through Frame first (quick adjustment)", async () => {
+      mockBackend();
+      const { user } = await connectCopterAndOpenMotors();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_CLASS", 1, MavParamType.INT8, 0, 2, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_TYPE", 1, MavParamType.INT8, 1, 2, 2) });
+
+      // Default landing tab is Frame - the diagram/reverse checkboxes aren't rendered yet.
+      const testTab = await screen.findByRole("tab", { name: "2. Тест і реверс" });
+      expect(screen.queryByRole("img", { name: "Motor layout" })).not.toBeInTheDocument();
+
+      // A single click reaches Test & Reverse directly, with no forced Next/Next progression.
+      await user.click(testTab);
+      expect(await screen.findByRole("img", { name: "Motor layout" })).toBeInTheDocument();
     });
   });
 
@@ -1343,15 +1366,17 @@ describe("ArduPilotSetupView", () => {
       await clickMotorsNav();
       await user.click(screen.getByRole("button", { name: "Завантажити налаштування моторів" }));
 
+      // The Frame tab is the wizard's default landing step - visible with no navigation.
+      const frameClassSelect = await screen.findByRole<HTMLSelectElement>("combobox", { name: "Клас рами" });
+      const frameTypeSelect = screen.getByRole<HTMLSelectElement>("combobox", { name: "Тип рами" });
+      expect(frameClassSelect.value).toBe("3"); // Octa
+      expect(frameTypeSelect.value).toBe("1"); // X
+
+      await user.click(screen.getByRole("tab", { name: "2. Тест і реверс" }));
       const diagram = await screen.findByRole("img", { name: "Motor layout" });
       // Octa X has 8 motors - the default Quad X preset would only render 4, so this also
       // proves the selector actually changed what the simulator seeded, not just the label.
       expect(within(diagram).getAllByText(/^[1-8]$/)).toHaveLength(8);
-
-      const frameClassSelect = screen.getByRole<HTMLSelectElement>("combobox", { name: "Клас рами" });
-      const frameTypeSelect = screen.getByRole<HTMLSelectElement>("combobox", { name: "Тип рами" });
-      expect(frameClassSelect.value).toBe("3"); // Octa
-      expect(frameTypeSelect.value).toBe("1"); // X
     });
   });
 
