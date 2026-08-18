@@ -1,7 +1,9 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { ChevronDown, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -12,6 +14,7 @@ import {
   paramDocsPageUrl,
   vehicleFolderForMavType,
   type ArduPilotVehicleFolder,
+  type ParamDoc,
   type ParamDocsMap,
 } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
@@ -32,7 +35,18 @@ interface ParametersPanelProps {
 const ROW_HEIGHT_PX = 36;
 // Every row is a single, non-wrapping line, so a fixed row height is always accurate and
 // there's no need for react-virtual's dynamic measureElement.
-const COLUMN_WIDTHS = "22% 18% 60%"; // Name, Value, Description - a CSS grid-template-columns value
+const COLUMN_WIDTHS = "18% 10% 8% 16% 48%"; // Name, Value, Units, Options, Description - a CSS grid-template-columns value
+
+// Mission Planner's own "Full Parameter List" tree groups by the same simple heuristic: the
+// param name's segment before its first underscore (ACRO_BAL_PITCH/ACRO_RP_RATE -> "ACRO",
+// SERVO1_FUNCTION -> "SERVO1"). No metadata needed - ArduPilot's own naming convention already
+// encodes which library/subsystem a param belongs to this way.
+function categoryPrefix(name: string): string {
+  const idx = name.indexOf("_");
+  return idx === -1 ? name : name.slice(0, idx);
+}
+
+type CategorySelection = { kind: "all" } | { kind: "group"; prefix: string } | { kind: "param"; name: string };
 
 // The virtualized rows are plain CSS Grid divs (role="row"/"cell"), not a native <table>. A
 // native <table> was tried first with table-layout: fixed on both header and (per-row)
@@ -44,6 +58,16 @@ const COLUMN_WIDTHS = "22% 18% 60%"; // Name, Value, Description - a CSS grid-te
 // everything after. CSS Grid has no such quirk - the same COLUMN_WIDTHS template on the header
 // row and every body row keeps them aligned with no special-casing.
 const CELL_STYLE: CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 };
+
+// The Options column mirrors Mission Planner's own (enum code:label pairs, or a min-max range
+// for bounded non-enum params) - condensed to one line since every row here has a fixed height
+// (see ROW_HEIGHT_PX above), with the untruncated text still reachable via the cell's title
+// tooltip, same pattern the Description column already uses for its full documentation text.
+function optionsSummary(doc: ParamDoc | undefined): string {
+  if (doc?.values) return Object.entries(doc.values).map(([code, label]) => `${code}: ${label}`).join(", ");
+  if (doc?.range) return `${doc.range.min} - ${doc.range.max}`;
+  return "-";
+}
 
 export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissing, onSetParam }: ParametersPanelProps) {
   const { t } = useTranslation();
@@ -63,6 +87,9 @@ export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissin
   // synchronously inside the effect itself (which cascading-render lint rightly flags).
   const [docsState, setDocsState] = useState<{ folder: ArduPilotVehicleFolder; docs: ParamDocsMap } | null>(null);
   const [docsErrorFolder, setDocsErrorFolder] = useState<ArduPilotVehicleFolder | null>(null);
+  const [categorySelection, setCategorySelection] = useState<CategorySelection>({ kind: "all" });
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [categoriesCollapsed, setCategoriesCollapsed] = useState(false);
 
   const vehicleFolder = vehicleFolderForMavType(vehicleType);
   const docs = docsState?.folder === vehicleFolder ? docsState.docs : null;
@@ -90,10 +117,49 @@ export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissin
   // render (e.g. while typing in an unrelated field) adds up - memoized so it only re-runs
   // when the underlying data or the search term actually changes.
   const entries = useMemo(() => Object.values(params).sort((a, b) => a.name.localeCompare(b.name)), [params]);
+
+  // A group with only one member is shown as a plain leaf (its full name), not a one-item
+  // folder - matches Mission Planner's own tree (e.g. a lone BATT2_MONITOR sits at the top
+  // level, not nested under an otherwise-empty "BATT2" folder).
+  const categories = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const p of entries) {
+      const prefix = categoryPrefix(p.name);
+      const names = map.get(prefix);
+      if (names) names.push(p.name);
+      else map.set(prefix, [p.name]);
+    }
+    return Array.from(map.entries())
+      .map(([prefix, names]) => ({ prefix, names }))
+      .sort((a, b) => a.prefix.localeCompare(b.prefix));
+  }, [entries]);
+
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return query ? entries.filter((p) => p.name.toLowerCase().includes(query)) : entries;
-  }, [entries, search]);
+    return entries.filter((p) => {
+      if (query && !p.name.toLowerCase().includes(query)) return false;
+      if (categorySelection.kind === "param") return p.name === categorySelection.name;
+      if (categorySelection.kind === "group") return categoryPrefix(p.name) === categorySelection.prefix;
+      return true;
+    });
+  }, [entries, search, categorySelection]);
+
+  function selectGroup(prefix: string) {
+    setCategorySelection({ kind: "group", prefix });
+  }
+
+  // Driven by Collapsible's own onOpenChange (the new boolean it reports), not a manual toggle -
+  // its trigger button also calls selectGroup on the same click (see the JSX below), and having
+  // both independently set the same "add to expandedGroups" outcome (rather than one setting,
+  // the other flipping) would otherwise re-close a group the instant it opens.
+  function setGroupExpanded(prefix: string, open: boolean) {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (open) next.add(prefix);
+      else next.delete(prefix);
+      return next;
+    });
+  }
   const receivedCount = entries.length;
   const hasStarted = expectedCount !== null || receivedCount > 0;
   const isComplete = expectedCount !== null && receivedCount >= expectedCount;
@@ -259,102 +325,211 @@ export function ParametersPanel({ vehicleType, onLoadParameters, onRequestMissin
           {docsFailed && (
             <p className="shrink-0 text-xs text-muted-foreground">{t("ardupilotSetup.parameters.descriptionsUnavailable")}</p>
           )}
-          {filtered.length === 0 ? (
-            <p className="shrink-0 text-xs text-muted-foreground">{t("ardupilotSetup.parameters.noMatches")}</p>
-          ) : (
-            <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-border">
-              <div role="table" className="w-full text-sm">
-                <div role="rowgroup" className="sticky top-0 z-10 bg-card">
-                  <div role="row" className="grid border-b border-border" style={{ gridTemplateColumns: COLUMN_WIDTHS }}>
-                    <div role="columnheader" className="h-9 px-3 text-left align-middle font-medium text-muted-foreground" style={CELL_STYLE}>
-                      {t("ardupilotSetup.parameters.name")}
-                    </div>
-                    <div role="columnheader" className="h-9 px-3 text-left align-middle font-medium text-muted-foreground" style={CELL_STYLE}>
-                      {t("ardupilotSetup.parameters.value")}
-                    </div>
-                    <div role="columnheader" className="h-9 px-3 text-left align-middle font-medium text-muted-foreground" style={CELL_STYLE}>
-                      {t("ardupilotSetup.parameters.description")}
+          <div className="flex min-h-0 flex-1 gap-3">
+            <aside
+              className={cn(
+                "flex shrink-0 flex-col gap-0.5 overflow-y-auto rounded-lg border border-border p-2",
+                categoriesCollapsed ? "w-10" : "w-48",
+              )}
+            >
+              <div className={cn("flex items-center", categoriesCollapsed ? "justify-center" : "justify-between")}>
+                {!categoriesCollapsed && (
+                  <h4 className="text-xs font-bold tracking-wide uppercase text-muted-foreground">
+                    {t("ardupilotSetup.parameters.categoriesHeading")}
+                  </h4>
+                )}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 shrink-0"
+                  aria-label={t(categoriesCollapsed ? "ardupilotSetup.parameters.expandCategories" : "ardupilotSetup.parameters.collapseCategories")}
+                  onClick={() => setCategoriesCollapsed((c) => !c)}
+                >
+                  {categoriesCollapsed ? <ChevronsRight className="h-3.5 w-3.5" /> : <ChevronsLeft className="h-3.5 w-3.5" />}
+                </Button>
+              </div>
+              {!categoriesCollapsed && (
+                <>
+                  <button
+                    type="button"
+                    className={cn(
+                      "rounded-md px-2 py-1 text-left text-xs",
+                      categorySelection.kind === "all" ? "bg-primary text-primary-foreground" : "hover:bg-accent",
+                    )}
+                    onClick={() => setCategorySelection({ kind: "all" })}
+                  >
+                    {t("ardupilotSetup.parameters.allCategories")}
+                  </button>
+                  {/* Every prefix (even a lone param) renders as a collapsed-by-default folder,
+                      not a bare leaf showing the param's full name - a leaf here would render
+                      DOM text identical to that same param's row in the table below, which
+                      broke every existing test that waits for a param to load via
+                      findByText(paramName) (there's now nowhere else that name-only text can
+                      come from before the user actually expands a folder). */}
+                  {categories.map(({ prefix, names }) => (
+                    <Collapsible
+                      key={prefix}
+                      open={expandedGroups.has(prefix)}
+                      onOpenChange={(open) => setGroupExpanded(prefix, open)}
+                    >
+                      {/* A single trigger button both toggles expansion (Radix's own click
+                          behavior, via the Collapsible's open/onOpenChange above) and filters
+                          the table to this group (our own onClick) - one click does both,
+                          rather than two adjacent buttons that could report the same
+                          accessible name and become ambiguous to query. */}
+                      <CollapsibleTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={() => selectGroup(prefix)}
+                          className={cn(
+                            "flex w-full items-center gap-1 rounded-md px-1 py-1 text-left text-xs",
+                            categorySelection.kind === "group" && categorySelection.prefix === prefix
+                              ? "bg-primary text-primary-foreground"
+                              : "hover:bg-accent",
+                          )}
+                        >
+                          {expandedGroups.has(prefix) ? (
+                            <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                          ) : (
+                            <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                          )}
+                          <span className="min-w-0 flex-1 truncate font-mono">{prefix}</span>
+                        </button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="ml-4 flex flex-col gap-0.5 border-l border-border pl-2">
+                        {names.map((name) => (
+                          <button
+                            key={name}
+                            type="button"
+                            className={cn(
+                              "truncate rounded-md px-2 py-1 text-left font-mono text-xs",
+                              categorySelection.kind === "param" && categorySelection.name === name
+                                ? "bg-primary text-primary-foreground"
+                                : "hover:bg-accent",
+                            )}
+                            title={name}
+                            onClick={() => setCategorySelection({ kind: "param", name })}
+                          >
+                            {name}
+                          </button>
+                        ))}
+                      </CollapsibleContent>
+                    </Collapsible>
+                  ))}
+                </>
+              )}
+            </aside>
+
+            {filtered.length === 0 ? (
+              <p className="shrink-0 text-xs text-muted-foreground">{t("ardupilotSetup.parameters.noMatches")}</p>
+            ) : (
+              <div ref={scrollContainerRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto rounded-lg border border-border">
+                <div role="table" className="w-full text-sm">
+                  <div role="rowgroup" className="sticky top-0 z-10 bg-card">
+                    <div role="row" className="grid border-b border-border" style={{ gridTemplateColumns: COLUMN_WIDTHS }}>
+                      <div role="columnheader" className="h-9 px-3 text-left align-middle font-medium text-muted-foreground" style={CELL_STYLE}>
+                        {t("ardupilotSetup.parameters.name")}
+                      </div>
+                      <div role="columnheader" className="h-9 px-3 text-left align-middle font-medium text-muted-foreground" style={CELL_STYLE}>
+                        {t("ardupilotSetup.parameters.value")}
+                      </div>
+                      <div role="columnheader" className="h-9 px-3 text-left align-middle font-medium text-muted-foreground" style={CELL_STYLE}>
+                        {t("ardupilotSetup.parameters.units")}
+                      </div>
+                      <div role="columnheader" className="h-9 px-3 text-left align-middle font-medium text-muted-foreground" style={CELL_STYLE}>
+                        {t("ardupilotSetup.parameters.options")}
+                      </div>
+                      <div role="columnheader" className="h-9 px-3 text-left align-middle font-medium text-muted-foreground" style={CELL_STYLE}>
+                        {t("ardupilotSetup.parameters.description")}
+                      </div>
                     </div>
                   </div>
-                </div>
-                {/* Only the rows actually scrolled into view (see rowVirtualizer above) get
-                    real DOM nodes - the rest of `filtered` stays plain data. This rowgroup's
-                    own relative positioning is what lets rows be absolutely positioned by
-                    scroll offset; each row shares the exact same COLUMN_WIDTHS grid template as
-                    the header above so their cells line up (see the CSS Grid comment above). */}
-                <div role="rowgroup" style={{ position: "relative", height: rowVirtualizer.getTotalSize() }}>
-                  {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                    const p = filtered[virtualRow.index]!;
-                    const doc = docs?.[p.name];
-                    const isModified = pendingChanges[p.name] !== undefined;
-                    const shownValue = pendingChanges[p.name] ?? p.value;
+                  {/* Only the rows actually scrolled into view (see rowVirtualizer above) get
+                      real DOM nodes - the rest of `filtered` stays plain data. This rowgroup's
+                      own relative positioning is what lets rows be absolutely positioned by
+                      scroll offset; each row shares the exact same COLUMN_WIDTHS grid template as
+                      the header above so their cells line up (see the CSS Grid comment above). */}
+                  <div role="rowgroup" style={{ position: "relative", height: rowVirtualizer.getTotalSize() }}>
+                    {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                      const p = filtered[virtualRow.index]!;
+                      const doc = docs?.[p.name];
+                      const isModified = pendingChanges[p.name] !== undefined;
+                      const shownValue = pendingChanges[p.name] ?? p.value;
+                      const options = optionsSummary(doc);
 
-                    return (
-                      <div
-                        key={p.name}
-                        role="row"
-                        className={cn("grid border-b border-border", "hover:bg-muted/50")}
-                        style={{
-                          gridTemplateColumns: COLUMN_WIDTHS,
-                          position: "absolute",
-                          top: 0,
-                          left: 0,
-                          right: 0,
-                          transform: `translateY(${virtualRow.start}px)`,
-                        }}
-                      >
-                        <div role="cell" className="px-3 py-2 font-mono" style={CELL_STYLE}>
-                          {p.name}
+                      return (
+                        <div
+                          key={p.name}
+                          role="row"
+                          className={cn("grid border-b border-border", "hover:bg-muted/50")}
+                          style={{
+                            gridTemplateColumns: COLUMN_WIDTHS,
+                            position: "absolute",
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            transform: `translateY(${virtualRow.start}px)`,
+                          }}
+                        >
+                          <div role="cell" className="px-3 py-2 font-mono" style={CELL_STYLE}>
+                            {p.name}
+                          </div>
+                          <div role="cell" className="px-3 py-2 font-mono" style={CELL_STYLE}>
+                            {editingName === p.name ? (
+                              <Input
+                                autoFocus
+                                value={editingValue}
+                                onChange={(e) => setEditingValue(e.target.value)}
+                                onBlur={() => commitEdit(p.name)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") commitEdit(p.name);
+                                  if (e.key === "Escape") setEditingName(null);
+                                }}
+                                className="h-7 w-32"
+                              />
+                            ) : (
+                              <button type="button" className="hover:underline" onClick={() => startEdit(p.name, shownValue)}>
+                                {shownValue}
+                              </button>
+                            )}
+                            {isModified && (
+                              <span className="ml-2 text-xs text-primary">{t("ardupilotSetup.parameters.modified")}</span>
+                            )}
+                            {!isModified && p.dirty && (
+                              <span className="ml-2 text-xs text-muted-foreground">{t("ardupilotSetup.parameters.dirty")}</span>
+                            )}
+                          </div>
+                          <div role="cell" className="px-3 py-2 font-mono text-muted-foreground" style={CELL_STYLE}>
+                            {doc?.units ?? "-"}
+                          </div>
+                          <div role="cell" className="px-3 py-2 text-muted-foreground" style={CELL_STYLE} title={options}>
+                            {options}
+                          </div>
+                          <div role="cell" className="px-3 py-2" style={CELL_STYLE}>
+                            {doc ? (
+                              <span title={doc.documentation}>
+                                {doc.humanName}{" "}
+                                <a
+                                  href={paramDocsPageUrl(vehicleFolder, p.name)}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="whitespace-nowrap text-primary underline-offset-4 hover:underline"
+                                >
+                                  {t("graphs.params.readMore")}
+                                </a>
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </div>
                         </div>
-                        <div role="cell" className="px-3 py-2 font-mono" style={CELL_STYLE}>
-                          {editingName === p.name ? (
-                            <Input
-                              autoFocus
-                              value={editingValue}
-                              onChange={(e) => setEditingValue(e.target.value)}
-                              onBlur={() => commitEdit(p.name)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") commitEdit(p.name);
-                                if (e.key === "Escape") setEditingName(null);
-                              }}
-                              className="h-7 w-32"
-                            />
-                          ) : (
-                            <button type="button" className="hover:underline" onClick={() => startEdit(p.name, shownValue)}>
-                              {shownValue}
-                            </button>
-                          )}
-                          {isModified && (
-                            <span className="ml-2 text-xs text-primary">{t("ardupilotSetup.parameters.modified")}</span>
-                          )}
-                          {!isModified && p.dirty && (
-                            <span className="ml-2 text-xs text-muted-foreground">{t("ardupilotSetup.parameters.dirty")}</span>
-                          )}
-                        </div>
-                        <div role="cell" className="px-3 py-2" style={CELL_STYLE}>
-                          {doc ? (
-                            <span title={doc.documentation}>
-                              {doc.humanName}{" "}
-                              <a
-                                href={paramDocsPageUrl(vehicleFolder, p.name)}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="whitespace-nowrap text-primary underline-offset-4 hover:underline"
-                              >
-                                {t("graphs.params.readMore")}
-                              </a>
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </>
       )}
 

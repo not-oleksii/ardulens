@@ -1711,7 +1711,7 @@ describe("ArduPilotSetupView", () => {
       });
     });
 
-    it("orders the table columns as Name, Value, Description", async () => {
+    it("orders the table columns as Name, Value, Units, Options, Description", async () => {
       mockBackend();
       const { user } = await connectWithVehicle();
       await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
@@ -1721,7 +1721,7 @@ describe("ArduPilotSetupView", () => {
       await screen.findByText("ARSPD_USE");
 
       const headers = screen.getAllByRole("columnheader").map((h) => h.textContent);
-      expect(headers).toEqual(["Назва", "Значення", "Опис"]);
+      expect(headers).toEqual(["Назва", "Значення", "Одиниці", "Опції", "Опис"]);
     });
 
     it("batches a fast burst of PARAM_VALUE packets into the table instead of showing them one at a time", async () => {
@@ -1875,12 +1875,23 @@ describe("ArduPilotSetupView", () => {
       expect(
         await screen.findByText("Описи параметрів недоступні (не вдалося з'єднатися з ardupilot.org)."),
       ).toBeInTheDocument();
-      expect(screen.getByText("-")).toBeInTheDocument();
+      // Units, Options, and Description all fall back to "-" once docs are unavailable.
+      expect(screen.getAllByText("-").length).toBeGreaterThanOrEqual(3);
     });
 
-    it("shows the fetched description and a Read more link once parameter documentation loads", async () => {
+    it("shows the fetched description, Units, Options, and a Read more link once parameter documentation loads", async () => {
+      // A single test owns the one legitimate real-fetch-stub slot for the ArduCopter folder in
+      // this file - fetchParamDocs caches successful results at module scope (in-memory +
+      // localStorage), shared across every test here, so a second test stubbing a different
+      // ArduCopter XML would silently get this test's already-cached result instead of its own.
       const sampleXml = `<?xml version="1.0"?><paramfile><vehicles><parameters name="ArduCopter">
-        <param humanName="Use airspeed" name="ArduCopter:ARSPD_USE" documentation="Enables airspeed use"></param>
+        <param humanName="Use airspeed" name="ArduCopter:ARSPD_USE" documentation="Enables airspeed use">
+          <values><value code="0">Disabled</value><value code="1">Enabled</value></values>
+        </param>
+        <param humanName="Throttle filter" name="ArduCopter:PILOT_THR_FILT" documentation="Throttle filter cutoff">
+          <field name="Units">Hz</field>
+          <field name="Range">0.0 10.0</field>
+        </param>
       </parameters></vehicles></paramfile>`;
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, text: () => Promise.resolve(sampleXml) }));
 
@@ -1888,16 +1899,67 @@ describe("ArduPilotSetupView", () => {
       const { user } = await connectWithVehicle(); // sampleHeartbeatBytes() reports MavType.QUADROTOR -> ArduCopter
       await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
       await emit(DATA_EVENT, {
-        bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 1, 1),
+        bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 2, 1),
       });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("PILOT_THR_FILT", 2, MavParamType.INT8, 1, 2, 2) });
       await screen.findByText("ARSPD_USE");
 
       expect(await screen.findByText("Use airspeed")).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "Детальніше →" })).toHaveAttribute(
-        "href",
-        "https://ardupilot.org/copter/docs/parameters.html#arspd-use",
+      // Both loaded params have docs now, so both get their own Read more link.
+      const readMoreLinks = screen.getAllByRole("link", { name: "Детальніше →" });
+      expect(readMoreLinks.map((a) => a.getAttribute("href"))).toEqual(
+        expect.arrayContaining(["https://ardupilot.org/copter/docs/parameters.html#arspd-use"]),
       );
+      expect(screen.getByText("0: Disabled, 1: Enabled")).toBeInTheDocument();
+      expect(screen.getByText("Hz")).toBeInTheDocument();
+      expect(screen.getByText("0 - 10")).toBeInTheDocument();
     });
+
+    it("groups params sharing a name prefix into a collapsed category, and clicking it filters the table to that group", async () => {
+      mockBackend();
+      const { user } = await connectWithVehicle();
+      await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 3, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("ARSPD_RATIO", 2, MavParamType.INT8, 1, 3, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("BATT_MONITOR", 4, MavParamType.INT8, 2, 3, 3) });
+      await screen.findByText("BATT_MONITOR");
+
+      // Collapsed by default - the individual param names inside "ARSPD" aren't in the DOM yet
+      // (only the table's own two rows show them).
+      const arspdGroup = screen.getByRole("button", { name: "ARSPD" });
+      expect(screen.getAllByText("ARSPD_USE")).toHaveLength(1);
+
+      await user.click(arspdGroup);
+
+      // Clicking a group both selects it (filtering the table) AND expands it (showing its
+      // members in the tree too, same as any collapsible), so the table is scoped to explicitly
+      // to check it - BATT_MONITOR's row is gone, only the ARSPD pair remains.
+      const table = within(screen.getByRole("table"));
+      expect(table.getByText("ARSPD_USE")).toBeInTheDocument();
+      expect(table.getByText("ARSPD_RATIO")).toBeInTheDocument();
+      expect(table.queryByText("BATT_MONITOR")).not.toBeInTheDocument();
+    });
+
+    it("expanding a category and clicking one of its params filters the table to just that param", async () => {
+      mockBackend();
+      const { user } = await connectWithVehicle();
+      await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 2, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("ARSPD_RATIO", 2, MavParamType.INT8, 1, 2, 2) });
+      await screen.findByText("ARSPD_RATIO");
+
+      await user.click(screen.getByRole("button", { name: "ARSPD" }));
+      // Only the expanded tree's own leaf button has role="button" here - the table's Name
+      // cells are plain text, so this is still unambiguous.
+      await user.click(screen.getByRole("button", { name: "ARSPD_USE" }));
+
+      // The tree stays expanded after selecting a leaf, so its "ARSPD_USE" text is still in the
+      // DOM alongside the table's now-single filtered row - scope to the table to check it.
+      const table = within(screen.getByRole("table"));
+      expect(table.getByText("ARSPD_USE")).toBeInTheDocument();
+      expect(table.queryByText("ARSPD_RATIO")).not.toBeInTheDocument();
+    });
+
   });
 
   describe("compass calibration", () => {

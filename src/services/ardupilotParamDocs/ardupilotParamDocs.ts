@@ -10,6 +10,10 @@ export interface ParamDoc {
   /** For enum-typed params (e.g. SERVO1_FUNCTION), the real code->label list ArduPilot ships
    *  in its own pdef.xml - absent for non-enum params. */
   values?: Record<number, string>;
+  /** Short unit abbreviation (e.g. "Hz", "deg/s") from the pdef.xml's own <field name="Units">. */
+  units?: string;
+  /** The valid range from <field name="Range"> (e.g. "10.0 80.0"), absent for unbounded params. */
+  range?: { min: number; max: number };
 }
 
 export type ParamDocsMap = Record<string, ParamDoc>;
@@ -88,10 +92,27 @@ export function parsePdefXml(xmlText: string): ParamDocsMap {
       }
     }
 
+    // <field name="..."> children carry Units/Range (among others) - not attributes on <param>
+    // itself, unlike humanName/documentation above (real pdef.xml structure, confirmed against
+    // ArduCopter's own apm.pdef.xml).
+    let units: string | undefined;
+    let range: { min: number; max: number } | undefined;
+    for (const fieldEl of Array.from(paramEl.getElementsByTagName("field"))) {
+      const fieldName = fieldEl.getAttribute("name");
+      const text = fieldEl.textContent;
+      if (fieldName === "Units" && text) units = text;
+      if (fieldName === "Range" && text) {
+        const parts = text.trim().split(/\s+/).map(Number);
+        if (parts.length === 2 && parts.every((n) => Number.isFinite(n))) range = { min: parts[0]!, max: parts[1]! };
+      }
+    }
+
     docs[name] = {
       humanName: paramEl.getAttribute("humanName") ?? name,
       documentation: paramEl.getAttribute("documentation") ?? "",
       ...(values ? { values } : {}),
+      ...(units ? { units } : {}),
+      ...(range ? { range } : {}),
     };
   }
   return docs;
