@@ -98,6 +98,11 @@ export function ArduPilotSetupSidebar({ activeSection, onSelect }: ArduPilotSetu
                 className={cn(collapsed && "justify-center px-0")}
               >
                 <Icon className="h-4 w-4 shrink-0" />
+                {/* TODO: Ukrainian labels (e.g. "Налаштування моторів", "Калібрування
+                    акселерометра") run noticeably longer than their English counterparts and
+                    overflow/clip past the sidebar's fixed w-56 in a narrow window - either
+                    let the sidebar width grow to fit the active locale's longest label, or
+                    wrap/shrink the label text instead of clipping it. */}
                 {!collapsed && <span>{label}</span>}
               </TabsTrigger>
             );
