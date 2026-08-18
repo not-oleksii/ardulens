@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MemoryRouter } from "react-router";
 import App from "../App";
 import i18n from "../i18n/i18n";
+import { HOME_DROPZONE_TEST_ID } from "../pages/HomeView/HomeView";
 import { useFileStore } from "../stores/fileStore/fileStore";
 import { useMavlinkConnectionStore } from "../stores/mavlinkConnectionStore/mavlinkConnectionStore";
 import { useUiStore } from "../stores/uiStore/uiStore";
@@ -47,7 +48,7 @@ describe("App", () => {
   it("shows the home screen (no sidebar/tabs) when no file is loaded yet", () => {
     getView();
     expect(screen.getByRole("heading", { name: "ArduLens", level: 1 })).toBeInTheDocument();
-    expect(screen.getByTestId("home-dropzone")).toBeInTheDocument();
+    expect(screen.getByTestId(`${HOME_DROPZONE_TEST_ID}-dropzone`)).toBeInTheDocument();
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
   });
 
@@ -103,6 +104,6 @@ describe("App", () => {
     getView("/ardupilot-setup");
 
     expect(screen.getByRole("heading", { name: "Налаштування ArduPilot" })).toBeInTheDocument();
-    expect(screen.queryByTestId("home-dropzone")).not.toBeInTheDocument();
+    expect(screen.queryByTestId(`${HOME_DROPZONE_TEST_ID}-dropzone`)).not.toBeInTheDocument();
   });
 });

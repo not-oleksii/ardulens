@@ -18,6 +18,8 @@ interface Validated {
   result: ParseResult;
 }
 
+export const HOME_DROPZONE_TEST_ID = "home";
+
 /**
  * The landing screen: a single shared upload for the whole app. Drop/select/sample a file
  * here once, and Logs/Graphs/Map all derive their own view from it lazily (see
@@ -91,11 +93,8 @@ export function HomeView() {
       </div>
 
       <div className="w-full max-w-md">
-        {/* TODO: "home" is re-typed raw in HomeView.test.tsx and App.test.tsx (as
-            "home-dropzone"/"home-file-input", built by FileDropzone's testId template) instead
-            of importing a shared constant - export a HOME_DROPZONE_TEST_ID from this file. */}
         <FileDropzone
-          testId="home"
+          testId={HOME_DROPZONE_TEST_ID}
           accept=".skylog,.log,.txt,.bin,.BIN"
           isParsing={isParsing}
           stage={stage}

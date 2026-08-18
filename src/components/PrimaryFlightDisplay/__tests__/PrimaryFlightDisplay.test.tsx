@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { PrimaryFlightDisplay } from "../PrimaryFlightDisplay";
+import { PFD_TEST_IDS } from "../pfdTestIds";
 import type { PrimaryFlightDisplayProps } from "../types";
 
 const BASE_PROPS: PrimaryFlightDisplayProps = {
@@ -16,13 +17,13 @@ const BASE_PROPS: PrimaryFlightDisplayProps = {
 describe("PrimaryFlightDisplay", () => {
   it("renders the armed badge as armed and the mode label", () => {
     render(<PrimaryFlightDisplay {...BASE_PROPS} />);
-    expect(screen.getByTestId("pfd-armed-badge")).toHaveTextContent("Озброєно");
-    expect(screen.getByTestId("pfd-mode-badge")).toHaveTextContent("FBWA");
+    expect(screen.getByTestId(PFD_TEST_IDS.armedBadge)).toHaveTextContent("Озброєно");
+    expect(screen.getByTestId(PFD_TEST_IDS.modeBadge)).toHaveTextContent("FBWA");
   });
 
   it("renders the disarmed badge when armed is false", () => {
     render(<PrimaryFlightDisplay {...BASE_PROPS} armed={false} />);
-    expect(screen.getByTestId("pfd-armed-badge")).toHaveTextContent("Не озброєно");
+    expect(screen.getByTestId(PFD_TEST_IDS.armedBadge)).toHaveTextContent("Не озброєно");
   });
 
   it("renders airspeed, altitude, and heading tape readouts with the expected formatting", () => {

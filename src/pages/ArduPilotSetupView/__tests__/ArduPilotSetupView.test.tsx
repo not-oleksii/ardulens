@@ -37,6 +37,8 @@ import {
   SysStatus,
   VfrHud,
 } from "../../../mavlink/registry/registry";
+import { PFD_TEST_IDS } from "../../../components/PrimaryFlightDisplay/pfdTestIds";
+import { DATA_EVENT, STATUS_EVENT } from "../../../services/mavlinkTransport/mavlinkTransport";
 import { useMavlinkAccelCalStore } from "../../../stores/mavlinkAccelCalStore/mavlinkAccelCalStore";
 import { useMavlinkCompassCalStore } from "../../../stores/mavlinkCompassCalStore/mavlinkCompassCalStore";
 import { useMavlinkConnectionStore } from "../../../stores/mavlinkConnectionStore/mavlinkConnectionStore";
@@ -467,7 +469,7 @@ describe("ArduPilotSetupView", () => {
     expect(invoked).toHaveBeenCalledWith("connect_udp", { bindPort: 14550 });
     expect(within(getStatusAlert()).getByText("Підключення...")).toBeInTheDocument();
 
-    await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+    await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
 
     expect(await within(getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550")).toBeInTheDocument();
     expect(getDisconnectButton()).toBeInTheDocument();
@@ -490,11 +492,11 @@ describe("ArduPilotSetupView", () => {
     mockBackend();
     const { clickConnect, clickDisconnect, getStatusAlert, getConnectButton } = getView();
     await clickConnect();
-    await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+    await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
     await within(getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
 
     await clickDisconnect();
-    await emit("mavlink-transport://status", { kind: "disconnected" });
+    await emit(STATUS_EVENT, { kind: "disconnected" });
 
     expect(await within(getStatusAlert()).findByText("Не підключено")).toBeInTheDocument();
     expect(getConnectButton()).toBeInTheDocument();
@@ -505,7 +507,7 @@ describe("ArduPilotSetupView", () => {
     const { clickConnect, getStatusAlert } = getView();
     await clickConnect();
 
-    await emit("mavlink-transport://status", { kind: "error", message: "port busy" });
+    await emit(STATUS_EVENT, { kind: "error", message: "port busy" });
 
     const alert = await within(getStatusAlert()).findByText("Помилка підключення: port busy");
     expect(alert).toBeInTheDocument();
@@ -528,8 +530,8 @@ describe("ArduPilotSetupView", () => {
     mockBackend();
     getView();
 
-    await emit("mavlink-transport://data", { bytes: [1, 2, 3] });
-    await emit("mavlink-transport://data", { bytes: [4, 5] });
+    await emit(DATA_EVENT, { bytes: [1, 2, 3] });
+    await emit(DATA_EVENT, { bytes: [4, 5] });
 
     expect(await screen.findByText("Отримано: 5 Б")).toBeInTheDocument();
   });
@@ -538,7 +540,7 @@ describe("ArduPilotSetupView", () => {
     mockBackend();
     const { clickConnect, getStatusAlert } = getView();
     await clickConnect();
-    await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+    await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
     await within(getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
 
     const hb = new Heartbeat();
@@ -550,7 +552,7 @@ describe("ArduPilotSetupView", () => {
     hb.mavlinkVersion = 3;
     const packet = encodePacket(hb, { seq: 1, sysid: 1, compid: 1 });
 
-    await emit("mavlink-transport://data", { bytes: Array.from(packet) });
+    await emit(DATA_EVENT, { bytes: Array.from(packet) });
 
     expect(await screen.findByText("Квадрокоптер")).toBeInTheDocument();
     expect(screen.getByText("ArduPilot")).toBeInTheDocument();
@@ -567,7 +569,7 @@ describe("ArduPilotSetupView", () => {
     const { clickConnect, getStatusAlert } = getView();
     await clickConnect();
 
-    await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+    await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
     await within(getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
 
     await vi.waitFor(() => {
@@ -583,7 +585,7 @@ describe("ArduPilotSetupView", () => {
     mockBackend();
     const { clickConnect, getStatusAlert } = getView();
     await clickConnect();
-    await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+    await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
     await within(getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
 
     const hb = new Heartbeat();
@@ -593,14 +595,14 @@ describe("ArduPilotSetupView", () => {
     hb.customMode = 0;
     hb.systemStatus = MavState.ACTIVE;
     hb.mavlinkVersion = 3;
-    await emit("mavlink-transport://data", { bytes: Array.from(encodePacket(hb, { seq: 1, sysid: 1, compid: 1 })) });
+    await emit(DATA_EVENT, { bytes: Array.from(encodePacket(hb, { seq: 1, sysid: 1, compid: 1 })) });
     await screen.findByText("Активний");
 
     const att = new Attitude();
     att.roll = 0.1745329; // ~10 deg
     att.pitch = -0.0872665; // ~-5 deg
     att.yaw = 1.5707963; // 90 deg
-    await emit("mavlink-transport://data", { bytes: Array.from(encodePacket(att, { seq: 2, sysid: 1, compid: 1 })) });
+    await emit(DATA_EVENT, { bytes: Array.from(encodePacket(att, { seq: 2, sysid: 1, compid: 1 })) });
 
     const vfr = new VfrHud();
     vfr.airspeed = 12.3;
@@ -609,24 +611,24 @@ describe("ArduPilotSetupView", () => {
     vfr.climb = 0.5;
     vfr.heading = 267; // deliberately not a multiple of the tape's 10-degree tick step
     vfr.throttle = 65;
-    await emit("mavlink-transport://data", { bytes: Array.from(encodePacket(vfr, { seq: 3, sysid: 1, compid: 1 })) });
+    await emit(DATA_EVENT, { bytes: Array.from(encodePacket(vfr, { seq: 3, sysid: 1, compid: 1 })) });
 
     const sys = new SysStatus();
     sys.voltageBattery = 16800; // mV
     sys.currentBattery = 520; // cA
     sys.batteryRemaining = 77; // %
-    await emit("mavlink-transport://data", { bytes: Array.from(encodePacket(sys, { seq: 4, sysid: 1, compid: 1 })) });
+    await emit(DATA_EVENT, { bytes: Array.from(encodePacket(sys, { seq: 4, sysid: 1, compid: 1 })) });
 
     const gps = new GpsRawInt();
     gps.fixType = GpsFixType.GPS_FIX_TYPE_3D_FIX;
     gps.satellitesVisible = 14;
-    await emit("mavlink-transport://data", { bytes: Array.from(encodePacket(gps, { seq: 5, sysid: 1, compid: 1 })) });
+    await emit(DATA_EVENT, { bytes: Array.from(encodePacket(gps, { seq: 5, sysid: 1, compid: 1 })) });
 
     const pos = new GlobalPositionInt();
     pos.lat = 504500000; // 50.45 deg * 1e7
     pos.lon = 305200000; // 30.52 deg * 1e7
     pos.relativeAlt = 100000; // 100 m in mm
-    await emit("mavlink-transport://data", { bytes: Array.from(encodePacket(pos, { seq: 6, sysid: 1, compid: 1 })) });
+    await emit(DATA_EVENT, { bytes: Array.from(encodePacket(pos, { seq: 6, sysid: 1, compid: 1 })) });
 
     // Roll/pitch/yaw drive the attitude ball's geometry (rotation/translation), not text -
     // covered directly by PrimaryFlightDisplay's own tests. Here we check the values that do
@@ -635,8 +637,8 @@ describe("ArduPilotSetupView", () => {
     expect(await screen.findByText("12.3")).toBeInTheDocument(); // airspeed tape
     expect(screen.getByText("123")).toBeInTheDocument(); // altitude tape
     expect(screen.getByText("267")).toBeInTheDocument(); // heading tape
-    expect(screen.getByTestId("pfd-armed-badge")).toHaveTextContent("Не озброєно");
-    expect(screen.getByTestId("pfd-mode-badge")).toHaveTextContent("0"); // raw customMode - not Plane
+    expect(screen.getByTestId(PFD_TEST_IDS.armedBadge)).toHaveTextContent("Не озброєно");
+    expect(screen.getByTestId(PFD_TEST_IDS.modeBadge)).toHaveTextContent("0"); // raw customMode - not Plane
     expect(screen.getByText("16.80 V")).toBeInTheDocument();
     expect(screen.getByText("5.2 A")).toBeInTheDocument();
     expect(screen.getByText("77%")).toBeInTheDocument();
@@ -651,11 +653,11 @@ describe("ArduPilotSetupView", () => {
     mockBackend(invoked);
     const { clickConnect, getStatusAlert } = getView();
     await clickConnect();
-    await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+    await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
     await within(getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
 
     invoked.mockClear();
-    await emit("mavlink-transport://data", { bytes: sampleHeartbeatBytes() });
+    await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
 
     await vi.waitFor(() => {
       const requestStreamCalls = invoked.mock.calls.filter(([cmd, payload]) => {
@@ -740,8 +742,8 @@ describe("ArduPilotSetupView", () => {
       await user.click(screen.getByRole("button", { name: "Автовизначення" }));
 
       await vi.waitFor(() => expect(calledWithPort(invoked, "connect_serial", "COM3")).toBe(true));
-      await emit("mavlink-transport://status", { kind: "connected", detail: "serial:COM3@57600" });
-      await emit("mavlink-transport://data", { bytes: sampleHeartbeatBytes() });
+      await emit(STATUS_EVENT, { kind: "connected", detail: "serial:COM3@57600" });
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
 
       expect(await within(getStatusAlert()).findByText("Підключено: serial:COM3@57600")).toBeInTheDocument();
       expect(screen.getByLabelText("Серійний порт")).toHaveValue("COM3");
@@ -759,7 +761,7 @@ describe("ArduPilotSetupView", () => {
         await user.click(screen.getByRole("button", { name: "Автовизначення" }));
 
         await vi.waitFor(() => expect(calledWithPort(invoked, "connect_serial", "COM3")).toBe(true));
-        await emit("mavlink-transport://status", { kind: "connected", detail: "serial:COM3@57600" });
+        await emit(STATUS_EVENT, { kind: "connected", detail: "serial:COM3@57600" });
         // No heartbeat for COM3 at any baud rate - the scan must exhaust all 5 standard
         // rates on this port (real timers, ~2s each) before moving on to COM4.
 
@@ -771,8 +773,8 @@ describe("ArduPilotSetupView", () => {
         ).length;
         expect(com3Attempts).toBe(5); // every standard baud rate was tried on COM3 before giving up on it
 
-        await emit("mavlink-transport://status", { kind: "connected", detail: "serial:COM4@57600" });
-        await emit("mavlink-transport://data", { bytes: sampleHeartbeatBytes() });
+        await emit(STATUS_EVENT, { kind: "connected", detail: "serial:COM4@57600" });
+        await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
 
         expect(await within(getStatusAlert()).findByText("Підключено: serial:COM4@57600")).toBeInTheDocument();
         expect(screen.getByLabelText("Серійний порт")).toHaveValue("COM4");
@@ -799,7 +801,7 @@ describe("ArduPilotSetupView", () => {
         await user.click(screen.getByRole("button", { name: "Автовизначення" }));
 
         await vi.waitFor(() => expect(calledWithPort(invoked, "connect_serial", "COM3")).toBe(true));
-        await emit("mavlink-transport://status", { kind: "connected", detail: "serial:COM3@57600" });
+        await emit(STATUS_EVENT, { kind: "connected", detail: "serial:COM3@57600" });
         // Never emit a heartbeat, at any baud rate.
 
         expect(
@@ -820,7 +822,7 @@ describe("ArduPilotSetupView", () => {
       const { clickConnect, getStatusAlert, clickParametersNav, getMotorsNavButton, getPidTuneNavButton, user } =
         getView();
       await clickConnect();
-      await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
       await within(getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
 
       expect(screen.getByText("Апарат")).toBeInTheDocument(); // telemetry section shown by default
@@ -852,9 +854,9 @@ describe("ArduPilotSetupView", () => {
     async function connectPlaneAndOpenMotors() {
       const view = getView();
       await view.clickConnect();
-      await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
       await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
-      await emit("mavlink-transport://data", { bytes: samplePlaneHeartbeatBytes() });
+      await emit(DATA_EVENT, { bytes: samplePlaneHeartbeatBytes() });
       await view.clickMotorsNav();
       return view;
     }
@@ -908,18 +910,18 @@ describe("ArduPilotSetupView", () => {
       mockBackend();
       await connectPlaneAndOpenMotors();
 
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("SERVO1_FUNCTION", 4, MavParamType.INT16, 0, 1, 1) });
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("SERVO1_MIN", 1000, MavParamType.INT16, 1, 1, 2) });
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("SERVO1_MAX", 2000, MavParamType.INT16, 2, 1, 3) });
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("SERVO1_TRIM", 1500, MavParamType.INT16, 3, 1, 4) });
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("SERVO2_FUNCTION", 0, MavParamType.INT16, 4, 1, 5) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERVO1_FUNCTION", 4, MavParamType.INT16, 0, 1, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERVO1_MIN", 1000, MavParamType.INT16, 1, 1, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERVO1_MAX", 2000, MavParamType.INT16, 2, 1, 3) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERVO1_TRIM", 1500, MavParamType.INT16, 3, 1, 4) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERVO2_FUNCTION", 0, MavParamType.INT16, 4, 1, 5) });
 
       expect(await screen.findByText("Aileron")).toBeInTheDocument();
       expect(screen.getByText("1")).toBeInTheDocument(); // channel number
       expect(screen.getByText("-")).toBeInTheDocument(); // no SERVO_OUTPUT_RAW yet
       expect(screen.getAllByRole("row")).toHaveLength(2); // header + exactly one active channel (2 is Disabled)
 
-      await emit("mavlink-transport://data", { bytes: buildServoOutputRawBytes(0, [1500], 5) });
+      await emit(DATA_EVENT, { bytes: buildServoOutputRawBytes(0, [1500], 5) });
       expect(await screen.findByText("1500 us")).toBeInTheDocument();
     });
 
@@ -928,10 +930,10 @@ describe("ArduPilotSetupView", () => {
       mockBackend(invoked);
       await connectPlaneAndOpenMotors();
 
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("SERVO1_FUNCTION", 4, MavParamType.INT16, 0, 1, 1) });
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("SERVO1_MIN", 1000, MavParamType.INT16, 1, 1, 2) });
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("SERVO1_MAX", 2000, MavParamType.INT16, 2, 1, 3) });
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("SERVO1_TRIM", 1500, MavParamType.INT16, 3, 1, 4) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERVO1_FUNCTION", 4, MavParamType.INT16, 0, 1, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERVO1_MIN", 1000, MavParamType.INT16, 1, 1, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERVO1_MAX", 2000, MavParamType.INT16, 2, 1, 3) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERVO1_TRIM", 1500, MavParamType.INT16, 3, 1, 4) });
       const testButton = await screen.findByRole("button", { name: "Утримуйте для тесту" });
 
       fireEvent.pointerDown(testButton);
@@ -948,9 +950,9 @@ describe("ArduPilotSetupView", () => {
     async function connectCopterAndOpenMotors() {
       const view = getView();
       await view.clickConnect();
-      await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
       await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
-      await emit("mavlink-transport://data", { bytes: sampleHeartbeatBytes() }); // QUADROTOR
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() }); // QUADROTOR
       await view.clickMotorsNav();
       return view;
     }
@@ -990,8 +992,8 @@ describe("ArduPilotSetupView", () => {
       mockBackend(invoked);
       await connectCopterAndOpenMotors();
 
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("FRAME_CLASS", 1, MavParamType.INT8, 0, 2, 1) }); // Quad
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("FRAME_TYPE", 1, MavParamType.INT8, 1, 2, 2) }); // X
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_CLASS", 1, MavParamType.INT8, 0, 2, 1) }); // Quad
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_TYPE", 1, MavParamType.INT8, 1, 2, 2) }); // X
 
       const diagram = await screen.findByRole("img", { name: "Motor layout" });
       expect(diagram).toBeInTheDocument();
@@ -1016,8 +1018,8 @@ describe("ArduPilotSetupView", () => {
       mockBackend(invoked);
       await connectCopterAndOpenMotors();
 
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("FRAME_CLASS", 1, MavParamType.INT8, 0, 2, 1) });
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("FRAME_TYPE", 1, MavParamType.INT8, 1, 2, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_CLASS", 1, MavParamType.INT8, 0, 2, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_TYPE", 1, MavParamType.INT8, 1, 2, 2) });
       await screen.findByRole("img", { name: "Motor layout" });
 
       expect(
@@ -1038,8 +1040,8 @@ describe("ArduPilotSetupView", () => {
       mockBackend(invoked);
       const { user } = await connectCopterAndOpenMotors();
 
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("FRAME_CLASS", 1, MavParamType.INT8, 0, 2, 1) });
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("FRAME_TYPE", 1, MavParamType.INT8, 1, 2, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_CLASS", 1, MavParamType.INT8, 0, 2, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_TYPE", 1, MavParamType.INT8, 1, 2, 2) });
       await screen.findByRole("img", { name: "Motor layout" });
 
       await user.click(screen.getByRole("button", { name: "Перезавантажити зараз" }));
@@ -1058,9 +1060,9 @@ describe("ArduPilotSetupView", () => {
       mockBackend(invoked);
       await connectCopterAndOpenMotors();
 
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("FRAME_CLASS", 1, MavParamType.INT8, 0, 2, 1) });
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("FRAME_TYPE", 1, MavParamType.INT8, 1, 2, 2) });
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("SERVO1_REVERSED", 0, MavParamType.INT8, 2, 2, 3) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_CLASS", 1, MavParamType.INT8, 0, 2, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_TYPE", 1, MavParamType.INT8, 1, 2, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERVO1_REVERSED", 0, MavParamType.INT8, 2, 2, 3) });
       await screen.findByRole("img", { name: "Motor layout" });
 
       const checkbox = screen.getAllByRole("checkbox", { name: "Реверс" })[0]!;
@@ -1084,8 +1086,8 @@ describe("ArduPilotSetupView", () => {
 
       // Tri (class 7) has no verified position/rotation diagram, but its motor count (3) is
       // still known - see motorCountForFrameClass in frameDiagrams.ts.
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("FRAME_CLASS", 7, MavParamType.INT8, 0, 2, 1) });
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("FRAME_TYPE", 0, MavParamType.INT8, 1, 2, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_CLASS", 7, MavParamType.INT8, 0, 2, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_TYPE", 0, MavParamType.INT8, 1, 2, 2) });
 
       expect(
         await screen.findByText(
@@ -1102,9 +1104,9 @@ describe("ArduPilotSetupView", () => {
     async function connectCopterAndOpenPidTune() {
       const view = getView();
       await view.clickConnect();
-      await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
       await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
-      await emit("mavlink-transport://data", { bytes: sampleHeartbeatBytes() }); // QUADROTOR
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() }); // QUADROTOR
       await view.user.click(view.getPidTuneNavButton());
       return view;
     }
@@ -1148,7 +1150,7 @@ describe("ArduPilotSetupView", () => {
       // round-trip through the REAL32 wire codec with no precision drift (see the ARSPD_RATIO
       // comment in the "parameters" describe block below for the general phenomenon), so the
       // rendered text matches these literals exactly.
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("ATC_RAT_RLL_P", 0.125, MavParamType.REAL32, 0, 1, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("ATC_RAT_RLL_P", 0.125, MavParamType.REAL32, 0, 1, 1) });
       expect(await screen.findByText("0.125")).toBeInTheDocument();
 
       await user.click(screen.getByText("0.125"));
@@ -1180,9 +1182,9 @@ describe("ArduPilotSetupView", () => {
     async function connectPlaneAndOpenPidTune() {
       const view = getView();
       await view.clickConnect();
-      await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
       await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
-      await emit("mavlink-transport://data", { bytes: samplePlaneHeartbeatBytes() });
+      await emit(DATA_EVENT, { bytes: samplePlaneHeartbeatBytes() });
       await view.user.click(view.getPidTuneNavButton());
       return view;
     }
@@ -1190,23 +1192,23 @@ describe("ArduPilotSetupView", () => {
     it("resolves the modern RLL_RATE_P candidate when that's the one the vehicle reports", async () => {
       mockBackend();
       await connectPlaneAndOpenPidTune();
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("RLL_RATE_P", 0.5, MavParamType.REAL32, 0, 1, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("RLL_RATE_P", 0.5, MavParamType.REAL32, 0, 1, 1) });
       expect(await screen.findByText("0.5")).toBeInTheDocument();
     });
 
     it("falls back to the legacy RLL2SRV_P candidate when that's the only one the vehicle reports", async () => {
       mockBackend();
       await connectPlaneAndOpenPidTune();
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("RLL2SRV_P", 0.75, MavParamType.REAL32, 0, 1, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("RLL2SRV_P", 0.75, MavParamType.REAL32, 0, 1, 1) });
       expect(await screen.findByText("0.75")).toBeInTheDocument();
     });
 
     it("shows the yaw damper's Damp/Int/Slip gains, which have no P/I/D naming", async () => {
       mockBackend();
       await connectPlaneAndOpenPidTune();
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("YAW2SRV_DAMP", 0.5, MavParamType.REAL32, 0, 3, 1) });
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("YAW2SRV_INT", 0.125, MavParamType.REAL32, 1, 3, 2) });
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("YAW2SRV_SLIP", 0.25, MavParamType.REAL32, 2, 3, 3) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("YAW2SRV_DAMP", 0.5, MavParamType.REAL32, 0, 3, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("YAW2SRV_INT", 0.125, MavParamType.REAL32, 1, 3, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("YAW2SRV_SLIP", 0.25, MavParamType.REAL32, 2, 3, 3) });
       expect(await screen.findByText("0.5")).toBeInTheDocument();
       expect(screen.getByText("0.125")).toBeInTheDocument();
       expect(screen.getByText("0.25")).toBeInTheDocument();
@@ -1217,9 +1219,9 @@ describe("ArduPilotSetupView", () => {
     async function connectAndOpenEscCal() {
       const view = getView();
       await view.clickConnect();
-      await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
       await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
-      await emit("mavlink-transport://data", { bytes: sampleHeartbeatBytes() });
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
       await view.user.click(screen.getByRole("tab", { name: "Калібрування ESC" }));
       return view;
     }
@@ -1252,9 +1254,9 @@ describe("ArduPilotSetupView", () => {
     async function connectAndOpenBatteryConfig() {
       const view = getView();
       await view.clickConnect();
-      await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
       await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
-      await emit("mavlink-transport://data", { bytes: sampleHeartbeatBytes() });
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
       await view.user.click(screen.getByRole("tab", { name: "Налаштування батареї" }));
       return view;
     }
@@ -1269,7 +1271,7 @@ describe("ArduPilotSetupView", () => {
       sys.voltageBattery = 16800;
       sys.currentBattery = 520;
       sys.batteryRemaining = 77;
-      await emit("mavlink-transport://data", { bytes: Array.from(encodePacket(sys, { seq: 1, sysid: 1, compid: 1 })) });
+      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(sys, { seq: 1, sysid: 1, compid: 1 })) });
       expect(await screen.findByText("16.80 V")).toBeInTheDocument();
     });
 
@@ -1300,7 +1302,7 @@ describe("ArduPilotSetupView", () => {
       mockBackend(invoked);
       const { user } = await connectAndOpenBatteryConfig();
 
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("BATT_CAPACITY", 5000, MavParamType.INT32, 0, 1, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("BATT_CAPACITY", 5000, MavParamType.INT32, 0, 1, 1) });
       expect(await screen.findByText("5000")).toBeInTheDocument();
 
       await user.click(screen.getByText("5000"));
@@ -1377,9 +1379,9 @@ describe("ArduPilotSetupView", () => {
     async function connectWithVehicle() {
       const view = getView();
       await view.clickConnect();
-      await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
       await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
-      await emit("mavlink-transport://data", { bytes: sampleHeartbeatBytes() });
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
       await view.clickParametersNav();
       return view;
     }
@@ -1400,7 +1402,7 @@ describe("ArduPilotSetupView", () => {
         expect(listRequest).toBeDefined();
       });
 
-      await emit("mavlink-transport://data", {
+      await emit(DATA_EVENT, {
         bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 2, 1),
       });
 
@@ -1415,7 +1417,7 @@ describe("ArduPilotSetupView", () => {
       const { user } = await connectWithVehicle();
       await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
 
-      await emit("mavlink-transport://data", {
+      await emit(DATA_EVENT, {
         bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 2, 1),
       });
       await screen.findByText("ARSPD_USE");
@@ -1423,7 +1425,7 @@ describe("ArduPilotSetupView", () => {
       const bar = screen.getByTestId("param-load-progress");
       expect(bar.firstElementChild).toHaveStyle({ width: "50%" });
 
-      await emit("mavlink-transport://data", {
+      await emit(DATA_EVENT, {
         bytes: buildParamValueBytes("ARSPD_RATIO", 2, MavParamType.INT8, 1, 2, 2),
       });
       await screen.findByText("ARSPD_RATIO");
@@ -1437,8 +1439,8 @@ describe("ArduPilotSetupView", () => {
       mockBackend();
       const { user } = await connectWithVehicle();
       await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 2, 1) });
-      await emit("mavlink-transport://data", {
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 2, 1) });
+      await emit(DATA_EVENT, {
         bytes: buildParamValueBytes("ARSPD_RATIO", 1.98, MavParamType.REAL32, 1, 2, 2),
       });
       await screen.findByText("ARSPD_RATIO");
@@ -1467,8 +1469,8 @@ describe("ArduPilotSetupView", () => {
       mockBackend(invoked);
       const { user } = await connectWithVehicle();
       await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
-      await emit("mavlink-transport://data", { bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 2, 1) });
-      await emit("mavlink-transport://data", {
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 2, 1) });
+      await emit(DATA_EVENT, {
         bytes: buildParamValueBytes("ARSPD_RATIO", 1.98, MavParamType.REAL32, 1, 2, 2),
       });
       await screen.findByText("ARSPD_RATIO");
@@ -1509,7 +1511,7 @@ describe("ArduPilotSetupView", () => {
       mockBackend();
       const { user } = await connectWithVehicle();
       await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
-      await emit("mavlink-transport://data", {
+      await emit(DATA_EVENT, {
         bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 1, 1),
       });
       await screen.findByText("ARSPD_USE");
@@ -1529,7 +1531,7 @@ describe("ArduPilotSetupView", () => {
 
       const names = ["ARSPD_USE", "ARSPD_RATIO", "ARSPD_FBW_MIN", "ARSPD_FBW_MAX", "ARSPD_OFFSET"];
       for (const [i, name] of names.entries()) {
-        await emit("mavlink-transport://data", {
+        await emit(DATA_EVENT, {
           bytes: buildParamValueBytes(name, i, MavParamType.INT8, i, names.length, i + 1),
         });
       }
@@ -1545,7 +1547,7 @@ describe("ArduPilotSetupView", () => {
       mockBackend(invoked);
       const { user } = await connectWithVehicle();
       await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
-      await emit("mavlink-transport://data", {
+      await emit(DATA_EVENT, {
         bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 3, 1),
       });
       await screen.findByText("ARSPD_USE");
@@ -1568,7 +1570,7 @@ describe("ArduPilotSetupView", () => {
       mockBackend(invoked);
       const { user } = await connectWithVehicle();
       await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
-      await emit("mavlink-transport://data", {
+      await emit(DATA_EVENT, {
         bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 1, 1),
       });
       await screen.findByText("ARSPD_USE");
@@ -1627,7 +1629,7 @@ describe("ArduPilotSetupView", () => {
       mockBackend(invoked);
       const { user } = await connectWithVehicle();
       await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
-      await emit("mavlink-transport://data", {
+      await emit(DATA_EVENT, {
         bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 1, 1),
       });
       await screen.findByText("ARSPD_USE");
@@ -1661,7 +1663,7 @@ describe("ArduPilotSetupView", () => {
       mockBackend();
       const { user } = await connectWithVehicle();
       await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
-      await emit("mavlink-transport://data", {
+      await emit(DATA_EVENT, {
         bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 1, 1),
       });
       await screen.findByText("ARSPD_USE");
@@ -1681,7 +1683,7 @@ describe("ArduPilotSetupView", () => {
       mockBackend();
       const { user } = await connectWithVehicle(); // sampleHeartbeatBytes() reports MavType.QUADROTOR -> ArduCopter
       await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
-      await emit("mavlink-transport://data", {
+      await emit(DATA_EVENT, {
         bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 1, 1),
       });
       await screen.findByText("ARSPD_USE");
@@ -1698,9 +1700,9 @@ describe("ArduPilotSetupView", () => {
     async function connectAndOpenCompassCal() {
       const view = getView();
       await view.clickConnect();
-      await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
       await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
-      await emit("mavlink-transport://data", { bytes: sampleHeartbeatBytes() });
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
       await view.clickCompassCalNav();
       return view;
     }
@@ -1728,7 +1730,7 @@ describe("ArduPilotSetupView", () => {
       const { user } = await connectAndOpenCompassCal();
       await user.click(screen.getByRole("button", { name: "Почати калібрування" }));
 
-      await emit("mavlink-transport://data", {
+      await emit(DATA_EVENT, {
         bytes: buildMagCalProgressBytes(0, MagCalStatus.RUNNING_STEP_ONE, 37, new Array<number>(10).fill(0), 1),
       });
 
@@ -1742,7 +1744,7 @@ describe("ArduPilotSetupView", () => {
       mockBackend(invoked);
       const { user } = await connectAndOpenCompassCal();
       await user.click(screen.getByRole("button", { name: "Почати калібрування" }));
-      await emit("mavlink-transport://data", {
+      await emit(DATA_EVENT, {
         bytes: buildMagCalReportBytes(0, MagCalStatus.SUCCESS, 12.3, 1),
       });
       await screen.findByText("Компас 0");
@@ -1760,7 +1762,7 @@ describe("ArduPilotSetupView", () => {
       mockBackend(invoked);
       const { user } = await connectAndOpenCompassCal();
       await user.click(screen.getByRole("button", { name: "Почати калібрування" }));
-      await emit("mavlink-transport://data", {
+      await emit(DATA_EVENT, {
         bytes: buildMagCalProgressBytes(0, MagCalStatus.RUNNING_STEP_ONE, 10, new Array<number>(10).fill(0), 1),
       });
       await screen.findByText("Компас 0");
@@ -1777,7 +1779,7 @@ describe("ArduPilotSetupView", () => {
       const { user } = await connectAndOpenCompassCal();
       await user.click(screen.getByRole("button", { name: "Почати калібрування" }));
 
-      await emit("mavlink-transport://data", {
+      await emit(DATA_EVENT, {
         bytes: buildCommandAckBytes(MavCmd.DO_START_MAG_CAL, MavResult.DENIED, 1),
       });
 
@@ -1789,9 +1791,9 @@ describe("ArduPilotSetupView", () => {
     async function connectAndOpenAccelCal() {
       const view = getView();
       await view.clickConnect();
-      await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
       await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
-      await emit("mavlink-transport://data", { bytes: sampleHeartbeatBytes() });
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
       await view.clickAccelCalNav();
       return view;
     }
@@ -1819,7 +1821,7 @@ describe("ArduPilotSetupView", () => {
 
       expect(screen.getByText("Калібрування...")).toBeInTheDocument();
 
-      await emit("mavlink-transport://data", {
+      await emit(DATA_EVENT, {
         bytes: buildCommandAckBytes(MavCmd.PREFLIGHT_CALIBRATION, MavResult.ACCEPTED, 1),
       });
       expect(await screen.findByText("Калібрування рівня завершено.")).toBeInTheDocument();
@@ -1843,7 +1845,7 @@ describe("ArduPilotSetupView", () => {
 
       // Vehicle asks the user to move to LEVEL first. The position label also appears in the
       // checklist below, hence the testid - see AccelCalSection.tsx.
-      await emit("mavlink-transport://data", { bytes: buildAccelcalVehiclePosBytes(AccelcalVehiclePos.LEVEL, 1) });
+      await emit(DATA_EVENT, { bytes: buildAccelcalVehiclePosBytes(AccelcalVehiclePos.LEVEL, 1) });
       expect(await screen.findByTestId("accel-cal-position-prompt")).toHaveTextContent("Рівно");
 
       invoked.mockClear();
@@ -1857,13 +1859,13 @@ describe("ArduPilotSetupView", () => {
       });
 
       // Vehicle moves on to LEFT.
-      await emit("mavlink-transport://data", { bytes: buildAccelcalVehiclePosBytes(AccelcalVehiclePos.LEFT, 2) });
+      await emit(DATA_EVENT, { bytes: buildAccelcalVehiclePosBytes(AccelcalVehiclePos.LEFT, 2) });
       expect(await screen.findByTestId("accel-cal-position-prompt")).toHaveTextContent("На лівому боці");
       expect(screen.getByTestId(`accel-cal-checklist-${AccelcalVehiclePos.LEVEL}`).className).toContain("border-primary"); // LEVEL now checked off
 
       // Vehicle reports overall success (a real full cal steps through all 6 - shortcutting the
       // remaining 4 here since the position-request/confirm-echo mechanics are already proven).
-      await emit("mavlink-transport://data", { bytes: buildAccelcalVehiclePosBytes(AccelcalVehiclePos.SUCCESS, 3) });
+      await emit(DATA_EVENT, { bytes: buildAccelcalVehiclePosBytes(AccelcalVehiclePos.SUCCESS, 3) });
       expect(await screen.findByText("Калібрування успішне.")).toBeInTheDocument();
     });
 
@@ -1872,7 +1874,7 @@ describe("ArduPilotSetupView", () => {
       const { user } = await connectAndOpenAccelCal();
       await user.click(screen.getByRole("button", { name: "Повне калібрування" }));
 
-      await emit("mavlink-transport://data", {
+      await emit(DATA_EVENT, {
         bytes: buildCommandAckBytes(MavCmd.PREFLIGHT_CALIBRATION, MavResult.DENIED, 1),
       });
 
@@ -1884,9 +1886,9 @@ describe("ArduPilotSetupView", () => {
     async function connectAndOpenRcCal() {
       const view = getView();
       await view.clickConnect();
-      await emit("mavlink-transport://status", { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
       await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
-      await emit("mavlink-transport://data", { bytes: sampleHeartbeatBytes() });
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
       await view.clickRcCalNav();
       return view;
     }
@@ -1902,7 +1904,7 @@ describe("ArduPilotSetupView", () => {
       mockBackend(invoked);
       const { user } = await connectAndOpenRcCal();
 
-      await emit("mavlink-transport://data", { bytes: buildRcChannelsBytes({ 1: 1500, 3: 1000 }, 8, 1) });
+      await emit(DATA_EVENT, { bytes: buildRcChannelsBytes({ 1: 1500, 3: 1000 }, 8, 1) });
       expect(await screen.findByText("1500")).toBeInTheDocument();
 
       await user.click(screen.getByRole("button", { name: "Почати калібрування" }));
@@ -1916,9 +1918,9 @@ describe("ArduPilotSetupView", () => {
 
       // The first packet after Start seeds min=max=trim=1500; a lower value afterwards should
       // expand min without moving trim.
-      await emit("mavlink-transport://data", { bytes: buildRcChannelsBytes({ 1: 1500, 3: 1000 }, 8, 2) });
-      await emit("mavlink-transport://data", { bytes: buildRcChannelsBytes({ 1: 1000, 3: 1000 }, 8, 3) });
-      await emit("mavlink-transport://data", { bytes: buildRcChannelsBytes({ 1: 2000, 3: 1000 }, 8, 4) });
+      await emit(DATA_EVENT, { bytes: buildRcChannelsBytes({ 1: 1500, 3: 1000 }, 8, 2) });
+      await emit(DATA_EVENT, { bytes: buildRcChannelsBytes({ 1: 1000, 3: 1000 }, 8, 3) });
+      await emit(DATA_EVENT, { bytes: buildRcChannelsBytes({ 1: 2000, 3: 1000 }, 8, 4) });
 
       expect(await screen.findByText("2000")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Зберегти" })).toBeInTheDocument();
@@ -1930,9 +1932,9 @@ describe("ArduPilotSetupView", () => {
       const { user } = await connectAndOpenRcCal();
 
       await user.click(screen.getByRole("button", { name: "Почати калібрування" }));
-      await emit("mavlink-transport://data", { bytes: buildRcChannelsBytes({ 1: 1500 }, 8, 1) });
-      await emit("mavlink-transport://data", { bytes: buildRcChannelsBytes({ 1: 1000 }, 8, 2) });
-      await emit("mavlink-transport://data", { bytes: buildRcChannelsBytes({ 1: 2000 }, 8, 3) });
+      await emit(DATA_EVENT, { bytes: buildRcChannelsBytes({ 1: 1500 }, 8, 1) });
+      await emit(DATA_EVENT, { bytes: buildRcChannelsBytes({ 1: 1000 }, 8, 2) });
+      await emit(DATA_EVENT, { bytes: buildRcChannelsBytes({ 1: 2000 }, 8, 3) });
       await screen.findByText("2000");
 
       const reverseCheckbox = screen.getByRole("checkbox", { name: "Реверс" });
@@ -1972,7 +1974,7 @@ describe("ArduPilotSetupView", () => {
       const { user } = await connectAndOpenRcCal();
 
       await user.click(screen.getByRole("button", { name: "Почати калібрування" }));
-      await emit("mavlink-transport://data", { bytes: buildRcChannelsBytes({ 1: 1500 }, 8, 1) });
+      await emit(DATA_EVENT, { bytes: buildRcChannelsBytes({ 1: 1500 }, 8, 1) });
       await screen.findByText("1500");
 
       invoked.mockClear();
@@ -1993,12 +1995,12 @@ describe("ArduPilotSetupView", () => {
       const { user } = await connectAndOpenRcCal();
       await user.click(screen.getByRole("button", { name: "Почати калібрування" }));
 
-      await emit("mavlink-transport://data", {
+      await emit(DATA_EVENT, {
         bytes: buildCommandAckBytes(MavCmd.PREFLIGHT_CALIBRATION, MavResult.UNSUPPORTED, 1),
       });
       expect(screen.queryByText("Апарат озброєний - роззбройте перед калібруванням.")).not.toBeInTheDocument();
 
-      await emit("mavlink-transport://data", {
+      await emit(DATA_EVENT, {
         bytes: buildCommandAckBytes(MavCmd.PREFLIGHT_CALIBRATION, MavResult.FAILED, 2),
       });
       expect(await screen.findByText("Апарат озброєний - роззбройте перед калібруванням.")).toBeInTheDocument();

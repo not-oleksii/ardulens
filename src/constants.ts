@@ -1,3 +1,6 @@
+/** One Cesium ion token covers both CesiumMapView's post-flight map and ArduPilotSetupView's live map. */
+export const CESIUM_TOKEN_STORAGE_KEY = "ardulens.cesiumIonToken";
+
 export const AIR_MODES: ReadonlySet<number> = new Set([4, 5, 15]); // ACRO, FBWA, GUIDED
 
 /** ArduPilot Plane/QuadPlane flight mode numbers -> names, for the Graphs page's mode bands. */
