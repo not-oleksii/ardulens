@@ -283,6 +283,22 @@ export function startMockVehicle(
     params.set("YAW2SRV_SLIP", { value: 0, type: MavParamType.REAL32, index: params.size });
   }
 
+  // FLTMODE_CH/FLTMODE1-6 and RC1-16_OPTION are generic ArduPilot RC-input params common to
+  // every vehicle family (not Copter/Plane-specific like FRAME_CLASS above), so seeded outside
+  // the branch above. FLTMODE_CH=5 is the real ArduPilot factory default. The FLTMODE1-6 values
+  // below are varied demo modes (not the real stock default, which is STABILIZE/mode 0 in all
+  // six slots) so the RC Setup tab's Flight Modes picker has something interesting to show in
+  // Dev Mode. RCx_OPTION all default to 0 ("Do Nothing") - the one universally-safe default
+  // across every aux-function enum, rather than guessing a specific function's numeric code.
+  params.set("FLTMODE_CH", { value: 5, type: MavParamType.INT8, index: params.size });
+  const demoFlightModes = [0, 2, 5, 6, 3, 4];
+  for (let slot = 1; slot <= 6; slot++) {
+    params.set(`FLTMODE${slot}`, { value: demoFlightModes[slot - 1]!, type: MavParamType.INT8, index: params.size });
+  }
+  for (let channel = 1; channel <= 16; channel++) {
+    params.set(`RC${channel}_OPTION`, { value: 0, type: MavParamType.INT16, index: params.size });
+  }
+
   function sendParamValue(name: string) {
     const p = params.get(name);
     if (!p) return;

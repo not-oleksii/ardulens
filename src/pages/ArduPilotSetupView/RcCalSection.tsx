@@ -3,6 +3,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { MavResult } from "../../mavlink/registry/registry";
 import type { MavlinkRcCalState } from "../../stores/mavlinkRcCalStore/types";
+import { colorForRcChannel } from "./rcChannelColors";
 
 interface RcCalSectionProps {
   live: Record<number, number>;
@@ -97,9 +98,16 @@ export function RcCalSection({
             {displayedChannels.map((channel) => {
               const raw = live[channel];
               const range = channels[channel];
+              const color = colorForRcChannel(channel);
               return (
                 <div key={channel} className="flex items-center gap-3 text-xs">
-                  <span className="w-6 shrink-0 font-mono text-muted-foreground">{channel}</span>
+                  <span
+                    className="flex w-6 shrink-0 items-center gap-1 font-mono text-muted-foreground"
+                    style={{ color }}
+                  >
+                    <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />
+                    {channel}
+                  </span>
                   <div className="relative h-3 min-w-0 flex-1 rounded-full bg-muted">
                     {range && (
                       <div
@@ -115,8 +123,8 @@ export function RcCalSection({
                     )}
                     {raw !== undefined && (
                       <div
-                        className="absolute top-1/2 h-2.5 w-2.5 -translate-y-1/2 -translate-x-1/2 rounded-full border border-background bg-foreground"
-                        style={{ left: `${scalePct(raw)}%` }}
+                        className="absolute top-1/2 h-2.5 w-2.5 -translate-y-1/2 -translate-x-1/2 rounded-full border border-background"
+                        style={{ left: `${scalePct(raw)}%`, background: color }}
                       />
                     )}
                   </div>

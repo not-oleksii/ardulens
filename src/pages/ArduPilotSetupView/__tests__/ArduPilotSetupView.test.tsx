@@ -316,6 +316,7 @@ function getView() {
   const getCompassCalNavButton = () => screen.getByRole("tab", { name: "Калібрування компаса" });
   const getAccelCalNavButton = () => screen.getByRole("tab", { name: "Калібрування акселерометра" });
   const getRcCalNavButton = () => screen.getByRole("tab", { name: "Калібрування RC" });
+  const getRcSetupNavButton = () => screen.getByRole("tab", { name: "Налаштування RC" });
   const getMotorsNavButton = () => screen.getByRole("tab", { name: "Налаштування моторів" });
   const getPidTuneNavButton = () => screen.getByRole("tab", { name: "Налаштування PID" });
 
@@ -331,6 +332,7 @@ function getView() {
   const clickCompassCalNav = () => user.click(getCompassCalNavButton());
   const clickAccelCalNav = () => user.click(getAccelCalNavButton());
   const clickRcCalNav = () => user.click(getRcCalNavButton());
+  const clickRcSetupNav = () => user.click(getRcSetupNavButton());
   const clickMotorsNav = () => user.click(getMotorsNavButton());
 
   return {
@@ -353,6 +355,7 @@ function getView() {
     getCompassCalNavButton,
     getAccelCalNavButton,
     getRcCalNavButton,
+    getRcSetupNavButton,
     getMotorsNavButton,
     getPidTuneNavButton,
     clickSerialMode,
@@ -367,6 +370,7 @@ function getView() {
     clickCompassCalNav,
     clickAccelCalNav,
     clickRcCalNav,
+    clickRcSetupNav,
     clickMotorsNav,
   };
 }
@@ -557,7 +561,7 @@ describe("ArduPilotSetupView", () => {
     expect(await screen.findByText("Квадрокоптер")).toBeInTheDocument();
     expect(screen.getByText("ArduPilot")).toBeInTheDocument();
     expect(screen.getByText("Активний")).toBeInTheDocument();
-    expect(screen.getByText("4")).toBeInTheDocument();
+    expect(screen.getByText("GUIDED")).toBeInTheDocument(); // customMode 4 -> COPTER_MODE_NAMES
     // "Armed" appears as both a label and the current value - assert at least one match.
     expect(screen.getAllByText("Озброєно").length).toBeGreaterThan(0);
     expect(screen.queryByText("Очікування першого heartbeat від апарата...")).not.toBeInTheDocument();
@@ -638,7 +642,7 @@ describe("ArduPilotSetupView", () => {
     expect(screen.getByText("123")).toBeInTheDocument(); // altitude tape
     expect(screen.getByText("267")).toBeInTheDocument(); // heading tape
     expect(screen.getByTestId(PFD_TEST_IDS.armedBadge)).toHaveTextContent("Не озброєно");
-    expect(screen.getByTestId(PFD_TEST_IDS.modeBadge)).toHaveTextContent("0"); // raw customMode - not Plane
+    expect(screen.getByTestId(PFD_TEST_IDS.modeBadge)).toHaveTextContent("STABILIZE"); // customMode 0 -> COPTER_MODE_NAMES
     expect(screen.getByText("16.80 V")).toBeInTheDocument();
     expect(screen.getByText("5.2 A")).toBeInTheDocument();
     expect(screen.getByText("77%")).toBeInTheDocument();
@@ -2029,6 +2033,117 @@ describe("ArduPilotSetupView", () => {
         bytes: buildCommandAckBytes(MavCmd.PREFLIGHT_CALIBRATION, MavResult.FAILED, 2),
       });
       expect(await screen.findByText("Апарат озброєний - роззбройте перед калібруванням.")).toBeInTheDocument();
+    });
+  });
+
+  describe("RC input setup (flight modes + channel options)", () => {
+    async function connectAndOpenRcSetup() {
+      const view = getView();
+      await view.clickConnect();
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
+      await view.clickRcSetupNav();
+      return view;
+    }
+
+    it("shows a Load button and not-loaded message", async () => {
+      mockBackend();
+      await connectAndOpenRcSetup();
+      expect(screen.getByRole("button", { name: "Завантажити налаштування RC" })).toBeInTheDocument();
+      expect(screen.getByText("Налаштування режимів польоту та функцій каналів ще не завантажено.")).toBeInTheDocument();
+    });
+
+    it("requests FLTMODE_CH, FLTMODE1-6, and RC1-16_OPTION by name when Load is clicked", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenRcSetup();
+
+      await user.click(screen.getByRole("button", { name: "Завантажити налаштування RC" }));
+
+      const requestedNames = new Set(
+        invoked.mock.calls
+          .filter(([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamRequestRead.MSG_ID)
+          .map(([, payload]) => {
+            const bytes = (payload as { bytes: number[] }).bytes;
+            const nameBytes = bytes.slice(14, 14 + 16);
+            const nullIndex = nameBytes.indexOf(0);
+            return String.fromCharCode(...nameBytes.slice(0, nullIndex === -1 ? undefined : nullIndex));
+          }),
+      );
+      expect(requestedNames.has("FLTMODE_CH")).toBe(true);
+      expect(requestedNames.has("FLTMODE1")).toBe(true);
+      expect(requestedNames.has("FLTMODE6")).toBe(true);
+      expect(requestedNames.has("RC1_OPTION")).toBe(true);
+      expect(requestedNames.has("RC16_OPTION")).toBe(true);
+    });
+
+    it("changing the flight-mode channel stages an edit, and Save All sends PARAM_SET", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenRcSetup();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FLTMODE_CH", 5, MavParamType.INT8, 0, 7, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FLTMODE1", 0, MavParamType.INT8, 1, 7, 2) });
+
+      const channelSelect = await screen.findByRole("combobox", { name: "Канал режиму польоту" });
+      await user.selectOptions(channelSelect, "6");
+
+      const saveAllButton = await screen.findByRole("button", { name: "Зберегти все (1)" });
+      await user.click(saveAllButton);
+      await user.click(screen.getByRole("button", { name: "Зберегти" }));
+
+      const paramSet = invoked.mock.calls.find(
+        ([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamSet.MSG_ID,
+      );
+      expect(paramSet).toBeDefined();
+      const bytes = (paramSet![1] as { bytes: number[] }).bytes;
+      const nameBytes = bytes.slice(16, 16 + 16);
+      const nullIndex = nameBytes.indexOf(0);
+      expect(String.fromCharCode(...nameBytes.slice(0, nullIndex === -1 ? undefined : nullIndex))).toBe("FLTMODE_CH");
+    });
+
+    it("highlights the FLTMODE slot whose PWM band matches the live flight-mode-channel signal", async () => {
+      mockBackend();
+      await connectAndOpenRcSetup();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FLTMODE_CH", 5, MavParamType.INT8, 0, 7, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FLTMODE1", 0, MavParamType.INT8, 1, 7, 2) });
+      await screen.findByRole("combobox", { name: "Канал режиму польоту" });
+
+      // Band 3 (1361-1490us, third FLTMODE slot) - see rcBands.ts's documented boundaries.
+      await emit(DATA_EVENT, { bytes: buildRcChannelsBytes({ 5: 1425 }, 8, 1) });
+
+      expect(await screen.findByText("активний")).toBeInTheDocument();
+      expect(screen.getByText("1361-1490 us")).toBeInTheDocument();
+    });
+
+    it("staging an RC option edit and saving sends PARAM_SET for that channel", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenRcSetup();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FLTMODE_CH", 5, MavParamType.INT8, 0, 7, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("RC7_OPTION", 0, MavParamType.INT16, 1, 7, 2) });
+      await screen.findByText("0");
+
+      await user.click(screen.getByText("0"));
+      const input = screen.getByRole("textbox");
+      await user.clear(input);
+      await user.type(input, "153{Enter}");
+
+      const saveAllButton = await screen.findByRole("button", { name: "Зберегти все (1)" });
+      await user.click(saveAllButton);
+      await user.click(screen.getByRole("button", { name: "Зберегти" }));
+
+      const paramSet = invoked.mock.calls.find(
+        ([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamSet.MSG_ID,
+      );
+      expect(paramSet).toBeDefined();
+      const bytes = (paramSet![1] as { bytes: number[] }).bytes;
+      const nameBytes = bytes.slice(16, 16 + 16);
+      const nullIndex = nameBytes.indexOf(0);
+      expect(String.fromCharCode(...nameBytes.slice(0, nullIndex === -1 ? undefined : nullIndex))).toBe("RC7_OPTION");
     });
   });
 });
