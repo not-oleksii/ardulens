@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -75,6 +75,15 @@ export function MotorsCopterSection({
     };
   }, []);
 
+  // BetaFlight-style guided identification: the app drives each output one at a time instead
+  // of the user picking which to spin - the user's job is just to watch the real propeller and
+  // click the diagram position (or fallback button) where they see it actually spinning. A
+  // mismatch (clicked position != the output that was actually driven) is a real wiring/frame
+  // problem worth flagging, not just a missed click - see confirmIdentifyClick below.
+  const [identifying, setIdentifying] = useState(false);
+  const [identifyIndex, setIdentifyIndex] = useState(0);
+  const [identifyMismatches, setIdentifyMismatches] = useState<Record<number, number>>({});
+
   const frameClassEntry = params.FRAME_CLASS;
   const frameTypeEntry = params.FRAME_TYPE;
   const hasLoaded = frameClassEntry !== undefined && frameTypeEntry !== undefined;
@@ -89,6 +98,9 @@ export function MotorsCopterSection({
     setPrevFrameKey(frameKey);
     setTestedMotors(new Set());
     setRebootSent(false);
+    setIdentifying(false);
+    setIdentifyIndex(0);
+    setIdentifyMismatches({});
   }
 
   const motors = hasLoaded ? frameDiagramMotors(frameClassEntry.value, frameTypeEntry.value) : null;
@@ -99,6 +111,35 @@ export function MotorsCopterSection({
       ? Array.from({ length: fallbackMotorCount }, (_, i) => i + 1)
       : [];
 
+  // Leaving the Test & Reverse step mid-identification would otherwise leave a motor spinning
+  // in the background with no visible indication - stop it the moment the user looks away.
+  // State resets happen during render (same pattern as the frame-key reset above, no refs
+  // touched there). The ref itself is only ever read/written inside effects (never during
+  // render, which React disallows) - one effect keeps it mirroring the latest activeMotor, a
+  // second fires the actual external stop command when step leaves "test" and nothing else
+  // (no setState), since only that part is a real effect synchronizing with the vehicle.
+  const motorToStopOnLeaveRef = useRef<number | null>(null);
+  useEffect(() => {
+    motorToStopOnLeaveRef.current = activeMotor;
+  }, [activeMotor]);
+
+  const [prevStep, setPrevStep] = useState(step);
+  if (step !== prevStep) {
+    setPrevStep(step);
+    if (step !== "test") {
+      setIdentifying(false);
+      setActiveMotor(null);
+    }
+  }
+
+  useEffect(() => {
+    if (step === "test") return;
+    const motor = motorToStopOnLeaveRef.current;
+    if (motor === null) return;
+    motorToStopOnLeaveRef.current = null;
+    onTestMotor(motor, 0);
+  }, [step, onTestMotor]);
+
   function startTest(motor: number) {
     setActiveMotor(motor);
     setTestedMotors((prev) => (prev.has(motor) ? prev : new Set(prev).add(motor)));
@@ -108,6 +149,42 @@ export function MotorsCopterSection({
   function stopTest(motor: number) {
     setActiveMotor(null);
     onTestMotor(motor, 0);
+  }
+
+  function startIdentify() {
+    if (!motors || motors.length === 0) return;
+    setIdentifying(true);
+    setIdentifyIndex(0);
+    setIdentifyMismatches({});
+    const first = motors[0]!;
+    setActiveMotor(first.motor);
+    onTestMotor(first.motor, TEST_THROTTLE_PERCENT);
+  }
+
+  function stopIdentify() {
+    if (activeMotor !== null) onTestMotor(activeMotor, 0);
+    setActiveMotor(null);
+    setIdentifying(false);
+  }
+
+  function confirmIdentifyClick(clickedMotor: number) {
+    if (!motors || identifyIndex >= motors.length) return;
+    const expected = motors[identifyIndex]!.motor;
+    onTestMotor(expected, 0);
+    setTestedMotors((prev) => new Set(prev).add(expected));
+    if (clickedMotor !== expected) {
+      setIdentifyMismatches((prev) => ({ ...prev, [expected]: clickedMotor }));
+    }
+    const nextIndex = identifyIndex + 1;
+    setIdentifyIndex(nextIndex);
+    if (nextIndex >= motors.length) {
+      setActiveMotor(null);
+      setIdentifying(false);
+      return;
+    }
+    const next = motors[nextIndex]!;
+    setActiveMotor(next.motor);
+    onTestMotor(next.motor, TEST_THROTTLE_PERCENT);
   }
 
   // SERVOx_REVERSED is a real, generic ArduPilot param every servo/motor output has (confirmed
@@ -228,6 +305,61 @@ export function MotorsCopterSection({
               <AlertDescription>{t("ardupilotSetup.motorsServos.motorSafetyWarning")}</AlertDescription>
             </Alert>
             <DirectionLegend />
+
+            <section className="flex flex-col gap-2 rounded-lg border border-border p-3">
+              <h4 className="text-xs font-bold tracking-wide uppercase text-muted-foreground">
+                {t("ardupilotSetup.motorsServos.wizard.identifyHeading")}
+              </h4>
+              {!identifying && identifyIndex === 0 && (
+                <>
+                  <p className="text-xs text-muted-foreground">{t("ardupilotSetup.motorsServos.wizard.identifyIntro")}</p>
+                  <Button type="button" size="sm" className="w-fit" onClick={startIdentify}>
+                    {t("ardupilotSetup.motorsServos.wizard.identifyStart")}
+                  </Button>
+                </>
+              )}
+              {identifying && (
+                <>
+                  <p className="text-xs font-semibold">
+                    {t("ardupilotSetup.motorsServos.wizard.identifySpinning", { motor: activeMotor })}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {t("ardupilotSetup.motorsServos.wizard.identifyProgress", {
+                      current: identifyIndex + 1,
+                      total: motorNumbers.length,
+                    })}
+                  </p>
+                  <Button type="button" size="sm" variant="outline" className="w-fit" onClick={stopIdentify}>
+                    {t("ardupilotSetup.motorsServos.wizard.identifyStop")}
+                  </Button>
+                </>
+              )}
+              {!identifying && identifyIndex >= motorNumbers.length && motorNumbers.length > 0 && (
+                <>
+                  <p className="text-xs font-semibold text-primary">{t("ardupilotSetup.motorsServos.wizard.identifyDone")}</p>
+                  {Object.keys(identifyMismatches).length === 0 ? (
+                    <p className="text-xs text-muted-foreground">{t("ardupilotSetup.motorsServos.wizard.identifyAllConfirmed")}</p>
+                  ) : (
+                    <Alert variant="destructive" className="shrink-0">
+                      <AlertDescription className="flex flex-col gap-1">
+                        {Object.entries(identifyMismatches).map(([expected, clicked]) => (
+                          <span key={expected}>
+                            {t("ardupilotSetup.motorsServos.wizard.identifyMismatch", { expected, clicked })}
+                          </span>
+                        ))}
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                  <Button type="button" size="sm" variant="outline" className="w-fit" onClick={startIdentify}>
+                    {t("ardupilotSetup.motorsServos.wizard.identifyRestart")}
+                  </Button>
+                </>
+              )}
+            </section>
+
+            <h4 className="text-xs font-bold tracking-wide uppercase text-muted-foreground">
+              {t("ardupilotSetup.motorsServos.wizard.manualHeading")}
+            </h4>
             <p className="text-xs text-muted-foreground">{t("ardupilotSetup.motorsServos.wizard.testAllPrompt")}</p>
             <p className="text-xs font-semibold">
               {t("ardupilotSetup.motorsServos.wizard.testProgress", { tested: testedMotors.size, total: motorNumbers.length })}
@@ -235,7 +367,12 @@ export function MotorsCopterSection({
 
             {motors ? (
               <div className="flex flex-1 flex-col items-center justify-center gap-3">
-                <MotorFrameDiagram motors={motors} activeMotor={activeMotor} onTestStart={startTest} onTestStop={stopTest} />
+                <MotorFrameDiagram
+                  motors={motors}
+                  activeMotor={activeMotor}
+                  onTestStart={identifying ? confirmIdentifyClick : startTest}
+                  onTestStop={identifying ? () => {} : stopTest}
+                />
                 <div className="flex flex-wrap justify-center gap-x-4 gap-y-2">
                   {motors.map(({ motor }) => (
                     <div key={motor} className="flex flex-col items-center gap-0.5">
@@ -252,28 +389,39 @@ export function MotorsCopterSection({
               <>
                 <p className="text-xs text-muted-foreground">{t("ardupilotSetup.motorsServos.diagramUnavailable")}</p>
                 <div className="flex flex-wrap gap-3">
-                  {motorNumbers.map((motor) => (
-                    <div key={motor} className="flex flex-col items-center gap-1">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="touch-none select-none"
-                        onPointerDown={(e) => {
-                          e.currentTarget.setPointerCapture?.(e.pointerId);
-                          startTest(motor);
-                        }}
-                        onPointerUp={() => stopTest(motor)}
-                        onPointerLeave={() => stopTest(motor)}
-                        onPointerCancel={() => stopTest(motor)}
-                      >
-                        {testedMotors.has(motor) ? "✓ " : ""}
-                        {t("ardupilotSetup.motorsServos.holdToTestMotor")} {motor}
-                        {servoOutputs[motor] !== undefined ? ` (${servoOutputs[motor]} us)` : ""}
-                      </Button>
-                      {reverseCheckbox(motor)}
-                    </div>
-                  ))}
+                  {motorNumbers.map((motor) =>
+                    identifying ? (
+                      <div key={motor} className="flex flex-col items-center gap-1">
+                        <Button type="button" size="sm" variant="outline" onClick={() => confirmIdentifyClick(motor)}>
+                          {testedMotors.has(motor) ? "✓ " : ""}
+                          {motor}
+                          {servoOutputs[motor] !== undefined ? ` (${servoOutputs[motor]} us)` : ""}
+                        </Button>
+                        {reverseCheckbox(motor)}
+                      </div>
+                    ) : (
+                      <div key={motor} className="flex flex-col items-center gap-1">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="touch-none select-none"
+                          onPointerDown={(e) => {
+                            e.currentTarget.setPointerCapture?.(e.pointerId);
+                            startTest(motor);
+                          }}
+                          onPointerUp={() => stopTest(motor)}
+                          onPointerLeave={() => stopTest(motor)}
+                          onPointerCancel={() => stopTest(motor)}
+                        >
+                          {testedMotors.has(motor) ? "✓ " : ""}
+                          {t("ardupilotSetup.motorsServos.holdToTestMotor")} {motor}
+                          {servoOutputs[motor] !== undefined ? ` (${servoOutputs[motor]} us)` : ""}
+                        </Button>
+                        {reverseCheckbox(motor)}
+                      </div>
+                    ),
+                  )}
                 </div>
               </>
             )}
