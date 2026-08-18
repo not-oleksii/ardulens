@@ -4,7 +4,13 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { MotorFrameDiagram } from "../../components/MotorFrameDiagram/MotorFrameDiagram";
-import { frameDiagramMotors, MOTOR_DIRECTION_COLORS, motorCountForFrameClass } from "../../mavlink/frameDiagrams/frameDiagrams";
+import {
+  FRAME_CLASS_NAMES,
+  FRAME_TYPE_NAMES,
+  frameDiagramMotors,
+  MOTOR_DIRECTION_COLORS,
+  motorCountForFrameClass,
+} from "../../mavlink/frameDiagrams/frameDiagrams";
 import { MavParamType } from "../../mavlink/registry/registry";
 import { fetchParamDocs, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
@@ -222,8 +228,10 @@ export function MotorsCopterSection({
     );
   }
 
-  const frameClassLabel = docs?.FRAME_CLASS?.values?.[frameClassEntry.value] ?? String(frameClassEntry.value);
-  const frameTypeLabel = docs?.FRAME_TYPE?.values?.[frameTypeEntry.value] ?? String(frameTypeEntry.value);
+  const frameClassLabel =
+    docs?.FRAME_CLASS?.values?.[frameClassEntry.value] ?? FRAME_CLASS_NAMES[frameClassEntry.value] ?? String(frameClassEntry.value);
+  const frameTypeLabel =
+    docs?.FRAME_TYPE?.values?.[frameTypeEntry.value] ?? FRAME_TYPE_NAMES[frameTypeEntry.value] ?? String(frameTypeEntry.value);
   const reversedMotors = motorNumbers.filter((n) => params[`SERVO${n}_REVERSED`]?.value === 1);
   const frameConfirmed = !frameClassEntry.dirty && !frameTypeEntry.dirty;
 
@@ -263,13 +271,15 @@ export function MotorsCopterSection({
                   value={frameClassEntry.value}
                   onChange={(e) => onSetFrameParam("FRAME_CLASS", Number(e.target.value), frameClassEntry.type)}
                 >
-                  {docs?.FRAME_CLASS?.values ? (
-                    Object.entries(docs.FRAME_CLASS.values).map(([code, label]) => (
-                      <option key={code} value={code}>
-                        {label}
-                      </option>
-                    ))
-                  ) : (
+                  {Object.entries(docs?.FRAME_CLASS?.values ?? FRAME_CLASS_NAMES).map(([code, label]) => (
+                    <option key={code} value={code}>
+                      {label}
+                    </option>
+                  ))}
+                  {/* The vehicle's actual current value always stays selectable/shown, even if
+                      it's a code neither source above happens to list (e.g. a newer firmware
+                      class this app doesn't know about yet). */}
+                  {!(frameClassEntry.value in (docs?.FRAME_CLASS?.values ?? FRAME_CLASS_NAMES)) && (
                     <option value={frameClassEntry.value}>{frameClassEntry.value}</option>
                   )}
                 </select>
@@ -281,13 +291,12 @@ export function MotorsCopterSection({
                   value={frameTypeEntry.value}
                   onChange={(e) => onSetFrameParam("FRAME_TYPE", Number(e.target.value), frameTypeEntry.type)}
                 >
-                  {docs?.FRAME_TYPE?.values ? (
-                    Object.entries(docs.FRAME_TYPE.values).map(([code, label]) => (
-                      <option key={code} value={code}>
-                        {label}
-                      </option>
-                    ))
-                  ) : (
+                  {Object.entries(docs?.FRAME_TYPE?.values ?? FRAME_TYPE_NAMES).map(([code, label]) => (
+                    <option key={code} value={code}>
+                      {label}
+                    </option>
+                  ))}
+                  {!(frameTypeEntry.value in (docs?.FRAME_TYPE?.values ?? FRAME_TYPE_NAMES)) && (
                     <option value={frameTypeEntry.value}>{frameTypeEntry.value}</option>
                   )}
                 </select>
