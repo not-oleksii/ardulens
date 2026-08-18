@@ -12,7 +12,6 @@ only covers conventions for changing the code.
 
 ```
 ardulens/
-├── legacy/            # the original pre-React app, kept for reference - do not extend
 ├── app/                # the runnable shell
 │   ├── index.html      # entry point loaded by the dev server / build
 │   ├── public/         # static assets copied as-is (favicon, icons)
