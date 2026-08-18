@@ -420,9 +420,16 @@ describe("ArduPilotSetupView", () => {
     expect(getBackToHomeLink()).toHaveAttribute("href", "/");
   });
 
-  it("defaults to UDP mode with a listen-port input, starting at 14550", () => {
+  it("defaults to Serial mode, since USB is the more common way to connect to real hardware", () => {
     mockBackend();
-    const { getUdpPortInput } = getView();
+    const { getSerialPortSelect } = getView();
+    expect(getSerialPortSelect()).toBeInTheDocument();
+  });
+
+  it("switching to UDP mode shows the listen-port input, starting at 14550", async () => {
+    mockBackend();
+    const { clickUdpMode, getUdpPortInput } = getView();
+    await clickUdpMode();
     expect(getUdpPortInput()).toHaveValue(14550);
   });
 
@@ -452,8 +459,9 @@ describe("ArduPilotSetupView", () => {
   it("connects over UDP with the configured port and reflects the Connected status once the backend confirms it", async () => {
     const invoked = vi.fn();
     mockBackend(invoked);
-    const { clickConnect, getStatusAlert, getDisconnectButton } = getView();
+    const { clickUdpMode, clickConnect, getStatusAlert, getDisconnectButton } = getView();
 
+    await clickUdpMode();
     await clickConnect();
 
     expect(invoked).toHaveBeenCalledWith("connect_udp", { bindPort: 14550 });

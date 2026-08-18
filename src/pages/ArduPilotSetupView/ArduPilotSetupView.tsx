@@ -192,7 +192,7 @@ export function ArduPilotSetupView() {
   const stopRcCal = useMavlinkRcCalStore((s) => s.stop);
   const resetRcCal = useMavlinkRcCalStore((s) => s.reset);
 
-  const [mode, setMode] = useState<"serial" | "udp">("udp");
+  const [mode, setMode] = useState<"serial" | "udp">("serial");
   const [ports, setPorts] = useState<SerialPortInfo[]>([]);
   const [selectedPort, setSelectedPort] = useState("");
   const [baudRate, setBaudRate] = useState(BAUD_RATES[2]!);
