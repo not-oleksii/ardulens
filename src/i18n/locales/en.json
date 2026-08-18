@@ -262,6 +262,8 @@
       "roll": "Roll",
       "pitch": "Pitch",
       "yaw": "Yaw",
+      "steering": "Steering",
+      "speed": "Speed",
       "unavailableTerm": "Not reported by this vehicle's firmware.",
       "reset": "Reset",
       "saveAll": "Save all ({{count}})",

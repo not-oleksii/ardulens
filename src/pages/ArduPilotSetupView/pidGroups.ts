@@ -27,6 +27,25 @@
  * angle), and RLL2SRV_RMAX (roll) / PTCH2SRV_RMAX_UP + PTCH2SRV_RMAX_DN (pitch has separate
  * up/down rate caps, roll doesn't) - the max commanded rate in angle-stabilized modes, 0
  * disables the limit. These names are stable across firmware versions, unlike the rate gains.
+ *
+ * ArduSub (confirmed against libraries/AC_AttitudeControl/AC_AttitudeControl_Sub.cpp/.h on
+ * GitHub): reuses AC_AttitudeControl_Sub, a direct sibling of Copter's AC_AttitudeControl_Multi,
+ * wired under the same "ATC_" prefix - so its rate/angle gain param names (ATC_RAT_{RLL,PIT,
+ * YAW}_{P,I,D,FF}, ATC_ANG_{RLL,PIT,YAW}_P) are byte-for-byte identical to Copter's. Reuses
+ * COPTER_CONFIG rather than duplicating it.
+ *
+ * Rover (confirmed against libraries/APM_Control/AR_AttitudeControl.cpp's own var_info/
+ * AP_GROUPINFO table and #define default-constant block on GitHub): no roll/pitch/yaw - a
+ * ground vehicle steers and controls speed instead. ATC_STR_RAT_{P,I,D,FF} is the steering
+ * rate PID, ATC_STR_ANG_P the steering angle P gain (AC_P, single term - not a full PID like
+ * Copter/Plane's inner rate loop), ATC_SPEED_{P,I,D,FF} the throttle speed PID.
+ *
+ * AntennaTracker (confirmed against AntennaTracker/Parameters.cpp/.h on GitHub): points an
+ * antenna at the vehicle using two independent, ordinary AC_PID controllers (no separate
+ * rate/angle split) - PITCH2SRV_{P,I,D,FF} and YAW2SRV_{P,I,D,FF}. Despite the shared
+ * "YAW2SRV" prefix, this is a completely different controller shape than Plane's yaw damper
+ * (which has no P/I/D at all, see PLANE_CONFIG above) - the two never collide since only one
+ * vehicle's config is active at a time.
  */
 
 export interface PidTerm {
@@ -38,7 +57,7 @@ export interface PidTerm {
 }
 
 export interface PidAxis {
-  key: "roll" | "pitch" | "yaw";
+  key: "roll" | "pitch" | "yaw" | "steering" | "speed";
   terms: readonly PidTerm[];
 }
 
@@ -119,6 +138,53 @@ const PLANE_CONFIG: PidVehicleConfig = {
   ],
 };
 
+const ROVER_CONFIG: PidVehicleConfig = {
+  axes: [
+    {
+      key: "steering",
+      terms: [
+        { label: "P", candidates: ["ATC_STR_RAT_P"] },
+        { label: "I", candidates: ["ATC_STR_RAT_I"] },
+        { label: "D", candidates: ["ATC_STR_RAT_D"] },
+        { label: "FF", candidates: ["ATC_STR_RAT_FF"] },
+        { label: "Angle P", candidates: ["ATC_STR_ANG_P"] },
+      ],
+    },
+    {
+      key: "speed",
+      terms: [
+        { label: "P", candidates: ["ATC_SPEED_P"] },
+        { label: "I", candidates: ["ATC_SPEED_I"] },
+        { label: "D", candidates: ["ATC_SPEED_D"] },
+        { label: "FF", candidates: ["ATC_SPEED_FF"] },
+      ],
+    },
+  ],
+};
+
+const TRACKER_CONFIG: PidVehicleConfig = {
+  axes: [
+    {
+      key: "pitch",
+      terms: [
+        { label: "P", candidates: ["PITCH2SRV_P"] },
+        { label: "I", candidates: ["PITCH2SRV_I"] },
+        { label: "D", candidates: ["PITCH2SRV_D"] },
+        { label: "FF", candidates: ["PITCH2SRV_FF"] },
+      ],
+    },
+    {
+      key: "yaw",
+      terms: [
+        { label: "P", candidates: ["YAW2SRV_P"] },
+        { label: "I", candidates: ["YAW2SRV_I"] },
+        { label: "D", candidates: ["YAW2SRV_D"] },
+        { label: "FF", candidates: ["YAW2SRV_FF"] },
+      ],
+    },
+  ],
+};
+
 /** Every candidate param name across every axis/term - what a full "load PID params" request
  *  should ask the vehicle for, since we don't know in advance which naming scheme it uses. */
 export function allPidCandidateNames(config: PidVehicleConfig): string[] {
@@ -128,5 +194,8 @@ export function allPidCandidateNames(config: PidVehicleConfig): string[] {
 export function pidConfigForVehicleFolder(folder: string): PidVehicleConfig | null {
   if (folder === "ArduCopter") return COPTER_CONFIG;
   if (folder === "ArduPlane") return PLANE_CONFIG;
+  if (folder === "ArduSub") return COPTER_CONFIG;
+  if (folder === "Rover") return ROVER_CONFIG;
+  if (folder === "AntennaTracker") return TRACKER_CONFIG;
   return null;
 }

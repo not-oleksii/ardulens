@@ -69,9 +69,9 @@ const SAMPLE_PORTS = [
   { name: "COM4", description: null },
 ];
 
-function sampleHeartbeatBytes(): number[] {
+function buildHeartbeatBytes(type: MavType): number[] {
   const hb = new Heartbeat();
-  hb.type = MavType.QUADROTOR;
+  hb.type = type;
   hb.autopilot = MavAutopilot.ARDUPILOTMEGA;
   hb.baseMode = MavModeFlag.STABILIZE_ENABLED;
   hb.customMode = 0;
@@ -80,15 +80,24 @@ function sampleHeartbeatBytes(): number[] {
   return Array.from(encodePacket(hb, { seq: 1, sysid: 1, compid: 1 }));
 }
 
+function sampleHeartbeatBytes(): number[] {
+  return buildHeartbeatBytes(MavType.QUADROTOR);
+}
+
 function samplePlaneHeartbeatBytes(): number[] {
-  const hb = new Heartbeat();
-  hb.type = MavType.FIXED_WING;
-  hb.autopilot = MavAutopilot.ARDUPILOTMEGA;
-  hb.baseMode = MavModeFlag.STABILIZE_ENABLED;
-  hb.customMode = 0;
-  hb.systemStatus = MavState.STANDBY;
-  hb.mavlinkVersion = 3;
-  return Array.from(encodePacket(hb, { seq: 1, sysid: 1, compid: 1 }));
+  return buildHeartbeatBytes(MavType.FIXED_WING);
+}
+
+function sampleRoverHeartbeatBytes(): number[] {
+  return buildHeartbeatBytes(MavType.GROUND_ROVER);
+}
+
+function sampleSubHeartbeatBytes(): number[] {
+  return buildHeartbeatBytes(MavType.SUBMARINE);
+}
+
+function sampleTrackerHeartbeatBytes(): number[] {
+  return buildHeartbeatBytes(MavType.ANTENNA_TRACKER);
 }
 
 /** Builds real PARAM_VALUE wire bytes (as a vehicle would send them), including a correct CRC. */
@@ -1317,6 +1326,81 @@ describe("ArduPilotSetupView", () => {
       expect(await screen.findByText("0.5")).toBeInTheDocument();
       expect(screen.getByText("60")).toBeInTheDocument();
       expect(screen.getByText("40")).toBeInTheDocument();
+    });
+  });
+
+  describe("PID tune (Rover)", () => {
+    async function connectRoverAndOpenPidTune() {
+      const view = getView();
+      await view.clickConnect();
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit(DATA_EVENT, { bytes: sampleRoverHeartbeatBytes() });
+      await view.user.click(view.getPidTuneNavButton());
+      return view;
+    }
+
+    it("shows the steering rate/angle gains and the speed gains, Rover's own axis pair", async () => {
+      mockBackend();
+      await connectRoverAndOpenPidTune();
+      // Binary-exact fractions (0.5, 0.25) - unlike 0.2, these round-trip through a REAL32
+      // wire encode/decode with no floating-point display artifacts.
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("ATC_STR_RAT_P", 0.5, MavParamType.REAL32, 0, 2, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("ATC_STR_ANG_P", 2, MavParamType.REAL32, 1, 2, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("ATC_SPEED_P", 0.25, MavParamType.REAL32, 0, 1, 3) });
+
+      expect(await screen.findByText("Рульове керування")).toBeInTheDocument();
+      expect(screen.getByText("Швидкість")).toBeInTheDocument();
+      expect(screen.getByText("0.5")).toBeInTheDocument();
+      expect(screen.getByText("2")).toBeInTheDocument();
+      expect(screen.getByText("0.25")).toBeInTheDocument();
+    });
+  });
+
+  describe("PID tune (Sub)", () => {
+    async function connectSubAndOpenPidTune() {
+      const view = getView();
+      await view.clickConnect();
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit(DATA_EVENT, { bytes: sampleSubHeartbeatBytes() });
+      await view.user.click(view.getPidTuneNavButton());
+      return view;
+    }
+
+    it("reuses Copter's Roll/Pitch/Yaw ATC_RAT_*/ATC_ANG_* naming (byte-identical between AC_AttitudeControl_Sub and _Multi)", async () => {
+      mockBackend();
+      await connectSubAndOpenPidTune();
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("ATC_RAT_RLL_P", 0.5, MavParamType.REAL32, 0, 1, 1) });
+
+      expect(await screen.findByText("Крен")).toBeInTheDocument();
+      expect(screen.getByText("Тангаж")).toBeInTheDocument();
+      expect(screen.getByText("Рискання")).toBeInTheDocument();
+      expect(screen.getByText("0.5")).toBeInTheDocument();
+    });
+  });
+
+  describe("PID tune (AntennaTracker)", () => {
+    async function connectTrackerAndOpenPidTune() {
+      const view = getView();
+      await view.clickConnect();
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit(DATA_EVENT, { bytes: sampleTrackerHeartbeatBytes() });
+      await view.user.click(view.getPidTuneNavButton());
+      return view;
+    }
+
+    it("shows Pitch/Yaw as ordinary P/I/D/FF gains, unlike Plane's differently-shaped yaw damper", async () => {
+      mockBackend();
+      await connectTrackerAndOpenPidTune();
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("PITCH2SRV_P", 0.5, MavParamType.REAL32, 0, 2, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("YAW2SRV_D", 0.25, MavParamType.REAL32, 1, 2, 2) });
+
+      expect(await screen.findByText("Тангаж")).toBeInTheDocument();
+      expect(screen.getByText("Рискання")).toBeInTheDocument();
+      expect(screen.getByText("0.5")).toBeInTheDocument();
+      expect(screen.getByText("0.25")).toBeInTheDocument();
     });
   });
 
