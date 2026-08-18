@@ -1,4 +1,5 @@
 import { Route, Routes } from "react-router";
+import { GlobalDropOverlay } from "./components/GlobalDropOverlay/GlobalDropOverlay";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { ArduPilotSetupView } from "./pages/ArduPilotSetupView/ArduPilotSetupView";
 import { AdvisorView } from "./pages/AdvisorView/AdvisorView";
@@ -30,12 +31,14 @@ function LogViewerRoot() {
   }
 
   return (
-    <div className="flex h-svh overflow-hidden text-left">
-      <Sidebar />
-      <main className="min-w-0 flex-1 overflow-y-auto px-7 py-5">
-        <ActiveView />
-      </main>
-    </div>
+    <GlobalDropOverlay>
+      <div className="flex h-svh overflow-hidden text-left">
+        <Sidebar />
+        <main className="min-w-0 flex-1 overflow-y-auto px-7 py-5">
+          <ActiveView />
+        </main>
+      </div>
+    </GlobalDropOverlay>
   );
 }
 
