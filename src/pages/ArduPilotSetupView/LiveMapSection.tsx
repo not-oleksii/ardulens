@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CESIUM_TOKEN_STORAGE_KEY } from "../../constants";
 import type { PositionTelemetry } from "../../stores/mavlinkTelemetryStore/types";
+import { TokenlessPositionRadar } from "./TokenlessPositionRadar";
 
 // Identical arrow icon to CesiumMapView's ARROW_ICON - rotation=0 points north, paired with
 // alignedAxis: UNIT_Z below.
@@ -158,6 +159,12 @@ export function LiveMapSection({ position, headingDeg }: LiveMapSectionProps) {
         <div className="flex gap-2">
           <Input value={tokenInput} onChange={(e) => setTokenInput(e.target.value)} placeholder={t("map.token.placeholder")} />
           <Button onClick={saveToken}>{t("map.token.save")}</Button>
+        </div>
+        {/* No token yet doesn't have to mean no live position at all - a plain, dependency-free
+            range-ring plot (see TokenlessPositionRadar's own comment) covers "where is it right
+            now, roughly how far" until/unless a token is added for the full 3D terrain map. */}
+        <div className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-border p-3">
+          <TokenlessPositionRadar position={position} headingDeg={headingDeg} />
         </div>
       </div>
     );

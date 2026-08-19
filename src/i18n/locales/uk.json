@@ -229,7 +229,9 @@
     "map": {
       "heading": "Карта",
       "recenter": "Центрувати",
-      "noFix": "Очікування GPS-фіксації..."
+      "noFix": "Очікування GPS-фіксації...",
+      "radarLabel": "Позиція відносно старту (без карти - не задано токен Cesium ion)",
+      "distanceFromStart": "{{meters}} м від старту"
     },
     "parameters": {
       "heading": "Параметри",

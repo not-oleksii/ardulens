@@ -229,7 +229,9 @@
     "map": {
       "heading": "Map",
       "recenter": "Recenter",
-      "noFix": "Waiting for a GPS fix..."
+      "noFix": "Waiting for a GPS fix...",
+      "radarLabel": "Position relative to start (no map tiles - no Cesium ion token set)",
+      "distanceFromStart": "{{meters}} m from start"
     },
     "parameters": {
       "heading": "Parameters",
