@@ -55,6 +55,11 @@
     "comingSoon": {
       "pidTune": "PID tuning - coming in a future release."
     },
+    "onboarding": {
+      "title": "New vehicle?",
+      "description": "Here's a suggested setup order - every section stays available regardless of what you've done, so pick this up in any order or skip it entirely.",
+      "dismiss": "Dismiss"
+    },
     "motorsServos": {
       "heading": "Motors & Servos",
       "load": "Load Servo Outputs",

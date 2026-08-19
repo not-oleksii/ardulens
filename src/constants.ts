@@ -1,6 +1,10 @@
 /** One Cesium ion token covers both CesiumMapView's post-flight map and ArduPilotSetupView's live map. */
 export const CESIUM_TOKEN_STORAGE_KEY = "ardulens.cesiumIonToken";
 
+/** Set once the first-connection setup-order nudge (see OnboardingNudge.tsx) has been dismissed,
+ *  so it only ever shows once per device rather than on every reconnect. */
+export const ONBOARDING_NUDGE_DISMISSED_STORAGE_KEY = "ardulens.onboardingNudgeDismissed";
+
 export const AIR_MODES: ReadonlySet<number> = new Set([4, 5, 15]); // ACRO, FBWA, GUIDED
 
 /** ArduPilot Plane/QuadPlane flight mode numbers -> names, for the Graphs page's mode bands. */
