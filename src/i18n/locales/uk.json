@@ -337,13 +337,9 @@
       "bytesUnit": "{{count}} Б"
     },
     "vehicle": {
-      "heading": "Апарат",
       "waitingForHeartbeat": "Очікування першого heartbeat від апарата...",
-      "type": "Тип",
-      "autopilot": "Автопілот",
       "armed": "Озброєно",
       "disarmed": "Не озброєно",
-      "status": "Стан",
       "arm": "Озброїти",
       "disarm": "Роззброїти",
       "confirmArmTitle": "Озброїти апарат?",
@@ -388,7 +384,6 @@
       }
     },
     "telemetry": {
-      "heading": "Телеметрія",
       "waitingForTelemetry": "Очікування телеметрії...",
       "pfdAriaLabel": "Основний пілотажний прилад",
       "pfd": {
@@ -424,8 +419,6 @@
       }
     },
     "health": {
-      "heading": "Стан апарата",
-      "prearmOk": "Перевірки перед зльотом пройдено",
       "prearmFailing": "Перевірки перед зльотом не пройдено",
       "sensors": {
         "gyro": "Гіроскоп",

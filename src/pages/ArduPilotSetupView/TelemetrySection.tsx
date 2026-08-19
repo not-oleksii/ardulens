@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { PrimaryFlightDisplay } from "../../components/PrimaryFlightDisplay/PrimaryFlightDisplay";
-import { flightModeLabel, gpsFixTypeLabel, mavAutopilotLabel, mavStateLabel, mavTypeLabel } from "../../mavlink/labels/labels";
+import { flightModeLabel, gpsFixTypeLabel } from "../../mavlink/labels/labels";
 import type { StatusTextEntry } from "../../stores/mavlinkStatusTextStore/types";
 import type {
   AttitudeTelemetry,
@@ -42,38 +42,28 @@ export function TelemetrySection({
   const { t } = useTranslation();
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex h-full flex-col gap-4 overflow-hidden">
       {vehicle && <OnboardingNudge onNavigate={onNavigateToSection} />}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(320px,480px)_1fr]">
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-2">
-            <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.vehicle.heading")}</h3>
-            {vehicle ? (
-              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-                <dt className="text-muted-foreground">{t("ardupilotSetup.vehicle.type")}</dt>
-                <dd>{mavTypeLabel(t, vehicle.type)}</dd>
-                <dt className="text-muted-foreground">{t("ardupilotSetup.vehicle.autopilot")}</dt>
-                <dd>{mavAutopilotLabel(t, vehicle.autopilot)}</dd>
-                <dt className="text-muted-foreground">{t("ardupilotSetup.vehicle.status")}</dt>
-                <dd>{mavStateLabel(t, vehicle.systemStatus)}</dd>
-              </dl>
-            ) : (
-              <p className="text-xs text-muted-foreground">{t("ardupilotSetup.vehicle.waitingForHeartbeat")}</p>
-            )}
-          </div>
-
-          {vehicle && (
-            <div className="flex flex-col gap-3 border-t border-border pt-4">
-              <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.telemetry.heading")}</h3>
-              <PrimaryFlightDisplay
-                rollRad={attitude?.rollRad ?? null}
-                pitchRad={attitude?.pitchRad ?? null}
-                headingDeg={vfrHud?.headingDeg ?? null}
-                airspeed={vfrHud?.airspeed ?? null}
-                altitudeM={vfrHud?.altitudeM ?? null}
-                armed={vehicle.armed}
-                modeLabel={flightModeLabel(vehicle.type, vehicle.customMode)}
-              />
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-6 lg:grid-cols-[minmax(320px,480px)_1fr]">
+        <div className="flex min-h-0 flex-col gap-4 overflow-y-auto">
+          {!vehicle ? (
+            <p className="text-xs text-muted-foreground">{t("ardupilotSetup.vehicle.waitingForHeartbeat")}</p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {/* relative: anchors VehicleHealthSection's overlay directly below the PFD
+                  without it taking up flow space - see that component's own comment on why. */}
+              <div className="relative">
+                <PrimaryFlightDisplay
+                  rollRad={attitude?.rollRad ?? null}
+                  pitchRad={attitude?.pitchRad ?? null}
+                  headingDeg={vfrHud?.headingDeg ?? null}
+                  airspeed={vfrHud?.airspeed ?? null}
+                  altitudeM={vfrHud?.altitudeM ?? null}
+                  armed={vehicle.armed}
+                  modeLabel={flightModeLabel(vehicle.type, vehicle.customMode)}
+                />
+                <VehicleHealthSection sensorHealth={sensorHealth} messages={statusTextMessages} />
+              </div>
               {battery || gps || position ? (
                 <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
                   <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.batteryVoltage")}</dt>
@@ -98,11 +88,9 @@ export function TelemetrySection({
               )}
             </div>
           )}
-
-          <VehicleHealthSection sensorHealth={sensorHealth} messages={statusTextMessages} />
         </div>
 
-        <div className="h-[560px]">
+        <div className="min-h-0">
           <LiveMapSection position={position} headingDeg={vfrHud?.headingDeg} />
         </div>
       </div>

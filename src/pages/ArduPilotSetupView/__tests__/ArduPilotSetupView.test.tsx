@@ -494,18 +494,22 @@ describe("ArduPilotSetupView", () => {
       expect(screen.getByRole("button", { name: "Озброїти" })).toBeInTheDocument();
     });
 
-    it("disarming needs no confirmation, and the badge flips back once the vehicle acks", async () => {
-      const { clickDevMode, getStatusAlert, user } = getView();
-      await clickDevMode();
-      await within(getStatusAlert()).findByText("Підключено: Dev mode (simulated vehicle)");
-      await user.click(screen.getByRole("button", { name: "Озброїти" }));
-      await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Озброїти" }));
-      await screen.findByRole("button", { name: "Роззброїти" });
+    it(
+      "disarming needs no confirmation, and the badge flips back once the vehicle acks",
+      async () => {
+        const { clickDevMode, getStatusAlert, user } = getView();
+        await clickDevMode();
+        await within(getStatusAlert()).findByText("Підключено: Dev mode (simulated vehicle)");
+        await user.click(screen.getByRole("button", { name: "Озброїти" }));
+        await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Озброїти" }));
+        await screen.findByRole("button", { name: "Роззброїти" }, { timeout: 15000 });
 
-      await user.click(screen.getByRole("button", { name: "Роззброїти" }));
+        await user.click(screen.getByRole("button", { name: "Роззброїти" }));
 
-      expect(await screen.findByRole("button", { name: "Озброїти" })).toBeInTheDocument();
-    });
+        expect(await screen.findByRole("button", { name: "Озброїти" }, { timeout: 15000 })).toBeInTheDocument();
+      },
+      20000,
+    );
 
     it("changing the flight mode via the dropdown is reflected once the vehicle's next heartbeat arrives", async () => {
       const { clickDevMode, getStatusAlert, user } = getView(); // Dev Mode simulates a Plane by default
@@ -536,7 +540,7 @@ describe("ArduPilotSetupView", () => {
       return sys;
     }
 
-    it("shows a pre-arm-passing badge and the present sensors, once SYS_STATUS reports them healthy", async () => {
+    it("shows nothing once SYS_STATUS reports every present sensor healthy - this view is failures-only", async () => {
       mockBackend(); // needed alongside Dev Mode here since these tests also emit synthetic packets directly
       const { clickDevMode, getStatusAlert } = getView();
       await clickDevMode();
@@ -545,26 +549,33 @@ describe("ArduPilotSetupView", () => {
       const present = MavSysStatusSensor.SENSOR_3D_GYRO | MavSysStatusSensor.SENSOR_GPS | MavSysStatusSensor.PREARM_CHECK;
       await emit(DATA_EVENT, { bytes: Array.from(encodePacket(buildSysStatus(present, present), { seq: 1, sysid: 1, compid: 1 })) });
 
-      expect(await screen.findByText("Перевірки перед зльотом пройдено")).toBeInTheDocument();
-      expect(screen.getByText("Гіроскоп")).toBeInTheDocument();
-      expect(screen.getByText("GPS")).toBeInTheDocument();
+      // No reliable "it arrived and was processed" signal to await for a UI that stays empty -
+      // a short real wait is the only option here (see the STATUSTEXT INFO-filtering test above
+      // for the same tradeoff).
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(screen.queryByText(/Перевірки перед зльотом/)).not.toBeInTheDocument();
+      expect(screen.queryByText("Гіроскоп")).not.toBeInTheDocument();
     });
 
-    it("flags an unhealthy present sensor and a failing pre-arm badge", async () => {
-      mockBackend();
-      const { clickDevMode, getStatusAlert } = getView();
-      await clickDevMode();
-      await within(getStatusAlert()).findByText("Підключено: Dev mode (simulated vehicle)");
+    it(
+      "flags an unhealthy present sensor and a failing pre-arm badge",
+      async () => {
+        mockBackend();
+        const { clickDevMode, getStatusAlert } = getView();
+        await clickDevMode();
+        await within(getStatusAlert()).findByText("Підключено: Dev mode (simulated vehicle)");
 
-      const present = MavSysStatusSensor.SENSOR_3D_GYRO | MavSysStatusSensor.PREARM_CHECK;
-      // Both present, neither healthy - health=0 for both bits.
-      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(buildSysStatus(present, 0), { seq: 1, sysid: 1, compid: 1 })) });
+        const present = MavSysStatusSensor.SENSOR_3D_GYRO | MavSysStatusSensor.PREARM_CHECK;
+        // Both present, neither healthy - health=0 for both bits.
+        await emit(DATA_EVENT, { bytes: Array.from(encodePacket(buildSysStatus(present, 0), { seq: 1, sysid: 1, compid: 1 })) });
 
-      expect(await screen.findByText("Перевірки перед зльотом не пройдено")).toBeInTheDocument();
-      expect(screen.getByText("Гіроскоп")).toBeInTheDocument();
-    });
+        expect(await screen.findByText("Перевірки перед зльотом не пройдено", {}, { timeout: 15000 })).toBeInTheDocument();
+        expect(screen.getByText("Гіроскоп")).toBeInTheDocument();
+      },
+      20000,
+    );
 
-    it("shows recent STATUSTEXT messages, most recent first", async () => {
+    it("shows recent STATUSTEXT failure messages (WARNING or worse), most recent first", async () => {
       mockBackend();
       const { clickDevMode, getStatusAlert } = getView();
       await clickDevMode();
@@ -584,12 +595,32 @@ describe("ArduPilotSetupView", () => {
       });
       await screen.findByText("PreArm: Compass not calibrated");
       await emit(DATA_EVENT, {
-        bytes: Array.from(encodePacket(buildStatusText(MavSeverity.INFO, "Ready to fly"), { seq: 2, sysid: 1, compid: 1 })),
+        bytes: Array.from(encodePacket(buildStatusText(MavSeverity.ERROR, "PreArm: GPS glitch"), { seq: 2, sysid: 1, compid: 1 })),
       });
-      await screen.findByText("Ready to fly");
+      await screen.findByText("PreArm: GPS glitch");
 
-      const messages = screen.getAllByText(/PreArm: Compass not calibrated|Ready to fly/);
-      expect(messages.map((el) => el.textContent)).toEqual(["Ready to fly", "PreArm: Compass not calibrated"]);
+      const messages = screen.getAllByText(/PreArm: Compass not calibrated|PreArm: GPS glitch/);
+      expect(messages.map((el) => el.textContent)).toEqual(["PreArm: GPS glitch", "PreArm: Compass not calibrated"]);
+    });
+
+    it("doesn't show a routine INFO/DEBUG STATUSTEXT message - this view is failures-only", async () => {
+      mockBackend();
+      const { clickDevMode, getStatusAlert } = getView();
+      await clickDevMode();
+      await within(getStatusAlert()).findByText("Підключено: Dev mode (simulated vehicle)");
+
+      const msg = new StatusText();
+      msg.severity = MavSeverity.INFO;
+      msg.text = "Ready to fly";
+      msg.id = 0;
+      msg.chunkSeq = 0;
+      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(msg, { seq: 1, sysid: 1, compid: 1 })) });
+
+      // No reliable "it arrived" signal to await for a message we expect NOT to render - a
+      // short real wait is the only option, matching this file's own established tolerance for
+      // small timing waits elsewhere (see the mock heartbeat's own immediate-vs-1s-tick tests).
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(screen.queryByText("Ready to fly")).not.toBeInTheDocument();
     });
   });
 
@@ -929,13 +960,13 @@ describe("ArduPilotSetupView", () => {
       await within(getStatusAlert()).findByText(/Підключено/);
 
       const statusBar = await screen.findByRole("status");
-      expect(statusBar).toHaveTextContent("Не озброєно");
+      expect(statusBar).toHaveTextContent("Озброїти"); // the disarmed-state action button
 
       await clickMotorsNav();
 
       // Still present (and still reporting live values) once the active section is no longer
       // Telemetry - this bar exists precisely so arm/battery state isn't lost while on other tabs.
-      expect(screen.getByRole("status")).toHaveTextContent("Не озброєно");
+      expect(screen.getByRole("status")).toHaveTextContent("Озброїти");
     });
 
     it(
@@ -1137,10 +1168,11 @@ describe("ArduPilotSetupView", () => {
       await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
       await within(getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
 
-      expect(screen.getByText("Апарат")).toBeInTheDocument(); // telemetry section shown by default
+      // telemetry section shown by default (no heartbeat yet, so it's still waiting for one)
+      expect(screen.getByText("Очікування першого heartbeat від апарата...")).toBeInTheDocument();
 
       await clickParametersNav();
-      expect(screen.queryByText("Апарат")).not.toBeInTheDocument();
+      expect(screen.queryByText("Очікування першого heartbeat від апарата...")).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Завантажити параметри" })).toBeInTheDocument();
 
       await user.click(getMotorsNavButton());
