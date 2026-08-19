@@ -1129,6 +1129,32 @@ describe("ArduPilotSetupView", () => {
       expect(findMotorTestThrottle(invoked, 1)).toBe(0);
     });
 
+    it("adjusting the test-throttle slider changes the percentage sent by DO_MOTOR_TEST, and Stop all motors halts identification", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectCopterAndOpenMotors();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_CLASS", 1, MavParamType.INT8, 0, 2, 1) }); // Quad
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_TYPE", 1, MavParamType.INT8, 1, 2, 2) }); // X
+      await user.click(await screen.findByRole("tab", { name: "2. Тест і реверс" }));
+
+      const stopAllButton = screen.getByRole("button", { name: "Зупинити всі мотори" });
+      expect(stopAllButton).toBeDisabled(); // nothing spinning yet
+
+      fireEvent.change(screen.getByRole("slider"), { target: { value: "25" } });
+      expect(await screen.findByText("25%")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Почати ідентифікацію" }));
+      expect(findMotorTestThrottle(invoked, 1)).toBe(25); // reflects the adjusted slider, not the old fixed 10%
+      expect(stopAllButton).not.toBeDisabled();
+
+      await user.click(stopAllButton);
+      expect(findMotorTestThrottle(invoked, 1)).toBe(0);
+      expect(stopAllButton).toBeDisabled();
+      // Identification itself was cancelled, not just the motor stopped - back to the intro copy.
+      expect(screen.getByRole("button", { name: "Почати ідентифікацію" })).toBeInTheDocument();
+    });
+
     it("shows a reboot-required warning and lets Frame Class/Type be changed via PARAM_SET", async () => {
       // Deliberately does NOT stub a resolving fetch here (unlike the "parameters" describe
       // block's docs tests below) - fetchParamDocs caches successful ArduCopter results at

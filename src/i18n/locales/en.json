@@ -88,6 +88,8 @@
         },
         "legendCw": "Clockwise (CW)",
         "legendCcw": "Counter-clockwise (CCW)",
+        "testThrottle": "Test throttle",
+        "stopAllMotors": "Stop all motors",
         "testProgress": "{{tested}} / {{total}} motors spin-tested",
         "testAllPrompt": "Spin each motor briefly to confirm it's wired to the correct position and spins the correct direction - do this for every motor before continuing.",
         "back": "Back",
