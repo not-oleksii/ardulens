@@ -1,6 +1,15 @@
 import { COPTER_MODE_NAMES, PLANE_MODE_NAMES } from "../../constants";
 import { vehicleFolderForMavType } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
-import { AccelcalVehiclePos, GpsFixType, MagCalStatus, MavAutopilot, MavResult, MavState, MavType } from "../registry/registry";
+import {
+  AccelcalVehiclePos,
+  GpsFixType,
+  MagCalStatus,
+  MavAutopilot,
+  MavResult,
+  MavState,
+  MavSysStatusSensor,
+  MavType,
+} from "../registry/registry";
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
@@ -132,4 +141,45 @@ const ACCELCAL_POS_KEYS: Partial<Record<number, string>> = {
 export function accelcalVehiclePosLabel(t: Translate, position: number): string {
   const key = ACCELCAL_POS_KEYS[position];
   return key ? t(`ardupilotSetup.accelCal.position.${key}`) : t("ardupilotSetup.accelCal.position.unknown", { value: position });
+}
+
+// Every MAV_SYS_STATUS_SENSOR member EXCEPT PREARM_CHECK (shown as its own dedicated
+// "checks passing/failing" badge, not a physical sensor - see VehicleHealthSection.tsx) and
+// EXTENSION_USED (a meta bit marking the extended fields in use, not a sensor of its own).
+const SENSOR_KEYS: Partial<Record<MavSysStatusSensor, string>> = {
+  [MavSysStatusSensor.SENSOR_3D_GYRO]: "gyro",
+  [MavSysStatusSensor.SENSOR_3D_ACCEL]: "accel",
+  [MavSysStatusSensor.SENSOR_3D_MAG]: "mag",
+  [MavSysStatusSensor.SENSOR_ABSOLUTE_PRESSURE]: "baro",
+  [MavSysStatusSensor.SENSOR_DIFFERENTIAL_PRESSURE]: "airspeed",
+  [MavSysStatusSensor.SENSOR_GPS]: "gps",
+  [MavSysStatusSensor.SENSOR_OPTICAL_FLOW]: "opticalFlow",
+  [MavSysStatusSensor.SENSOR_VISION_POSITION]: "visionPosition",
+  [MavSysStatusSensor.SENSOR_LASER_POSITION]: "laserPosition",
+  [MavSysStatusSensor.SENSOR_EXTERNAL_GROUND_TRUTH]: "externalGroundTruth",
+  [MavSysStatusSensor.SENSOR_ANGULAR_RATE_CONTROL]: "rateControl",
+  [MavSysStatusSensor.SENSOR_ATTITUDE_STABILIZATION]: "attitudeStabilization",
+  [MavSysStatusSensor.SENSOR_YAW_POSITION]: "yawPosition",
+  [MavSysStatusSensor.SENSOR_Z_ALTITUDE_CONTROL]: "altitudeControl",
+  [MavSysStatusSensor.SENSOR_XY_POSITION_CONTROL]: "positionControl",
+  [MavSysStatusSensor.SENSOR_MOTOR_OUTPUTS]: "motorOutputs",
+  [MavSysStatusSensor.SENSOR_RC_RECEIVER]: "rcReceiver",
+  [MavSysStatusSensor.SENSOR_3D_GYRO2]: "gyro2",
+  [MavSysStatusSensor.SENSOR_3D_ACCEL2]: "accel2",
+  [MavSysStatusSensor.SENSOR_3D_MAG2]: "mag2",
+  [MavSysStatusSensor.GEOFENCE]: "geofence",
+  [MavSysStatusSensor.AHRS]: "ahrs",
+  [MavSysStatusSensor.TERRAIN]: "terrain",
+  [MavSysStatusSensor.REVERSE_MOTOR]: "reverseMotor",
+  [MavSysStatusSensor.LOGGING]: "logging",
+  [MavSysStatusSensor.SENSOR_BATTERY]: "battery",
+  [MavSysStatusSensor.SENSOR_PROXIMITY]: "proximity",
+  [MavSysStatusSensor.SENSOR_SATCOM]: "satcom",
+  [MavSysStatusSensor.OBSTACLE_AVOIDANCE]: "obstacleAvoidance",
+  [MavSysStatusSensor.SENSOR_PROPULSION]: "propulsion",
+};
+
+export function sensorLabel(t: Translate, sensor: MavSysStatusSensor): string {
+  const key = SENSOR_KEYS[sensor];
+  return key ? t(`ardupilotSetup.health.sensors.${key}`) : t("ardupilotSetup.health.sensors.unknown", { value: sensor });
 }

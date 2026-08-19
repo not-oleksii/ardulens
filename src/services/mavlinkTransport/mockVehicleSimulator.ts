@@ -36,6 +36,7 @@ import {
   MavParamType,
   MavResult,
   MavState,
+  MavSysStatusSensor,
   MavType,
   ParamRequestList,
   ParamRequestRead,
@@ -78,6 +79,27 @@ const ACCEL_CAL_POSITION_SEQUENCE = [
   AccelcalVehiclePos.BACK,
 ];
 const COMMAND_LONG_MSG_ID = 76;
+// A typical healthy ArduCopter's SYS_STATUS report - present, enabled, and healthy for every
+// bit, so Dev Mode's Vehicle Health section has something real to show without needing a
+// dedicated "simulate a failure" toggle (tests that need an unhealthy scenario craft their own
+// SYS_STATUS packet directly, same pattern as every other synthetic-packet test in this app).
+const SIMULATED_SENSOR_HEALTH =
+  MavSysStatusSensor.SENSOR_3D_GYRO |
+  MavSysStatusSensor.SENSOR_3D_ACCEL |
+  MavSysStatusSensor.SENSOR_3D_MAG |
+  MavSysStatusSensor.SENSOR_ABSOLUTE_PRESSURE |
+  MavSysStatusSensor.SENSOR_GPS |
+  MavSysStatusSensor.SENSOR_ANGULAR_RATE_CONTROL |
+  MavSysStatusSensor.SENSOR_ATTITUDE_STABILIZATION |
+  MavSysStatusSensor.SENSOR_YAW_POSITION |
+  MavSysStatusSensor.SENSOR_Z_ALTITUDE_CONTROL |
+  MavSysStatusSensor.SENSOR_XY_POSITION_CONTROL |
+  MavSysStatusSensor.SENSOR_MOTOR_OUTPUTS |
+  MavSysStatusSensor.SENSOR_RC_RECEIVER |
+  MavSysStatusSensor.AHRS |
+  MavSysStatusSensor.LOGGING |
+  MavSysStatusSensor.SENSOR_BATTERY |
+  MavSysStatusSensor.PREARM_CHECK;
 // A real vehicle doesn't always answer every request cleanly first try - one param is
 // deliberately withheld from the initial PARAM_REQUEST_LIST dump, and only ever answers to a
 // specific PARAM_REQUEST_READ, so the "Request missing" feature has something real to do.
@@ -218,6 +240,9 @@ export function startMockVehicle(
     sys.voltageBattery = Math.max(10500, 16800 - Math.round(t * 2));
     sys.currentBattery = 520;
     sys.batteryRemaining = Math.max(10, 100 - Math.round(t / 10));
+    sys.onboardControlSensorsPresent = SIMULATED_SENSOR_HEALTH;
+    sys.onboardControlSensorsEnabled = SIMULATED_SENSOR_HEALTH;
+    sys.onboardControlSensorsHealth = SIMULATED_SENSOR_HEALTH;
     send(sys);
 
     const lat = HOME_LAT + Math.sin(t * 0.02) * 0.001;

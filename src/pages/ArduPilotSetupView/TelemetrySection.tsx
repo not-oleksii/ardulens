@@ -1,17 +1,20 @@
 import { useTranslation } from "react-i18next";
 import { PrimaryFlightDisplay } from "../../components/PrimaryFlightDisplay/PrimaryFlightDisplay";
 import { flightModeLabel, gpsFixTypeLabel, mavAutopilotLabel, mavStateLabel, mavTypeLabel } from "../../mavlink/labels/labels";
+import type { StatusTextEntry } from "../../stores/mavlinkStatusTextStore/types";
 import type {
   AttitudeTelemetry,
   BatteryTelemetry,
   GpsTelemetry,
   PositionTelemetry,
+  SensorHealthTelemetry,
   VfrHudTelemetry,
 } from "../../stores/mavlinkTelemetryStore/types";
 import type { VehicleInfo } from "../../stores/mavlinkVehicleStore/types";
 import type { ArduPilotSetupSection } from "./ArduPilotSetupSidebar";
 import { LiveMapSection } from "./LiveMapSection";
 import { OnboardingNudge } from "./OnboardingNudge";
+import { VehicleHealthSection } from "./VehicleHealthSection";
 
 interface TelemetrySectionProps {
   vehicle: VehicleInfo | null;
@@ -20,10 +23,22 @@ interface TelemetrySectionProps {
   battery: BatteryTelemetry | null;
   gps: GpsTelemetry | null;
   position: PositionTelemetry | null;
+  sensorHealth: SensorHealthTelemetry | null;
+  statusTextMessages: StatusTextEntry[];
   onNavigateToSection: (section: ArduPilotSetupSection) => void;
 }
 
-export function TelemetrySection({ vehicle, attitude, vfrHud, battery, gps, position, onNavigateToSection }: TelemetrySectionProps) {
+export function TelemetrySection({
+  vehicle,
+  attitude,
+  vfrHud,
+  battery,
+  gps,
+  position,
+  sensorHealth,
+  statusTextMessages,
+  onNavigateToSection,
+}: TelemetrySectionProps) {
   const { t } = useTranslation();
 
   return (
@@ -83,6 +98,8 @@ export function TelemetrySection({ vehicle, attitude, vfrHud, battery, gps, posi
               )}
             </div>
           )}
+
+          <VehicleHealthSection sensorHealth={sensorHealth} messages={statusTextMessages} />
         </div>
 
         <div className="h-[560px]">

@@ -24,7 +24,9 @@ import {
   MavModeFlag,
   MavParamType,
   MavResult,
+  MavSeverity,
   MavState,
+  MavSysStatusSensor,
   MavType,
   ParamRequestList,
   ParamRequestRead,
@@ -34,6 +36,7 @@ import {
   RebootShutdownAction,
   RequestDataStream,
   ServoOutputRaw,
+  StatusText,
   SysStatus,
   VfrHud,
 } from "../../../mavlink/registry/registry";
@@ -45,6 +48,7 @@ import { useMavlinkConnectionStore } from "../../../stores/mavlinkConnectionStor
 import { useMavlinkParamDefaultsStore } from "../../../stores/mavlinkParamDefaultsStore/mavlinkParamDefaultsStore";
 import { useMavlinkParameterStore } from "../../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import { useMavlinkRcCalStore } from "../../../stores/mavlinkRcCalStore/mavlinkRcCalStore";
+import { useMavlinkStatusTextStore } from "../../../stores/mavlinkStatusTextStore/mavlinkStatusTextStore";
 import { useMavlinkTelemetryStore } from "../../../stores/mavlinkTelemetryStore/mavlinkTelemetryStore";
 import { useMavlinkVehicleStore } from "../../../stores/mavlinkVehicleStore/mavlinkVehicleStore";
 import { useFileStore } from "../../../stores/fileStore/fileStore";
@@ -409,6 +413,7 @@ afterEach(async () => {
   useMavlinkConnectionStore.getState().reset();
   useMavlinkVehicleStore.getState().reset();
   useMavlinkTelemetryStore.getState().reset();
+  useMavlinkStatusTextStore.getState().reset();
   useMavlinkParameterStore.getState().reset();
   useMavlinkCompassCalStore.getState().reset();
   useMavlinkAccelCalStore.getState().reset();
@@ -516,6 +521,75 @@ describe("ArduPilotSetupView", () => {
       // heartbeat - if that round trip were broken, React would just snap it back to the old
       // value on the next render instead.
       await vi.waitFor(() => expect(select).toHaveValue("11"));
+    });
+  });
+
+  describe("vehicle health (sensor status + STATUSTEXT)", () => {
+    function buildSysStatus(present: number, health: number) {
+      const sys = new SysStatus();
+      sys.voltageBattery = 16800;
+      sys.currentBattery = -1;
+      sys.batteryRemaining = -1;
+      sys.onboardControlSensorsPresent = present;
+      sys.onboardControlSensorsEnabled = present;
+      sys.onboardControlSensorsHealth = health;
+      return sys;
+    }
+
+    it("shows a pre-arm-passing badge and the present sensors, once SYS_STATUS reports them healthy", async () => {
+      mockBackend(); // needed alongside Dev Mode here since these tests also emit synthetic packets directly
+      const { clickDevMode, getStatusAlert } = getView();
+      await clickDevMode();
+      await within(getStatusAlert()).findByText("Підключено: Dev mode (simulated vehicle)");
+
+      const present = MavSysStatusSensor.SENSOR_3D_GYRO | MavSysStatusSensor.SENSOR_GPS | MavSysStatusSensor.PREARM_CHECK;
+      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(buildSysStatus(present, present), { seq: 1, sysid: 1, compid: 1 })) });
+
+      expect(await screen.findByText("Перевірки перед зльотом пройдено")).toBeInTheDocument();
+      expect(screen.getByText("Гіроскоп")).toBeInTheDocument();
+      expect(screen.getByText("GPS")).toBeInTheDocument();
+    });
+
+    it("flags an unhealthy present sensor and a failing pre-arm badge", async () => {
+      mockBackend();
+      const { clickDevMode, getStatusAlert } = getView();
+      await clickDevMode();
+      await within(getStatusAlert()).findByText("Підключено: Dev mode (simulated vehicle)");
+
+      const present = MavSysStatusSensor.SENSOR_3D_GYRO | MavSysStatusSensor.PREARM_CHECK;
+      // Both present, neither healthy - health=0 for both bits.
+      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(buildSysStatus(present, 0), { seq: 1, sysid: 1, compid: 1 })) });
+
+      expect(await screen.findByText("Перевірки перед зльотом не пройдено")).toBeInTheDocument();
+      expect(screen.getByText("Гіроскоп")).toBeInTheDocument();
+    });
+
+    it("shows recent STATUSTEXT messages, most recent first", async () => {
+      mockBackend();
+      const { clickDevMode, getStatusAlert } = getView();
+      await clickDevMode();
+      await within(getStatusAlert()).findByText("Підключено: Dev mode (simulated vehicle)");
+
+      function buildStatusText(severity: MavSeverity, text: string) {
+        const msg = new StatusText();
+        msg.severity = severity;
+        msg.text = text;
+        msg.id = 0;
+        msg.chunkSeq = 0;
+        return msg;
+      }
+
+      await emit(DATA_EVENT, {
+        bytes: Array.from(encodePacket(buildStatusText(MavSeverity.WARNING, "PreArm: Compass not calibrated"), { seq: 1, sysid: 1, compid: 1 })),
+      });
+      await screen.findByText("PreArm: Compass not calibrated");
+      await emit(DATA_EVENT, {
+        bytes: Array.from(encodePacket(buildStatusText(MavSeverity.INFO, "Ready to fly"), { seq: 2, sysid: 1, compid: 1 })),
+      });
+      await screen.findByText("Ready to fly");
+
+      const messages = screen.getAllByText(/PreArm: Compass not calibrated|Ready to fly/);
+      expect(messages.map((el) => el.textContent)).toEqual(["Ready to fly", "PreArm: Compass not calibrated"]);
     });
   });
 

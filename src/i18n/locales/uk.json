@@ -422,6 +422,44 @@
         "ppp": "PPP",
         "unknown": "Невідомо ({{value}})"
       }
+    },
+    "health": {
+      "heading": "Стан апарата",
+      "prearmOk": "Перевірки перед зльотом пройдено",
+      "prearmFailing": "Перевірки перед зльотом не пройдено",
+      "sensors": {
+        "gyro": "Гіроскоп",
+        "accel": "Акселерометр",
+        "mag": "Компас",
+        "baro": "Барометр",
+        "airspeed": "Датчик швидкості польоту",
+        "gps": "GPS",
+        "opticalFlow": "Оптичний потік",
+        "visionPosition": "Позиція за камерою",
+        "laserPosition": "Позиція за лазером",
+        "externalGroundTruth": "Зовнішня опорна система",
+        "rateControl": "Контроль швидкості обертання",
+        "attitudeStabilization": "Стабілізація орієнтації",
+        "yawPosition": "Позиція за курсом",
+        "altitudeControl": "Контроль висоти",
+        "positionControl": "Контроль позиції",
+        "motorOutputs": "Виходи моторів",
+        "rcReceiver": "RC-приймач",
+        "gyro2": "Гіроскоп 2",
+        "accel2": "Акселерометр 2",
+        "mag2": "Компас 2",
+        "geofence": "Геозона",
+        "ahrs": "AHRS",
+        "terrain": "Рельєф",
+        "reverseMotor": "Реверс мотора",
+        "logging": "Логування",
+        "battery": "Монітор батареї",
+        "proximity": "Датчик наближення",
+        "satcom": "Супутниковий зв'язок",
+        "obstacleAvoidance": "Уникнення перешкод",
+        "propulsion": "Рушійна установка",
+        "unknown": "Невідомий датчик ({{value}})"
+      }
     }
   },
   "logs": {
