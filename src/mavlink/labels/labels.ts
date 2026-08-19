@@ -1,3 +1,5 @@
+import { COPTER_MODE_NAMES, PLANE_MODE_NAMES } from "../../constants";
+import { vehicleFolderForMavType } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { AccelcalVehiclePos, GpsFixType, MagCalStatus, MavAutopilot, MavResult, MavState, MavType } from "../registry/registry";
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
@@ -51,6 +53,17 @@ export function mavAutopilotLabel(t: Translate, autopilot: MavAutopilot): string
 export function mavStateLabel(t: Translate, state: MavState): string {
   const key = STATE_KEYS[state];
   return key ? t(`ardupilotSetup.vehicle.states.${key}`) : t("ardupilotSetup.vehicle.states.unknown", { value: state });
+}
+
+/** Resolves a HEARTBEAT's raw custom_mode into its ArduPilot mode name, for whichever vehicle
+ *  family `type` belongs to (Copter/Plane each have their own numbered mode table, see
+ *  constants.ts) - falls back to the raw number for vehicle families without a known table
+ *  (Rover/Sub/AntennaTracker aren't currently tabulated) or an unrecognized mode index. Shared
+ *  by TelemetrySection and VehicleStatusBar so both show the exact same mode name. */
+export function flightModeLabel(type: MavType, customMode: number): string {
+  const folder = vehicleFolderForMavType(type);
+  const names = folder === "ArduPlane" ? PLANE_MODE_NAMES : folder === "ArduCopter" ? COPTER_MODE_NAMES : null;
+  return names?.[customMode] ?? String(customMode);
 }
 
 const GPS_FIX_KEYS: Partial<Record<GpsFixType, string>> = {

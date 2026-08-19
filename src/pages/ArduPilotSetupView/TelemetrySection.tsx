@@ -1,8 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { PrimaryFlightDisplay } from "../../components/PrimaryFlightDisplay/PrimaryFlightDisplay";
-import { COPTER_MODE_NAMES, PLANE_MODE_NAMES } from "../../constants";
-import { gpsFixTypeLabel, mavAutopilotLabel, mavStateLabel, mavTypeLabel } from "../../mavlink/labels/labels";
-import { vehicleFolderForMavType } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
+import { flightModeLabel, gpsFixTypeLabel, mavAutopilotLabel, mavStateLabel, mavTypeLabel } from "../../mavlink/labels/labels";
 import type {
   AttitudeTelemetry,
   BatteryTelemetry,
@@ -54,11 +52,7 @@ export function TelemetrySection({ vehicle, attitude, vfrHud, battery, gps, posi
               airspeed={vfrHud?.airspeed ?? null}
               altitudeM={vfrHud?.altitudeM ?? null}
               armed={vehicle.armed}
-              modeLabel={(() => {
-                const folder = vehicleFolderForMavType(vehicle.type);
-                const names = folder === "ArduPlane" ? PLANE_MODE_NAMES : folder === "ArduCopter" ? COPTER_MODE_NAMES : null;
-                return names?.[vehicle.customMode] ?? String(vehicle.customMode);
-              })()}
+              modeLabel={flightModeLabel(vehicle.type, vehicle.customMode)}
             />
             {battery || gps || position ? (
               <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
