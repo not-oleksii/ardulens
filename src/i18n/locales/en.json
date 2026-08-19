@@ -247,6 +247,7 @@
       "retryDefaults": "Retry defaults",
       "defaultsLoading": "Downloading defaults... {{received}} / {{total}}",
       "defaultsErrorLabel": "Couldn't download defaults",
+      "onlyModifiedFromDefault": "Only changed from default",
       "dirty": "pending",
       "modified": "modified",
       "categoriesHeading": "Categories",
