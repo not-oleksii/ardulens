@@ -16,6 +16,7 @@ import { RcCalSection } from "./RcCalSection";
 import { RC_SETUP_PARAM_NAMES } from "./rcSetupParams";
 import { RcSetupSection } from "./RcSetupSection";
 import { TelemetrySection } from "./TelemetrySection";
+import { VehicleStatusBar } from "./VehicleStatusBar";
 import { decodeMessage, encodePacket } from "../../mavlink/codec/codec";
 import { VERIFIED_FRAME_PRESETS } from "../../mavlink/frameDiagrams/frameDiagrams";
 import { MavlinkFramer } from "../../mavlink/framer/framer";
@@ -1204,6 +1205,8 @@ export function ArduPilotSetupView() {
         devFramePresetKey={devFramePresetKey}
         setDevFramePresetKey={setDevFramePresetKey}
       />
+
+      <VehicleStatusBar vehicle={vehicle} battery={battery} gps={gps} />
 
       <div className="flex flex-1 overflow-hidden">
         <ArduPilotSetupSidebar activeSection={activeSection} onSelect={setActiveSection} />

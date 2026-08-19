@@ -570,7 +570,9 @@ describe("ArduPilotSetupView", () => {
     expect(await screen.findByText("Квадрокоптер")).toBeInTheDocument();
     expect(screen.getByText("ArduPilot")).toBeInTheDocument();
     expect(screen.getByText("Активний")).toBeInTheDocument();
-    expect(screen.getByText("GUIDED")).toBeInTheDocument(); // customMode 4 -> COPTER_MODE_NAMES
+    // customMode 4 -> COPTER_MODE_NAMES; now shown both in the PFD's own mode badge and the
+    // always-visible VehicleStatusBar, so at least one match rather than exactly one.
+    expect(screen.getAllByText("GUIDED").length).toBeGreaterThan(0);
     // "Armed" appears as both a label and the current value - assert at least one match.
     expect(screen.getAllByText("Озброєно").length).toBeGreaterThan(0);
     expect(screen.queryByText("Очікування першого heartbeat від апарата...")).not.toBeInTheDocument();
@@ -695,6 +697,21 @@ describe("ArduPilotSetupView", () => {
 
       await within(getStatusAlert()).findByText(/Підключено/);
       expect(await screen.findByText("Літак (крило)")).toBeInTheDocument();
+    });
+
+    it("keeps the armed/battery/GPS status bar visible after navigating away from Telemetry", async () => {
+      const { clickDevMode, clickMotorsNav, getStatusAlert } = getView();
+      await clickDevMode();
+      await within(getStatusAlert()).findByText(/Підключено/);
+
+      const statusBar = await screen.findByRole("status");
+      expect(statusBar).toHaveTextContent("Не озброєно");
+
+      await clickMotorsNav();
+
+      // Still present (and still reporting live values) once the active section is no longer
+      // Telemetry - this bar exists precisely so arm/battery state isn't lost while on other tabs.
+      expect(screen.getByRole("status")).toHaveTextContent("Не озброєно");
     });
 
     it(
@@ -959,8 +976,11 @@ describe("ArduPilotSetupView", () => {
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERVO2_FUNCTION", 0, MavParamType.INT16, 4, 1, 5) });
 
       expect(await screen.findByText("Aileron")).toBeInTheDocument();
-      expect(screen.getByText("1")).toBeInTheDocument(); // channel number
-      expect(screen.getByText("-")).toBeInTheDocument(); // no SERVO_OUTPUT_RAW yet
+      const table = screen.getByRole("table");
+      expect(within(table).getByText("1")).toBeInTheDocument(); // channel number
+      // Scoped to the table, not the whole page - VehicleStatusBar also renders "-" for an
+      // unavailable battery reading, which this test never sends.
+      expect(within(table).getByText("-")).toBeInTheDocument(); // no SERVO_OUTPUT_RAW yet
       expect(screen.getAllByRole("row")).toHaveLength(2); // header + exactly one active channel (2 is Disabled)
 
       await emit(DATA_EVENT, { bytes: buildServoOutputRawBytes(0, [1500], 5) });
