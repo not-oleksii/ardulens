@@ -325,6 +325,7 @@
       "screenEnable": "Enable this screen",
       "screenChanMin": "Min PWM",
       "screenChanMax": "Max PWM",
+      "elementsHeading": "Elements",
       "elementSearchPlaceholder": "Search elements...",
       "elementColumn": "Element",
       "enabledColumn": "Enabled",

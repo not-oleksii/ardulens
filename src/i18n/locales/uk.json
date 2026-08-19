@@ -325,6 +325,7 @@
       "screenEnable": "Увімкнути цей екран",
       "screenChanMin": "Мін. PWM",
       "screenChanMax": "Макс. PWM",
+      "elementsHeading": "Елементи",
       "elementSearchPlaceholder": "Пошук елементів...",
       "elementColumn": "Елемент",
       "enabledColumn": "Увімкнено",

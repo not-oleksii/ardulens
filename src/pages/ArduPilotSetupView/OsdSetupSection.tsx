@@ -16,8 +16,11 @@ import {
   allOsdParamNames,
   clampOsdX,
   clampOsdY,
+  OSD_CHAN_FALLBACK_VALUES,
   OSD_ELEMENT_KEYS,
   OSD_SCREEN_NUMBERS,
+  OSD_TYPE_FALLBACK_VALUES,
+  OSD_UNITS_FALLBACK_VALUES,
   osdElementLabel,
   osdElementParamName,
   osdScreenControlParamNames,
@@ -120,9 +123,9 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
     );
   }
 
-  function enumField(name: string) {
+  function enumField(name: string, fallbackValues?: Record<number, string>) {
     const entry = params[name];
-    const values = docs?.[name]?.values;
+    const values = docs?.[name]?.values ?? fallbackValues;
     if (!entry) return <span className="font-mono text-xs text-muted-foreground">-</span>;
     const value = shownValue(name)!;
     if (!values) return numberField(name);
@@ -133,6 +136,11 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
           value={value}
           onChange={(e) => stageChange(name, Number(e.target.value))}
         >
+          {/* The vehicle's actual current value always stays selectable, even if it's a code
+              this reference enum doesn't have a label for (e.g. a newer firmware fork that
+              added values beyond ArduCopter's own reference docs) - same fallback
+              VehicleStatusBar's flight-mode select uses. */}
+          {!(value in values) && <option value={value}>{value}</option>}
           {Object.entries(values).map(([code, label]) => (
             <option key={code} value={code}>
               {label}
@@ -208,15 +216,15 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
           <div className="flex flex-wrap items-center gap-4 rounded-lg border border-border p-2 text-xs">
             <label className="flex items-center gap-1.5">
               <span className="text-muted-foreground">{t("ardupilotSetup.osdSetup.osdType")}</span>
-              {enumField("OSD_TYPE")}
+              {enumField("OSD_TYPE", OSD_TYPE_FALLBACK_VALUES)}
             </label>
             <label className="flex items-center gap-1.5">
               <span className="text-muted-foreground">{t("ardupilotSetup.osdSetup.osdUnits")}</span>
-              {enumField("OSD_UNITS")}
+              {enumField("OSD_UNITS", OSD_UNITS_FALLBACK_VALUES)}
             </label>
             <label className="flex items-center gap-1.5">
               <span className="text-muted-foreground">{t("ardupilotSetup.osdSetup.osdChan")}</span>
-              {numberField("OSD_CHAN")}
+              {enumField("OSD_CHAN", OSD_CHAN_FALLBACK_VALUES)}
             </label>
           </div>
 
@@ -257,8 +265,71 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
             </label>
           </div>
 
-          <div className="grid min-h-0 shrink-0 grid-cols-1 gap-3 lg:grid-cols-[minmax(240px,420px)_auto]">
-            <div className="flex flex-col gap-1">
+          <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(280px,360px)_1fr]">
+            <div className="flex min-h-0 flex-col gap-2">
+              <h4 className="text-xs font-bold tracking-wide uppercase text-muted-foreground">
+                {t("ardupilotSetup.osdSetup.elementsHeading")}
+              </h4>
+              <Input
+                value={elementFilter}
+                onChange={(e) => setElementFilter(e.target.value)}
+                placeholder={t("ardupilotSetup.osdSetup.elementSearchPlaceholder")}
+                className="h-7 shrink-0 text-xs"
+              />
+
+              <div className="min-h-0 flex-1 overflow-y-auto rounded-md border border-border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{t("ardupilotSetup.osdSetup.elementColumn")}</TableHead>
+                      <TableHead>{t("ardupilotSetup.osdSetup.enabledColumn")}</TableHead>
+                      <TableHead>{t("ardupilotSetup.osdSetup.xColumn")}</TableHead>
+                      <TableHead>{t("ardupilotSetup.osdSetup.yColumn")}</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredElements.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={4} className="text-center text-xs text-muted-foreground">
+                          {t("ardupilotSetup.osdSetup.noMatches")}
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      filteredElements.map((key) => {
+                        const enName = osdElementParamName(activeScreen, key, "EN");
+                        const xName = osdElementParamName(activeScreen, key, "X");
+                        const yName = osdElementParamName(activeScreen, key, "Y");
+                        const enEntry = params[enName];
+                        return (
+                          <TableRow
+                            key={key}
+                            onClick={() => setSelectedElementKey(key)}
+                            className={cn("cursor-pointer", selectedElementKey === key && "bg-accent")}
+                          >
+                            <TableCell className="text-xs">{osdElementLabel(t, key)}</TableCell>
+                            <TableCell>
+                              <span className="flex items-center gap-1.5">
+                                <input
+                                  type="checkbox"
+                                  checked={enEntry ? shownValue(enName) !== 0 : false}
+                                  disabled={!enEntry}
+                                  onChange={(e) => stageChange(enName, e.target.checked ? 1 : 0)}
+                                />
+                                {enEntry && <ModifiedFromDefaultDot name={enName} value={shownValue(enName)!} />}
+                              </span>
+                            </TableCell>
+                            <TableCell>{numberField(xName)}</TableCell>
+                            <TableCell>{numberField(yName)}</TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+
+            <div className="flex min-h-0 flex-col gap-2 overflow-y-auto">
               <h4 className="text-xs font-bold tracking-wide uppercase text-muted-foreground">
                 {t("ardupilotSetup.osdSetup.visualLayout")}
               </h4>
@@ -268,99 +339,43 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
                 onSelect={setSelectedElementKey}
                 onMove={handleMoveElement}
               />
-              <p className="text-xs text-muted-foreground">{t("ardupilotSetup.osdSetup.dragHint")}</p>
-            </div>
+              <p className="shrink-0 text-xs text-muted-foreground">{t("ardupilotSetup.osdSetup.dragHint")}</p>
 
-            <div className="flex flex-col gap-1">
-              <h4 className="text-xs font-bold tracking-wide uppercase text-muted-foreground">
-                {t("ardupilotSetup.osdSetup.quickPosition")}
-              </h4>
-              {!selectedElementKey ? (
-                <p className="text-xs text-muted-foreground">{t("ardupilotSetup.osdSetup.selectElementHint")}</p>
-              ) : (
-                <>
-                  <p className="text-xs font-semibold">{osdElementLabel(t, selectedElementKey)}</p>
-                  <div className="grid w-40 grid-cols-3 gap-1">
-                    {ALIGNMENT_ANCHORS.map((anchor) => (
-                      <button
-                        key={anchor}
-                        type="button"
-                        disabled={!canQuickPosition}
-                        onClick={() => handleQuickPosition(anchor)}
-                        title={alignmentAnchorLabel(t, anchor)}
-                        aria-label={alignmentAnchorLabel(t, anchor)}
-                        className="flex aspect-square items-center justify-center rounded-md border border-border hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        <span
-                          className={cn("h-1.5 w-1.5 rounded-full bg-foreground", anchor === "center" && "bg-primary")}
-                        />
-                      </button>
-                    ))}
-                  </div>
-                  {!canQuickPosition && (
-                    <p className="text-xs text-muted-foreground">{t("ardupilotSetup.osdSetup.elementNotLoaded")}</p>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-
-          <Input
-            value={elementFilter}
-            onChange={(e) => setElementFilter(e.target.value)}
-            placeholder={t("ardupilotSetup.osdSetup.elementSearchPlaceholder")}
-            className="h-7 w-64 shrink-0 text-xs"
-          />
-
-          <div className="min-h-0 flex-1 overflow-y-auto rounded-md border border-border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t("ardupilotSetup.osdSetup.elementColumn")}</TableHead>
-                  <TableHead>{t("ardupilotSetup.osdSetup.enabledColumn")}</TableHead>
-                  <TableHead>{t("ardupilotSetup.osdSetup.xColumn")}</TableHead>
-                  <TableHead>{t("ardupilotSetup.osdSetup.yColumn")}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredElements.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center text-xs text-muted-foreground">
-                      {t("ardupilotSetup.osdSetup.noMatches")}
-                    </TableCell>
-                  </TableRow>
+              <div className="flex shrink-0 flex-wrap items-start gap-3 rounded-lg border border-border p-2">
+                <h5 className="w-full text-xs font-bold tracking-wide uppercase text-muted-foreground">
+                  {t("ardupilotSetup.osdSetup.quickPosition")}
+                </h5>
+                {!selectedElementKey ? (
+                  <p className="text-xs text-muted-foreground">{t("ardupilotSetup.osdSetup.selectElementHint")}</p>
                 ) : (
-                  filteredElements.map((key) => {
-                    const enName = osdElementParamName(activeScreen, key, "EN");
-                    const xName = osdElementParamName(activeScreen, key, "X");
-                    const yName = osdElementParamName(activeScreen, key, "Y");
-                    const enEntry = params[enName];
-                    return (
-                      <TableRow
-                        key={key}
-                        onClick={() => setSelectedElementKey(key)}
-                        className={cn("cursor-pointer", selectedElementKey === key && "bg-accent")}
-                      >
-                        <TableCell className="text-xs">{osdElementLabel(t, key)}</TableCell>
-                        <TableCell>
-                          <span className="flex items-center gap-1.5">
-                            <input
-                              type="checkbox"
-                              checked={enEntry ? shownValue(enName) !== 0 : false}
-                              disabled={!enEntry}
-                              onChange={(e) => stageChange(enName, e.target.checked ? 1 : 0)}
-                            />
-                            {enEntry && <ModifiedFromDefaultDot name={enName} value={shownValue(enName)!} />}
-                          </span>
-                        </TableCell>
-                        <TableCell>{numberField(xName)}</TableCell>
-                        <TableCell>{numberField(yName)}</TableCell>
-                      </TableRow>
-                    );
-                  })
+                  <>
+                    <div className="grid w-32 grid-cols-3 gap-1">
+                      {ALIGNMENT_ANCHORS.map((anchor) => (
+                        <button
+                          key={anchor}
+                          type="button"
+                          disabled={!canQuickPosition}
+                          onClick={() => handleQuickPosition(anchor)}
+                          title={alignmentAnchorLabel(t, anchor)}
+                          aria-label={alignmentAnchorLabel(t, anchor)}
+                          className="flex aspect-square items-center justify-center rounded-md border border-border hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <span
+                            className={cn("h-1.5 w-1.5 rounded-full bg-foreground", anchor === "center" && "bg-primary")}
+                          />
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex flex-col gap-0.5">
+                      <p className="text-xs font-semibold">{osdElementLabel(t, selectedElementKey)}</p>
+                      {!canQuickPosition && (
+                        <p className="text-xs text-muted-foreground">{t("ardupilotSetup.osdSetup.elementNotLoaded")}</p>
+                      )}
+                    </div>
+                  </>
                 )}
-              </TableBody>
-            </Table>
+              </div>
+            </div>
           </div>
         </div>
       )}

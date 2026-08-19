@@ -11,7 +11,46 @@ export const OSD_SCREEN_NUMBERS = [1, 2, 3, 4] as const;
 export type OsdScreenNumber = (typeof OSD_SCREEN_NUMBERS)[number];
 
 export const OSD_GLOBAL_PARAM_NAMES = ["OSD_TYPE", "OSD_UNITS", "OSD_CHAN"] as const;
-export const OSD_ENUM_PARAMS = new Set<string>(["OSD_TYPE", "OSD_UNITS"]);
+export const OSD_ENUM_PARAMS = new Set<string>(["OSD_TYPE", "OSD_UNITS", "OSD_CHAN"]);
+
+// Hardcoded fallback enum labels for the 3 global params, confirmed against ArduCopter's own
+// apm.pdef.xml - used whenever fetchParamDocs hasn't returned yet (or failed, e.g. offline)
+// so these never render as an unbounded, context-free number spinner. docs (when available)
+// still take priority, since a differently-versioned firmware could define more values than
+// this fixed reference copy knows about - see OsdSetupSection's enumField.
+export const OSD_TYPE_FALLBACK_VALUES: Record<number, string> = {
+  0: "None",
+  1: "MAX7456",
+  2: "SITL",
+  3: "MSP",
+  4: "TXONLY",
+  5: "MSP_DISPLAYPORT",
+};
+
+export const OSD_UNITS_FALLBACK_VALUES: Record<number, string> = {
+  0: "Metric",
+  1: "Imperial",
+  2: "SI",
+  3: "Aviation",
+};
+
+// 1-4 are deliberately absent - real ArduPilot reserves those for the primary flight-control
+// channels (roll/pitch/throttle/yaw), never assignable to an aux function like this one.
+export const OSD_CHAN_FALLBACK_VALUES: Record<number, string> = {
+  0: "Disable",
+  5: "Chan5",
+  6: "Chan6",
+  7: "Chan7",
+  8: "Chan8",
+  9: "Chan9",
+  10: "Chan10",
+  11: "Chan11",
+  12: "Chan12",
+  13: "Chan13",
+  14: "Chan14",
+  15: "Chan15",
+  16: "Chan16",
+};
 
 export function osdScreenControlParamNames(screen: OsdScreenNumber): readonly [string, string, string] {
   return [`OSD${screen}_ENABLE`, `OSD${screen}_CHAN_MIN`, `OSD${screen}_CHAN_MAX`];
