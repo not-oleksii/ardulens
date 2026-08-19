@@ -2044,6 +2044,56 @@ describe("ArduPilotSetupView", () => {
       expect(screen.getByText("Висота (AGL)")).toBeInTheDocument();
       expect(screen.queryByText("Напруга батареї")).not.toBeInTheDocument();
     });
+
+    it("selects an element by clicking its table row, then snaps its X/Y via a quick-position button", async () => {
+      mockBackend();
+      const { user } = await connectAndOpenOsdSetup();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ALTITUDE_EN", 1, MavParamType.INT8, 0, 1, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ALTITUDE_X", 23, MavParamType.INT8, 1, 1, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ALTITUDE_Y", 8, MavParamType.INT8, 2, 1, 3) });
+      const row = (await screen.findByRole("cell", { name: "Висота (AGL)" })).closest("tr")!;
+
+      expect(screen.getByText("Виберіть елемент, щоб прив'язати його до готової позиції.")).toBeInTheDocument();
+      await user.click(row);
+
+      await user.click(screen.getByRole("button", { name: "Зверху ліворуч" }));
+
+      expect(await screen.findByRole("button", { name: "Зберегти все (2)" })).toBeInTheDocument();
+      expect(within(row).getByDisplayValue("2")).toBeInTheDocument();
+      expect(within(row).getByDisplayValue("1")).toBeInTheDocument();
+    });
+
+    it("dragging an enabled element's chip in the visual layout restages its X/Y", async () => {
+      mockBackend();
+      await connectAndOpenOsdSetup();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ALTITUDE_EN", 1, MavParamType.INT8, 0, 1, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ALTITUDE_X", 23, MavParamType.INT8, 1, 1, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ALTITUDE_Y", 8, MavParamType.INT8, 2, 1, 3) });
+
+      const chip = await screen.findByTitle(/Висота \(AGL\)/);
+      const container = chip.parentElement!;
+      vi.spyOn(container, "getBoundingClientRect").mockReturnValue({
+        left: 0,
+        top: 0,
+        width: 600,
+        height: 220,
+        right: 600,
+        bottom: 220,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      });
+
+      fireEvent.pointerDown(chip, { pointerId: 1 });
+      fireEvent.pointerMove(chip, { pointerId: 1, clientX: 300, clientY: 110 });
+      fireEvent.pointerUp(chip, { pointerId: 1 });
+
+      const row = screen.getByRole("cell", { name: "Висота (AGL)" }).closest("tr")!;
+      expect(within(row).getByDisplayValue("30")).toBeInTheDocument();
+      expect(within(row).getByDisplayValue("11")).toBeInTheDocument();
+    });
   });
 
   describe("Dev Mode frame-preset selector", () => {

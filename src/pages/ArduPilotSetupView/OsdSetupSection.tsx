@@ -10,14 +10,21 @@ import { fetchParamDocs, vehicleFolderForMavType, type ParamDocsMap } from "../.
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
 import {
+  ALIGNMENT_ANCHORS,
+  alignmentAnchorLabel,
+  alignmentPosition,
   allOsdParamNames,
+  clampOsdX,
+  clampOsdY,
   OSD_ELEMENT_KEYS,
   OSD_SCREEN_NUMBERS,
   osdElementLabel,
   osdElementParamName,
   osdScreenControlParamNames,
+  type OsdElementKey,
   type OsdScreenNumber,
 } from "./osdSetupParams";
+import { OsdScreenLayout } from "./OsdScreenLayout";
 
 interface OsdSetupSectionProps {
   vehicleType: MavType;
@@ -34,6 +41,7 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [activeScreen, setActiveScreen] = useState<OsdScreenNumber>(1);
   const [elementFilter, setElementFilter] = useState("");
+  const [selectedElementKey, setSelectedElementKey] = useState<OsdElementKey | null>(null);
 
   const vehicleFolder = vehicleFolderForMavType(vehicleType);
 
@@ -143,6 +151,33 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
   const [enableParam, chanMinParam, chanMaxParam] = osdScreenControlParamNames(activeScreen);
   const screenEnableEntry = params[enableParam];
 
+  // Drives OsdScreenLayout's draggable chips - every element on this screen that's both loaded
+  // and currently enabled (staged or saved), at its live (possibly staged) X/Y.
+  const layoutElements = OSD_ELEMENT_KEYS.flatMap((key) => {
+    const enName = osdElementParamName(activeScreen, key, "EN");
+    const xName = osdElementParamName(activeScreen, key, "X");
+    const yName = osdElementParamName(activeScreen, key, "Y");
+    if (!params[enName] || !params[xName] || !params[yName]) return [];
+    if (shownValue(enName) === 0) return [];
+    return [{ key, x: shownValue(xName)!, y: shownValue(yName)! }];
+  });
+
+  function handleMoveElement(key: OsdElementKey, x: number, y: number) {
+    stageChange(osdElementParamName(activeScreen, key, "X"), x);
+    stageChange(osdElementParamName(activeScreen, key, "Y"), y);
+  }
+
+  const selectedXName = selectedElementKey ? osdElementParamName(activeScreen, selectedElementKey, "X") : null;
+  const selectedYName = selectedElementKey ? osdElementParamName(activeScreen, selectedElementKey, "Y") : null;
+  const canQuickPosition = !!selectedXName && !!selectedYName && !!params[selectedXName] && !!params[selectedYName];
+
+  function handleQuickPosition(anchor: (typeof ALIGNMENT_ANCHORS)[number]) {
+    if (!selectedXName || !selectedYName) return;
+    const { x, y } = alignmentPosition(anchor);
+    stageChange(selectedXName, clampOsdX(x));
+    stageChange(selectedYName, clampOsdY(y));
+  }
+
   return (
     <div className="flex h-full flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -222,6 +257,54 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
             </label>
           </div>
 
+          <div className="grid min-h-0 shrink-0 grid-cols-1 gap-3 lg:grid-cols-[minmax(240px,420px)_auto]">
+            <div className="flex flex-col gap-1">
+              <h4 className="text-xs font-bold tracking-wide uppercase text-muted-foreground">
+                {t("ardupilotSetup.osdSetup.visualLayout")}
+              </h4>
+              <OsdScreenLayout
+                elements={layoutElements}
+                selectedKey={selectedElementKey}
+                onSelect={setSelectedElementKey}
+                onMove={handleMoveElement}
+              />
+              <p className="text-xs text-muted-foreground">{t("ardupilotSetup.osdSetup.dragHint")}</p>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <h4 className="text-xs font-bold tracking-wide uppercase text-muted-foreground">
+                {t("ardupilotSetup.osdSetup.quickPosition")}
+              </h4>
+              {!selectedElementKey ? (
+                <p className="text-xs text-muted-foreground">{t("ardupilotSetup.osdSetup.selectElementHint")}</p>
+              ) : (
+                <>
+                  <p className="text-xs font-semibold">{osdElementLabel(t, selectedElementKey)}</p>
+                  <div className="grid w-40 grid-cols-3 gap-1">
+                    {ALIGNMENT_ANCHORS.map((anchor) => (
+                      <button
+                        key={anchor}
+                        type="button"
+                        disabled={!canQuickPosition}
+                        onClick={() => handleQuickPosition(anchor)}
+                        title={alignmentAnchorLabel(t, anchor)}
+                        aria-label={alignmentAnchorLabel(t, anchor)}
+                        className="flex aspect-square items-center justify-center rounded-md border border-border hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <span
+                          className={cn("h-1.5 w-1.5 rounded-full bg-foreground", anchor === "center" && "bg-primary")}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                  {!canQuickPosition && (
+                    <p className="text-xs text-muted-foreground">{t("ardupilotSetup.osdSetup.elementNotLoaded")}</p>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+
           <Input
             value={elementFilter}
             onChange={(e) => setElementFilter(e.target.value)}
@@ -253,7 +336,11 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
                     const yName = osdElementParamName(activeScreen, key, "Y");
                     const enEntry = params[enName];
                     return (
-                      <TableRow key={key}>
+                      <TableRow
+                        key={key}
+                        onClick={() => setSelectedElementKey(key)}
+                        className={cn("cursor-pointer", selectedElementKey === key && "bg-accent")}
+                      >
                         <TableCell className="text-xs">{osdElementLabel(t, key)}</TableCell>
                         <TableCell>
                           <span className="flex items-center gap-1.5">
