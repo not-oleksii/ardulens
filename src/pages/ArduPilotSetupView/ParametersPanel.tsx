@@ -117,6 +117,11 @@ export function ParametersPanel({
   const [categorySelection, setCategorySelection] = useState<CategorySelection>({ kind: "all" });
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [categoriesCollapsed, setCategoriesCollapsed] = useState(false);
+  // Betaflight/Mission Planner both let a user isolate just the params that have actually been
+  // tuned away from firmware defaults - only meaningful once real default values are in
+  // (defaults !== null), so the toggle itself only appears at that point (see the search row
+  // below) rather than existing in a permanently-disabled state before that.
+  const [onlyModified, setOnlyModified] = useState(false);
 
   const vehicleFolder = vehicleFolderForMavType(vehicleType);
   const docs = docsState?.folder === vehicleFolder ? docsState.docs : null;
@@ -165,11 +170,15 @@ export function ParametersPanel({
     const query = search.trim().toLowerCase();
     return entries.filter((p) => {
       if (query && !p.name.toLowerCase().includes(query)) return false;
+      // A param with no known default (defaults downloaded but this name wasn't in the file,
+      // or defaults never downloaded at all) is excluded rather than treated as "changed" -
+      // "changed from default" shouldn't include "we don't actually know the default."
+      if (onlyModified && (!defaults || !(p.name in defaults) || p.value === defaults[p.name])) return false;
       if (categorySelection.kind === "param") return p.name === categorySelection.name;
       if (categorySelection.kind === "group") return categoryPrefix(p.name) === categorySelection.prefix;
       return true;
     });
-  }, [entries, search, categorySelection]);
+  }, [entries, search, categorySelection, onlyModified, defaults]);
 
   function selectGroup(prefix: string) {
     setCategorySelection({ kind: "group", prefix });
@@ -358,12 +367,20 @@ export function ParametersPanel({
 
       {hasStarted && (
         <>
-          <Input
-            className="shrink-0"
-            placeholder={t("ardupilotSetup.parameters.searchPlaceholder")}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+          <div className="flex shrink-0 items-center gap-3">
+            <Input
+              className="min-w-0 flex-1"
+              placeholder={t("ardupilotSetup.parameters.searchPlaceholder")}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            {defaults && (
+              <label className="flex shrink-0 items-center gap-1.5 text-xs whitespace-nowrap">
+                <input type="checkbox" checked={onlyModified} onChange={(e) => setOnlyModified(e.target.checked)} />
+                {t("ardupilotSetup.parameters.onlyModifiedFromDefault")}
+              </label>
+            )}
+          </div>
           {docsLoading && (
             <p className="shrink-0 text-xs text-muted-foreground">{t("ardupilotSetup.parameters.descriptionsLoading")}</p>
           )}

@@ -247,6 +247,7 @@
       "retryDefaults": "Повторити завантаження",
       "defaultsLoading": "Завантаження стандартних значень... {{received}} / {{total}}",
       "defaultsErrorLabel": "Не вдалося завантажити стандартні значення",
+      "onlyModifiedFromDefault": "Лише змінені від стандартних",
       "dirty": "очікує",
       "modified": "змінено",
       "categoriesHeading": "Категорії",

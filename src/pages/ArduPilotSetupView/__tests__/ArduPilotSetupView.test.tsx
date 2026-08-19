@@ -822,6 +822,32 @@ describe("ArduPilotSetupView", () => {
     );
 
     it(
+      "\"Only changed from default\" filters out params already sitting at their default",
+      async () => {
+        const { user, clickDevMode, clickParametersNav, getStatusAlert } = getView();
+        await clickDevMode();
+        await within(getStatusAlert()).findByText(/Підключено/);
+        await clickParametersNav();
+
+        await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
+        await screen.findByText("ARSPD_USE");
+        await user.click(screen.getByRole("button", { name: "Завантажити стандартні значення" }));
+
+        fireEvent.change(screen.getByPlaceholderText("Пошук параметрів..."), { target: { value: "ARSPD" } });
+        // Both ARSPD_USE (sitting at its default) and ARSPD_RATIO (overridden, see the previous
+        // test) are visible before the filter is applied.
+        await screen.findByText("ARSPD_USE");
+        expect(screen.getByText("ARSPD_RATIO")).toBeInTheDocument();
+
+        await user.click(screen.getByRole("checkbox", { name: "Лише змінені від стандартних" }));
+
+        expect(screen.getByText("ARSPD_RATIO")).toBeInTheDocument();
+        expect(screen.queryByText("ARSPD_USE")).not.toBeInTheDocument();
+      },
+      20000,
+    );
+
+    it(
       "Motors & Servos lists the simulated channels and reflects a real press-and-hold test's live output",
       async () => {
         const { user, clickDevMode, clickMotorsNav, getStatusAlert } = getView();
