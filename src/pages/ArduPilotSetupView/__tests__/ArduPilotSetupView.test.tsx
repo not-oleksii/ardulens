@@ -2070,7 +2070,7 @@ describe("ArduPilotSetupView", () => {
       expect(screen.getAllByText("-").length).toBeGreaterThanOrEqual(3);
     });
 
-    it("shows the fetched description, Units, Options, and a Read more link once parameter documentation loads", async () => {
+    it("shows the humanName directly in the cell, and Units/Options once parameter documentation loads", async () => {
       // A single test owns the one legitimate real-fetch-stub slot for the ArduCopter folder in
       // this file - fetchParamDocs caches successful results at module scope (in-memory +
       // localStorage), shared across every test here, so a second test stubbing a different
@@ -2095,18 +2095,30 @@ describe("ArduPilotSetupView", () => {
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("PILOT_THR_FILT", 2, MavParamType.INT8, 1, 2, 2) });
       await screen.findByText("ARSPD_USE");
 
-      // The full documentation sentence is now shown directly in the cell, not just the short
-      // humanName title (previously only reachable via the title tooltip).
+      // Only the short humanName shows directly in the (fixed-height, one-line-truncated) cell -
+      // the full documentation sentence and its Read more link are reachable via hover instead
+      // (see the next test), rather than being crammed into the row where a long sentence would
+      // just get truncated again.
       expect(await screen.findByText("Use airspeed")).toBeInTheDocument();
-      expect(screen.getByText(/Enables airspeed use/)).toBeInTheDocument();
-      // Both loaded params have docs now, so both get their own Read more link.
-      const readMoreLinks = screen.getAllByRole("link", { name: "Детальніше →" });
-      expect(readMoreLinks.map((a) => a.getAttribute("href"))).toEqual(
-        expect.arrayContaining(["https://ardupilot.org/copter/docs/parameters.html#arspd-use"]),
-      );
+      expect(screen.queryByText(/Enables airspeed use/)).not.toBeInTheDocument();
       expect(screen.getByText("0: Disabled, 1: Enabled")).toBeInTheDocument();
       expect(screen.getByText("Hz")).toBeInTheDocument();
       expect(screen.getByText("0 - 10")).toBeInTheDocument();
+    });
+
+    it("shows the full description and a Read more link in a hover card", async () => {
+      // Reuses the ArduCopter docs cached by the previous test rather than stubbing fetch again -
+      // see that test's own comment on why only one test in this file may do the real stub for a
+      // given folder.
+      mockBackend();
+      const { user } = await connectWithVehicle();
+      await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 1, 1) });
+      await user.hover(await screen.findByText("Use airspeed"));
+
+      expect(await screen.findByText("Enables airspeed use")).toBeInTheDocument();
+      const readMoreLink = screen.getByRole("link", { name: "Детальніше →" });
+      expect(readMoreLink).toHaveAttribute("href", "https://ardupilot.org/copter/docs/parameters.html#arspd-use");
     });
 
     it("groups params sharing a name prefix into a collapsed category, and clicking it filters the table to that group", async () => {

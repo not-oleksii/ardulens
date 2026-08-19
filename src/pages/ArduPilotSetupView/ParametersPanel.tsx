@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
@@ -575,24 +576,32 @@ export function ParametersPanel({
                           </div>
                           <div role="cell" className="px-3 py-2" style={CELL_STYLE}>
                             {doc ? (
-                              // The real documentation sentence(s), not just the short humanName
-                              // title - CELL_STYLE truncates this to one line for the fixed row
-                              // height virtualization needs (see the comment on ROW_HEIGHT_PX
-                              // above), but the untruncated text is still reachable via this
-                              // title tooltip, and the Read More link goes to the full official
-                              // docs page for anything that needs more than a hover.
-                              <span title={`${doc.humanName}: ${doc.documentation}`}>
-                                <span className="font-semibold">{doc.humanName}</span>
-                                {doc.documentation ? ` — ${doc.documentation} ` : " "}
-                                <a
-                                  href={paramDocsPageUrl(vehicleFolder, p.name)}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="whitespace-nowrap text-primary underline-offset-4 hover:underline"
-                                >
-                                  {t("graphs.params.readMore")}
-                                </a>
-                              </span>
+                              // The row itself only shows the short humanName - CELL_STYLE's
+                              // one-line truncation (needed for the fixed row height
+                              // virtualization, see ROW_HEIGHT_PX above) made the full
+                              // documentation sentence unreadable when it was shown inline, and a
+                              // plain `title` tooltip only re-exposed it as a single unwrapped
+                              // OS-rendered line - no better. A HoverCard (same pattern as the
+                              // Graphs page's parameter tree) shows the full sentence, wrapped and
+                              // readable, on hover instead; the Read More link still goes to the
+                              // full official docs page for anything that needs more than that.
+                              <HoverCard>
+                                <HoverCardTrigger asChild>
+                                  <span className="cursor-default font-semibold">{doc.humanName}</span>
+                                </HoverCardTrigger>
+                                <HoverCardContent className="max-h-80 w-96 overflow-y-auto">
+                                  <p className="font-semibold">{doc.humanName}</p>
+                                  {doc.documentation && <p className="mt-1 text-muted-foreground">{doc.documentation}</p>}
+                                  <a
+                                    href={paramDocsPageUrl(vehicleFolder, p.name)}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="mt-2 inline-block text-primary underline-offset-4 hover:underline"
+                                  >
+                                    {t("graphs.params.readMore")}
+                                  </a>
+                                </HoverCardContent>
+                              </HoverCard>
                             ) : (
                               <span className="text-muted-foreground">-</span>
                             )}
