@@ -464,6 +464,61 @@ describe("ArduPilotSetupView", () => {
     });
   });
 
+  describe("arm/disarm and mode switching", () => {
+    it("sends COMPONENT_ARM_DISARM when arming is confirmed, and the badge flips once the vehicle acks and reports armed", async () => {
+      const { clickDevMode, getStatusAlert, user } = getView();
+      await clickDevMode();
+      await within(getStatusAlert()).findByText("Підключено: Dev mode (simulated vehicle)");
+
+      await user.click(screen.getByRole("button", { name: "Озброїти" }));
+      const dialog = screen.getByRole("dialog");
+      await user.click(within(dialog).getByRole("button", { name: "Озброїти" }));
+
+      expect(await screen.findByRole("button", { name: "Роззброїти" })).toBeInTheDocument();
+    });
+
+    it("cancelling the confirmation sends nothing and leaves the vehicle disarmed", async () => {
+      const { clickDevMode, getStatusAlert, user } = getView();
+      await clickDevMode();
+      await within(getStatusAlert()).findByText("Підключено: Dev mode (simulated vehicle)");
+
+      await user.click(screen.getByRole("button", { name: "Озброїти" }));
+      await user.click(screen.getByRole("button", { name: "Скасувати" }));
+
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Озброїти" })).toBeInTheDocument();
+    });
+
+    it("disarming needs no confirmation, and the badge flips back once the vehicle acks", async () => {
+      const { clickDevMode, getStatusAlert, user } = getView();
+      await clickDevMode();
+      await within(getStatusAlert()).findByText("Підключено: Dev mode (simulated vehicle)");
+      await user.click(screen.getByRole("button", { name: "Озброїти" }));
+      await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Озброїти" }));
+      await screen.findByRole("button", { name: "Роззброїти" });
+
+      await user.click(screen.getByRole("button", { name: "Роззброїти" }));
+
+      expect(await screen.findByRole("button", { name: "Озброїти" })).toBeInTheDocument();
+    });
+
+    it("changing the flight mode via the dropdown is reflected once the vehicle's next heartbeat arrives", async () => {
+      const { clickDevMode, getStatusAlert, user } = getView(); // Dev Mode simulates a Plane by default
+      await clickDevMode();
+      await within(getStatusAlert()).findByText("Підключено: Dev mode (simulated vehicle)");
+
+      const select = await screen.findByLabelText("Режим");
+      await user.selectOptions(select, "11"); // RTL
+
+      // A real round trip, not just the browser's own optimistic selection: this is a
+      // controlled <select> bound to vehicle.customMode, so it only settles on "11" once the
+      // mock vehicle has actually received SET_MODE and reported the change back on its next
+      // heartbeat - if that round trip were broken, React would just snap it back to the old
+      // value on the next render instead.
+      await vi.waitFor(() => expect(select).toHaveValue("11"));
+    });
+  });
+
   it("links back to Home", () => {
     mockBackend();
     const { getBackToHomeLink } = getView();

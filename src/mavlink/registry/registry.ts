@@ -51,6 +51,23 @@ export { FileTransferProtocol, MavFtpOpcode, MavFtpErr } from "mavlink-mappings/
 // GLOBAL_POSITION_INT lives in the "standard" dialect file, not "common" - this package
 // splits a curated subset of core messages there even though they're not ArduPilot-specific.
 export { GlobalPositionInt } from "mavlink-mappings/dist/lib/standard";
+// COMPONENT_ARM_DISARM (MAV_CMD 400, COMMAND_LONG wrapper) arms/disarms the vehicle - `arm`
+// (param1) is 1/0, `force` (param2) is 0 for a normal request (still subject to pre-arm
+// checks) or the documented magic value 21196 to force through them. This app only ever sends
+// a normal (non-forced) request - forcing past safety checks is a deliberate expert-only
+// escape hatch real GCS's gate behind extra confirmation, out of scope here.
+export { ComponentArmDisarmCommand } from "mavlink-mappings/dist/lib/common";
+// SET_MODE (MSG_ID 11) - unlike every other command in this file, this is a plain message, not
+// a COMMAND_LONG wrapper, and ArduPilot never COMMAND_ACKs it - the UI confirms a mode change
+// took effect by watching the vehicle's own next HEARTBEAT.custom_mode instead (already tracked
+// in mavlinkVehicleStore). `baseMode` must carry MavModeFlag.CUSTOM_MODE_ENABLED for ArduPilot
+// to read `customMode` at all - confirmed against ArduPilot's own GCS_Common.cpp
+// handle_message(SET_MODE), which ignores the message entirely otherwise.
+export { SetMode } from "mavlink-mappings/dist/lib/common";
+// MavMode is a distinct branded type from MavModeFlag despite sharing the same bit meanings on
+// the wire (SET_MODE.base_mode is typed against it, HEARTBEAT.base_mode against MavModeFlag) -
+// exported so callers can cast a MavModeFlag bitmask into it without reaching past this file.
+export type { MavMode } from "mavlink-mappings/dist/lib/common";
 // MAG_CAL_PROGRESS and the DO_START/ACCEPT/CANCEL_MAG_CAL commands are ArduPilot-specific
 // (not in vanilla MAVLink common), so they live in the ardupilotmega dialect file. The three
 // commands are typed COMMAND_LONG wrappers (MSG_ID 76) with their `command` field defaulted

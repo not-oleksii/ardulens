@@ -17,6 +17,7 @@ import {
   AccelcalVehiclePosCommand,
   Attitude,
   CommandAck,
+  ComponentArmDisarmCommand,
   DoMotorTestCommand,
   DoSetServoCommand,
   FileTransferProtocol,
@@ -44,6 +45,7 @@ import {
   RcChannels,
   RequestDataStream,
   ServoOutputRaw,
+  SetMode,
   SysStatus,
   VfrHud,
 } from "../../mavlink/registry/registry";
@@ -166,12 +168,20 @@ export function startMockVehicle(
   }
 
   // --- Heartbeat ---
+  // Mutable so COMPONENT_ARM_DISARM and SET_MODE (handled below) can actually change what the
+  // simulator reports on its own next heartbeat - a real vehicle's arm state and mode are
+  // exactly this kind of persistent, GCS-changeable state, not fixed simulator fixtures.
+  let armed = false;
+  let customMode = 0;
   function sendHeartbeat() {
     const hb = new Heartbeat();
     hb.type = vehicleType;
     hb.autopilot = MavAutopilot.ARDUPILOTMEGA;
-    hb.baseMode = MavModeFlag.STABILIZE_ENABLED;
-    hb.customMode = 0;
+    // ArduPilot always operates in "custom mode" (its own per-vehicle-family mode numbering,
+    // not the standard MAV_MODE base modes) - CUSTOM_MODE_ENABLED must be set for custom_mode
+    // to mean anything, confirmed against real ArduPilot's own heartbeat encoding.
+    hb.baseMode = MavModeFlag.STABILIZE_ENABLED | MavModeFlag.CUSTOM_MODE_ENABLED | (armed ? MavModeFlag.SAFETY_ARMED : 0);
+    hb.customMode = customMode;
     hb.systemStatus = MavState.STANDBY;
     hb.mavlinkVersion = 3;
     send(hb);
@@ -555,7 +565,23 @@ export function startMockVehicle(
       // in-process simulator, which has no transport-level disconnect to simulate. Acking is
       // enough for the UI (button click -> ACCEPTED) to be exercised in Dev Mode.
       ackCommand(command, MavResult.ACCEPTED);
+    } else if (command === MavCmd.COMPONENT_ARM_DISARM) {
+      const cmd = decodeMessage(ComponentArmDisarmCommand, payload);
+      armed = cmd.arm === 1;
+      ackCommand(command, MavResult.ACCEPTED);
+      // An immediate extra heartbeat, on top of the regular 1Hz one - a simulator convenience
+      // so the UI (and tests) see the new armed state reflected right away rather than waiting
+      // up to a full second for the next scheduled tick, not a claim about real ArduPilot's
+      // own timing.
+      sendHeartbeat();
     }
+  }
+
+  // SET_MODE (MSG_ID 11) is a plain message, not a COMMAND_LONG - see registry.ts's own
+  // comment on why ArduPilot never COMMAND_ACKs it, unlike every other case above.
+  function handleSetMode(msg: SetMode) {
+    customMode = msg.customMode;
+    sendHeartbeat(); // same immediate-feedback convenience as the arm/disarm handler above
   }
 
   // --- MAVLink FTP (param.pck defaults download) ---
@@ -667,6 +693,9 @@ export function startMockVehicle(
           break;
         case COMMAND_LONG_MSG_ID:
           handleCommandLong(packet.message, packet.payload);
+          break;
+        case SetMode.MSG_ID:
+          handleSetMode(packet.message as SetMode);
           break;
         case FileTransferProtocol.MSG_ID: {
           const ftpMsg = decodeMessage(FileTransferProtocol, packet.payload);
