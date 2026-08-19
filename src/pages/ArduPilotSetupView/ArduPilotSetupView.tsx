@@ -337,9 +337,24 @@ export function ArduPilotSetupView() {
       addBytesReceived(bytes.length);
       for (const packet of framerRef.current.push(bytes)) {
         const now = Date.now();
+        // A real link often carries more than just the flight controller's own traffic - a
+        // companion computer, a telemetry-bridge relay, or another GCS can all heartbeat and
+        // (for a companion computer especially) send their own SYS_STATUS/GPS_RAW_INT-shaped
+        // messages on the same wire. Once a vehicle's sysid is known (via a real ArduPilot
+        // heartbeat, see the Heartbeat case below), every other system's packets are ignored
+        // outright rather than being allowed to overwrite the display with unrelated data.
+        if (packet.msgId !== Heartbeat.MSG_ID && vehicleRef.current && packet.sysid !== vehicleRef.current.sysid) {
+          continue;
+        }
         switch (packet.msgId) {
           case Heartbeat.MSG_ID: {
             const hb = packet.message as Heartbeat;
+            // MAV_AUTOPILOT_INVALID is the standard convention a non-flight-controller system
+            // (companion computer, telemetry relay, another GCS) uses to identify its own
+            // heartbeat as "not an autopilot" - real ArduPilot firmware always reports
+            // ARDUPILOTMEGA here (confirmed against this app's own mock simulator). Any other
+            // system's heartbeat is ignored rather than being treated as "the vehicle."
+            if (hb.autopilot !== MavAutopilot.ARDUPILOTMEGA) break;
             setVehicle({
               sysid: packet.sysid,
               compid: packet.compid,
