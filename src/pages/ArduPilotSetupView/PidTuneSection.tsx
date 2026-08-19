@@ -1,12 +1,15 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { MavParamType, MavType } from "../../mavlink/registry/registry";
 import { vehicleFolderForMavType } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
+import { useFileStore } from "../../stores/fileStore/fileStore";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
+import { useUiStore } from "../../stores/uiStore/uiStore";
 import { ComingSoonSection } from "./ComingSoonSection";
 import { pidConfigForVehicleFolder, type PidAxis } from "./pidGroups";
 
@@ -16,8 +19,21 @@ interface PidTuneSectionProps {
   onSetParam: (name: string, value: number, type: MavParamType) => void;
 }
 
+// Only these axes have a matching desired-vs-actual rate preset in raw-log/presets.ts (RATE.*,
+// ArduCopter/Sub's rate-controller dataflash message) - Plane's rate-loop logging and Rover's
+// steering/speed axes don't, so those axes just don't get a "View in Graphs" button.
+const AXIS_PRESET_KEYS: Partial<Record<PidAxis["key"], string>> = {
+  roll: "pidRoll",
+  pitch: "pidPitch",
+  yaw: "pidYaw",
+};
+
 export function PidTuneSection({ vehicleType, onLoad, onSetParam }: PidTuneSectionProps) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
+  const file = useFileStore((s) => s.file);
+  const setActiveTab = useUiStore((s) => s.setActiveTab);
+  const setPendingPresetKey = useUiStore((s) => s.setPendingPresetKey);
   const params = useMavlinkParameterStore((s) => s.params);
   const [requested, setRequested] = useState(false);
   const [editingName, setEditingName] = useState<string | null>(null);
@@ -28,7 +44,13 @@ export function PidTuneSection({ vehicleType, onLoad, onSetParam }: PidTuneSecti
   const [pendingChanges, setPendingChanges] = useState<Record<string, number>>({});
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const config = pidConfigForVehicleFolder(vehicleFolderForMavType(vehicleType));
+  const vehicleFolder = vehicleFolderForMavType(vehicleType);
+  const config = pidConfigForVehicleFolder(vehicleFolder);
+  // Only ArduCopter/Sub log the RATE dataflash message (RDes/R etc.) the pidRoll/pidPitch/
+  // pidYaw presets look for (see pidGroups.ts's own comment on why Copter and Sub share this
+  // naming) - Plane's rate-loop logging uses different message/field names entirely, so its
+  // roll/pitch/yaw axes don't get a deep-link button that would just resolve to nothing.
+  const supportsRatePresets = vehicleFolder === "ArduCopter" || vehicleFolder === "ArduSub";
 
   function startEdit(name: string, currentValue: number) {
     setEditingName(name);
@@ -69,6 +91,16 @@ export function PidTuneSection({ vehicleType, onLoad, onSetParam }: PidTuneSecti
     setConfirmOpen(false);
   }
 
+  // Deep-links to the currently loaded flight log's Graphs page, with the matching
+  // desired-vs-actual rate preset pre-selected - the log-viewer route ("/") and this live-GCS
+  // route ("/ardupilot-setup") don't share React Router state, so the hand-off goes through
+  // uiStore's pendingPresetKey, consumed and cleared by GraphsView on mount.
+  function openAxisInGraphs(presetKey: string) {
+    setPendingPresetKey(presetKey);
+    setActiveTab("graphs");
+    void navigate("/");
+  }
+
   if (!config) {
     return <ComingSoonSection heading={t("ardupilotSetup.pidTune.heading")} description={t("ardupilotSetup.comingSoon.pidTune")} />;
   }
@@ -87,9 +119,23 @@ export function PidTuneSection({ vehicleType, onLoad, onSetParam }: PidTuneSecti
   const hasPendingChanges = pendingEntries.length > 0;
 
   function renderAxis(axis: PidAxis) {
+    const presetKey = supportsRatePresets ? AXIS_PRESET_KEYS[axis.key] : undefined;
     return (
       <div key={axis.key} className="flex min-w-48 flex-1 flex-col gap-2 rounded-lg border border-border p-3">
-        <h4 className="text-xs font-bold tracking-wide uppercase text-muted-foreground">{t(`ardupilotSetup.pidTune.${axis.key}`)}</h4>
+        <div className="flex items-center justify-between gap-2">
+          <h4 className="text-xs font-bold tracking-wide uppercase text-muted-foreground">{t(`ardupilotSetup.pidTune.${axis.key}`)}</h4>
+          {presetKey && file && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-6 px-1.5 text-[10px]"
+              onClick={() => openAxisInGraphs(presetKey)}
+            >
+              {t("ardupilotSetup.pidTune.viewInGraphs")}
+            </Button>
+          )}
+        </div>
         {axis.terms.map((term) => {
           const resolvedName = resolveTerm(term.candidates);
           if (!resolvedName) {

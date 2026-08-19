@@ -20,4 +20,12 @@ describe("uiStore", () => {
     expect(VISIBLE_TABS).toEqual(["logs", "graphs", "map"]);
     for (const tab of VISIBLE_TABS) expect(TABS).toContain(tab);
   });
+
+  it("defaults pendingPresetKey to null and can set/clear it", () => {
+    expect(useUiStore.getState().pendingPresetKey).toBeNull();
+    useUiStore.getState().setPendingPresetKey("pidRoll");
+    expect(useUiStore.getState().pendingPresetKey).toBe("pidRoll");
+    useUiStore.getState().setPendingPresetKey(null); // reset for other tests
+    expect(useUiStore.getState().pendingPresetKey).toBeNull();
+  });
 });

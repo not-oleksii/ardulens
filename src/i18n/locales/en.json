@@ -283,6 +283,7 @@
       "unavailableTerm": "Not reported by this vehicle's firmware.",
       "reset": "Reset",
       "saveAll": "Save all ({{count}})",
+      "viewInGraphs": "View in Graphs",
       "confirmTitle": "Confirm PID changes",
       "confirmDescription": "These {{count}} gain(s) will be sent to the vehicle:",
       "from": "From",
@@ -513,7 +514,10 @@
       "airspeed": "Airspeed",
       "attitude": "Attitude (roll/pitch/yaw)",
       "rcInputs": "RC inputs",
-      "throttle": "Throttle output"
+      "throttle": "Throttle output",
+      "pidRoll": "Roll rate: desired vs actual",
+      "pidPitch": "Pitch rate: desired vs actual",
+      "pidYaw": "Yaw rate: desired vs actual"
     },
     "params": {
       "heading": "Individual parameters",
