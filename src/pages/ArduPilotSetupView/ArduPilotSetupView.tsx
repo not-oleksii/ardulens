@@ -1241,6 +1241,7 @@ export function ArduPilotSetupView() {
               battery={battery}
               gps={gps}
               position={position}
+              onNavigateToSection={setActiveSection}
             />
           ) : activeSection === "parameters" ? (
             <ParametersPanel

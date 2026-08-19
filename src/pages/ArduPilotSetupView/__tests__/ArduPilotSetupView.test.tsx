@@ -417,6 +417,7 @@ afterEach(async () => {
   useFileStore.getState().clearFile();
   useUiStore.getState().setPendingPresetKey(null);
   useUiStore.getState().setActiveTab("logs");
+  localStorage.clear();
   vi.unstubAllGlobals();
 });
 
@@ -434,6 +435,33 @@ describe("ArduPilotSetupView", () => {
     // Telemetry is the default/starting section - no nav click needed to see the map.
     expect(screen.getByPlaceholderText("Вставте сюди свій токен Cesium ion")).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Карта" })).not.toBeInTheDocument();
+  });
+
+  describe("onboarding nudge", () => {
+    it("shows a suggested setup order on first connection, and navigates when a step is clicked", async () => {
+      const { clickDevMode, getStatusAlert, user } = getView();
+      await clickDevMode();
+      await within(getStatusAlert()).findByText("Підключено: Dev mode (simulated vehicle)");
+
+      expect(await screen.findByText("Новий апарат?")).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: /Калібрування акселерометра/ }));
+
+      expect(await screen.findByText("Калібрування ще не розпочато.")).toBeInTheDocument();
+    });
+
+    it("dismissing hides it, and it stays hidden across a reconnect", async () => {
+      const { clickDevMode, clickDisconnect, getStatusAlert, user } = getView();
+      await clickDevMode();
+      await within(getStatusAlert()).findByText("Підключено: Dev mode (simulated vehicle)");
+      await user.click(screen.getByRole("button", { name: "Закрити" }));
+      expect(screen.queryByText("Новий апарат?")).not.toBeInTheDocument();
+
+      await clickDisconnect();
+      await clickDevMode();
+      await within(getStatusAlert()).findByText("Підключено: Dev mode (simulated vehicle)");
+
+      expect(screen.queryByText("Новий апарат?")).not.toBeInTheDocument();
+    });
   });
 
   it("links back to Home", () => {
