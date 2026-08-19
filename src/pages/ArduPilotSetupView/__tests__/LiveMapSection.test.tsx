@@ -84,6 +84,20 @@ describe("LiveMapSection", () => {
     expect(localStorage.getItem(TOKEN_STORAGE_KEY)).toBe("test-token");
   });
 
+  it("shows a tokenless position radar instead of a blank map when no token is saved", () => {
+    getView(null);
+    expect(screen.getByText("Очікування GPS-фіксації...")).toBeInTheDocument(); // no position yet
+    expect(screen.queryByTestId("tokenless-position-radar")).not.toBeInTheDocument();
+  });
+
+  it("renders the tokenless radar once a position arrives, with no token saved", () => {
+    const { setPosition } = getView(null);
+    setPosition({ lat: 50.45, lon: 30.52, relativeAltM: 100, updatedAt: 1 }, 90);
+    expect(screen.getByTestId("tokenless-position-radar")).toBeInTheDocument();
+    // The very first position is also the radar's own origin, so it's 0m from start.
+    expect(screen.getByText("0 м від старту")).toBeInTheDocument();
+  });
+
   it("shows a no-fix message before any position arrives, once a token is set", () => {
     localStorage.setItem(TOKEN_STORAGE_KEY, "test-token");
     getView(null);
