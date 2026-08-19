@@ -32,4 +32,16 @@ describe("mavlinkVehicleStore", () => {
     useMavlinkVehicleStore.getState().reset();
     expect(useMavlinkVehicleStore.getState().vehicle).toBeNull();
   });
+
+  it("defaults armCommandAck to null and records the result of an arm/disarm attempt", () => {
+    expect(useMavlinkVehicleStore.getState().armCommandAck).toBeNull();
+    useMavlinkVehicleStore.getState().setArmCommandAck({ result: 4 });
+    expect(useMavlinkVehicleStore.getState().armCommandAck).toEqual({ result: 4 });
+  });
+
+  it("clears armCommandAck on reset", () => {
+    useMavlinkVehicleStore.getState().setArmCommandAck({ result: 4 });
+    useMavlinkVehicleStore.getState().reset();
+    expect(useMavlinkVehicleStore.getState().armCommandAck).toBeNull();
+  });
 });

@@ -33,6 +33,7 @@ import {
   AccelcalVehiclePosCommand,
   Attitude,
   CommandAck,
+  ComponentArmDisarmCommand,
   DoAcceptMagCalCommand,
   DoCancelMagCalCommand,
   DoMotorTestCommand,
@@ -64,9 +65,11 @@ import {
   RebootShutdownAction,
   RequestDataStream,
   ServoOutputRaw,
+  SetMode,
   SysStatus,
   VfrHud,
 } from "../../mavlink/registry/registry";
+import type { MavMode } from "../../mavlink/registry/registry";
 import { vehicleFolderForMavType } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import {
   connectMock,
@@ -180,6 +183,8 @@ export function ArduPilotSetupView() {
   const addBytesSent = useMavlinkConnectionStore((s) => s.addBytesSent);
   const vehicle = useMavlinkVehicleStore((s) => s.vehicle);
   const setVehicle = useMavlinkVehicleStore((s) => s.setVehicle);
+  const armCommandAck = useMavlinkVehicleStore((s) => s.armCommandAck);
+  const setArmCommandAck = useMavlinkVehicleStore((s) => s.setArmCommandAck);
   const resetVehicle = useMavlinkVehicleStore((s) => s.reset);
   const attitude = useMavlinkTelemetryStore((s) => s.attitude);
   const vfrHud = useMavlinkTelemetryStore((s) => s.vfrHud);
@@ -496,6 +501,13 @@ export function ArduPilotSetupView() {
             } else if (command === MavCmd.PREFLIGHT_CALIBRATION) {
               if (pendingCalibrationKindRef.current === "rc") setRcCalLastCommandAck({ command, result: msg.result });
               else setAccelCalLastCommandAck({ command, result: msg.result });
+            } else if (command === MavCmd.COMPONENT_ARM_DISARM) {
+              // A DENIED/TEMPORARILY_REJECTED result here is exactly a failed pre-arm check -
+              // real ArduPilot also sends the human-readable reason as a separate STATUSTEXT,
+              // which this app doesn't decode yet (see the pre-arm-check status section this
+              // feature is meant to be followed by) - this ack is the minimum viable feedback
+              // ("it didn't work") until that lands.
+              setArmCommandAck({ result: msg.result });
             }
             break;
           }
@@ -631,6 +643,7 @@ export function ArduPilotSetupView() {
     setDisconnected,
     setError,
     setVehicle,
+    setArmCommandAck,
     resetVehicle,
     setAttitude,
     setVfrHud,
@@ -1188,6 +1201,29 @@ export function ArduPilotSetupView() {
     sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
   }
 
+  // Arm/disarm - a normal (non-forced) request, still subject to the vehicle's own pre-arm
+  // checks (see registry.ts's export comment on why `force` is never set). The result arrives
+  // as a COMMAND_ACK, handled in the onData effect above and surfaced via armCommandAck.
+  function handleSetArmed(armed: boolean) {
+    if (!vehicle) return;
+    const cmd = new ComponentArmDisarmCommand(vehicle.sysid, vehicle.compid);
+    cmd.arm = armed ? 1 : 0;
+    cmd.force = 0;
+    sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+  }
+
+  // Flight-mode change - see registry.ts's SET_MODE comment for why this is a plain message
+  // (not a COMMAND_LONG) and never gets a COMMAND_ACK; the UI confirms it took by watching
+  // vehicle.customMode update on the vehicle's own next heartbeat instead.
+  function handleSetMode(customMode: number) {
+    if (!vehicle) return;
+    const msg = new SetMode();
+    msg.targetSystem = vehicle.sysid;
+    msg.baseMode = MavModeFlag.CUSTOM_MODE_ENABLED as unknown as MavMode;
+    msg.customMode = customMode;
+    sendGcsPacket(encodePacket(msg, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+  }
+
   const isConnected = status === "connected";
 
   return (
@@ -1221,7 +1257,15 @@ export function ArduPilotSetupView() {
         setDevFramePresetKey={setDevFramePresetKey}
       />
 
-      <VehicleStatusBar vehicle={vehicle} battery={battery} gps={gps} />
+      <VehicleStatusBar
+        vehicle={vehicle}
+        battery={battery}
+        gps={gps}
+        armCommandAck={armCommandAck}
+        onArm={() => handleSetArmed(true)}
+        onDisarm={() => handleSetArmed(false)}
+        onSetMode={handleSetMode}
+      />
 
       <div className="flex flex-1 overflow-hidden">
         <ArduPilotSetupSidebar activeSection={activeSection} onSelect={setActiveSection} />

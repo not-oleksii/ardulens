@@ -8,6 +8,7 @@ import {
   AccelcalVehiclePosCommand,
   Attitude,
   CommandAck,
+  ComponentArmDisarmCommand,
   DoAcceptMagCalCommand,
   DoCancelMagCalCommand,
   DoMotorTestCommand,
@@ -19,6 +20,7 @@ import {
   MagCalProgress,
   MagCalReport,
   MagCalStatus,
+  MavModeFlag,
   MavResult,
   MavType,
   MotorTestThrottleType,
@@ -32,6 +34,7 @@ import {
   RebootShutdownAction,
   RequestDataStream,
   ServoOutputRaw,
+  SetMode,
   SysStatus,
   VfrHud,
 } from "../../../mavlink/registry/registry";
@@ -437,5 +440,54 @@ describe("startMockVehicle (Copter)", () => {
     const ack = decodeAll(emitted).find((p) => p.msgId === CommandAck.MSG_ID);
     expect(ack).toBeDefined();
     expect((ack!.message as CommandAck).result).toBe(MavResult.ACCEPTED);
+  });
+
+  it("acks COMPONENT_ARM_DISARM(arm=1) and reports armed on an immediate extra heartbeat", () => {
+    const cmd = new ComponentArmDisarmCommand();
+    cmd.arm = 1;
+    cmd.force = 0;
+
+    emitted = [];
+    handle.handleAppBytes(encodeFromApp(cmd));
+
+    const packets = decodeAll(emitted);
+    const ack = packets.find((p) => p.msgId === CommandAck.MSG_ID);
+    expect(ack).toBeDefined();
+    expect((ack!.message as CommandAck).result).toBe(MavResult.ACCEPTED);
+    const hb = packets.find((p) => p.msgId === Heartbeat.MSG_ID);
+    expect(hb).toBeDefined();
+    expect((hb!.message as Heartbeat).baseMode & MavModeFlag.SAFETY_ARMED).not.toBe(0);
+  });
+
+  it("disarms again and reports disarmed on the next heartbeat", () => {
+    const arm = new ComponentArmDisarmCommand();
+    arm.arm = 1;
+    arm.force = 0;
+    handle.handleAppBytes(encodeFromApp(arm));
+
+    const disarm = new ComponentArmDisarmCommand();
+    disarm.arm = 0;
+    disarm.force = 0;
+    emitted = [];
+    handle.handleAppBytes(encodeFromApp(disarm));
+
+    const hb = decodeAll(emitted).find((p) => p.msgId === Heartbeat.MSG_ID);
+    expect(hb).toBeDefined();
+    expect((hb!.message as Heartbeat).baseMode & MavModeFlag.SAFETY_ARMED).toBe(0);
+  });
+
+  it("applies SET_MODE's custom_mode and reports it on an immediate extra heartbeat, with no COMMAND_ACK (unlike every command above)", () => {
+    const msg = new SetMode();
+    msg.baseMode = MavModeFlag.CUSTOM_MODE_ENABLED as unknown as SetMode["baseMode"];
+    msg.customMode = 11; // Plane's RTL
+
+    emitted = [];
+    handle.handleAppBytes(encodeFromApp(msg));
+
+    const packets = decodeAll(emitted);
+    expect(packets.some((p) => p.msgId === CommandAck.MSG_ID)).toBe(false);
+    const hb = packets.find((p) => p.msgId === Heartbeat.MSG_ID);
+    expect(hb).toBeDefined();
+    expect((hb!.message as Heartbeat).customMode).toBe(11);
   });
 });
