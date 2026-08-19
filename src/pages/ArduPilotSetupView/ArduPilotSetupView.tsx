@@ -14,6 +14,8 @@ import { allPidCandidateNames, pidConfigForVehicleFolder } from "./pidGroups";
 import { PidTuneSection } from "./PidTuneSection";
 import { RcCalSection } from "./RcCalSection";
 import { RC_SETUP_PARAM_NAMES } from "./rcSetupParams";
+import { OsdSetupSection } from "./OsdSetupSection";
+import { allOsdParamNames } from "./osdSetupParams";
 import { RcSetupSection } from "./RcSetupSection";
 import { TelemetrySection } from "./TelemetrySection";
 import { VehicleStatusBar } from "./VehicleStatusBar";
@@ -1179,6 +1181,21 @@ export function ArduPilotSetupView() {
     }
   }
 
+  // Requests every OSD parameter by name - see osdSetupParams.ts for the real, generic
+  // (not vehicle-specific) OSD_TYPE/OSD_UNITS/OSD_CHAN + per-screen element list, confirmed
+  // against ArduCopter's own apm.pdef.xml.
+  function handleLoadOsdSetup() {
+    if (!vehicle) return;
+    for (const name of allOsdParamNames()) {
+      const req = new ParamRequestRead();
+      req.targetSystem = vehicle.sysid;
+      req.targetComponent = vehicle.compid;
+      req.paramId = name;
+      req.paramIndex = -1;
+      sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+    }
+  }
+
   // Requests the flight-mode-switch and per-channel option params by name - see
   // rcSetupParams.ts for the real, generic (not vehicle-specific) param list.
   function handleLoadRcSetup() {
@@ -1384,6 +1401,8 @@ export function ArduPilotSetupView() {
             />
           ) : activeSection === "pidTune" ? (
             <PidTuneSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoad={handleLoadPidParams} onSetParam={handleSetParam} />
+          ) : activeSection === "osdSetup" ? (
+            <OsdSetupSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoad={handleLoadOsdSetup} onSetParam={handleSetParam} />
           ) : null}
         </main>
       </div>

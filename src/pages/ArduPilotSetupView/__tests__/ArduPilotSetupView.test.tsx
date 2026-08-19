@@ -1948,6 +1948,104 @@ describe("ArduPilotSetupView", () => {
     });
   });
 
+  describe("OSD setup", () => {
+    async function connectAndOpenOsdSetup() {
+      const view = getView();
+      await view.clickConnect();
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
+      await view.user.click(screen.getByRole("tab", { name: "Налаштування OSD" }));
+      return view;
+    }
+
+    it("shows a Load button and not-loaded message", async () => {
+      mockBackend();
+      await connectAndOpenOsdSetup();
+      expect(screen.getByRole("button", { name: "Завантажити налаштування OSD" })).toBeInTheDocument();
+      expect(screen.getByText("Налаштування OSD ще не завантажено.")).toBeInTheDocument();
+    });
+
+    it("requests every OSD_* param by name when Load is clicked, covering globals and all 4 screens", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenOsdSetup();
+
+      await user.click(screen.getByRole("button", { name: "Завантажити налаштування OSD" }));
+
+      const requestedNames = new Set(
+        invoked.mock.calls
+          .filter(([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamRequestRead.MSG_ID)
+          .map(([, payload]) => {
+            const bytes = (payload as { bytes: number[] }).bytes;
+            const nameBytes = bytes.slice(14, 14 + 16);
+            const nullIndex = nameBytes.indexOf(0);
+            return String.fromCharCode(...nameBytes.slice(0, nullIndex === -1 ? undefined : nullIndex));
+          }),
+      );
+      expect(requestedNames.has("OSD_TYPE")).toBe(true);
+      expect(requestedNames.has("OSD1_ENABLE")).toBe(true);
+      expect(requestedNames.has("OSD1_ALTITUDE_EN")).toBe(true);
+      expect(requestedNames.has("OSD4_RC_LQ_Y")).toBe(true);
+    });
+
+    it("shows OSD_CHAN once it arrives, stages an edit, and Save all sends PARAM_SET with the new value", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenOsdSetup();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD_CHAN", 0, MavParamType.INT8, 0, 1, 1) });
+      const chanInput = await screen.findByDisplayValue("0");
+      await user.clear(chanInput);
+      await user.type(chanInput, "8");
+
+      const saveAllButton = await screen.findByRole("button", { name: "Зберегти все (1)" });
+      await user.click(saveAllButton);
+      const dialog = screen.getByRole("dialog");
+      expect(within(dialog).getByText("OSD_CHAN")).toBeInTheDocument();
+      expect(within(dialog).getByText("8")).toBeInTheDocument();
+
+      await user.click(within(dialog).getByRole("button", { name: "Зберегти" }));
+
+      await vi.waitFor(() => {
+        const setRequest = invoked.mock.calls.find(([cmd, payload]) => {
+          if (cmd !== "send_bytes") return false;
+          const bytes = (payload as { bytes: number[] }).bytes;
+          return bytes[7] === ParamSet.MSG_ID;
+        });
+        expect(setRequest).toBeDefined();
+      });
+    });
+
+    it("toggles an element's enable checkbox once its _EN param has arrived, staging a change", async () => {
+      mockBackend();
+      const { user } = await connectAndOpenOsdSetup();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ALTITUDE_EN", 0, MavParamType.INT8, 0, 1, 1) });
+      const row = (await screen.findByText("Висота (AGL)")).closest("tr")!;
+      const checkbox = within(row).getByRole("checkbox");
+      expect(checkbox).not.toBeChecked();
+
+      await user.click(checkbox);
+      expect(checkbox).toBeChecked();
+      expect(await screen.findByRole("button", { name: "Зберегти все (1)" })).toBeInTheDocument();
+    });
+
+    it("filters the element table by search text", async () => {
+      mockBackend();
+      await connectAndOpenOsdSetup();
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ALTITUDE_EN", 1, MavParamType.INT8, 0, 1, 1) });
+      await screen.findByText("Висота (AGL)");
+      expect(screen.getByText("Напруга батареї")).toBeInTheDocument();
+
+      const search = screen.getByPlaceholderText("Пошук елементів...");
+      await userEvent.setup().type(search, "висот");
+
+      expect(screen.getByText("Висота (AGL)")).toBeInTheDocument();
+      expect(screen.queryByText("Напруга батареї")).not.toBeInTheDocument();
+    });
+  });
+
   describe("Dev Mode frame-preset selector", () => {
     it("starts the simulated Copter seeded with whichever verified frame preset is selected, not just the Quad X default", async () => {
       mockBackend();
