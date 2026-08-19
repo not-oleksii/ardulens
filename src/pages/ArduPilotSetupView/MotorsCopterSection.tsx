@@ -14,6 +14,7 @@ import {
 import { MavParamType } from "../../mavlink/registry/registry";
 import { fetchParamDocs, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
+import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
 
 interface MotorsCopterSectionProps {
   servoOutputs: Record<number, number>;
@@ -213,18 +214,18 @@ export function MotorsCopterSection({
   // arm/reboot without needing to physically swap wires. It does nothing for plain PWM/OneShot
   // ESCs, which still need rewiring - the UI note below says so rather than overclaiming.
   function reverseCheckbox(motor: number) {
-    const entry = params[`SERVO${motor}_REVERSED`];
+    const name = `SERVO${motor}_REVERSED`;
+    const entry = params[name];
     const isReversed = entry?.value === 1;
     return (
       <label className="flex items-center gap-1 text-xs">
         <input
           type="checkbox"
           checked={isReversed}
-          onChange={(e) =>
-            onSetFrameParam(`SERVO${motor}_REVERSED`, e.target.checked ? 1 : 0, entry?.type ?? MavParamType.INT8)
-          }
+          onChange={(e) => onSetFrameParam(name, e.target.checked ? 1 : 0, entry?.type ?? MavParamType.INT8)}
         />
         {t("ardupilotSetup.motorsServos.reverseMotor")}
+        {entry && <ModifiedFromDefaultDot name={name} value={entry.value} />}
       </label>
     );
   }
@@ -280,7 +281,10 @@ export function MotorsCopterSection({
             </Alert>
             <div className="flex flex-wrap gap-4">
               <label className="flex flex-col gap-1 text-xs">
-                <span className="font-bold tracking-wide uppercase">{t("ardupilotSetup.motorsServos.frameClass")}</span>
+                <span className="flex items-center gap-1.5 font-bold tracking-wide uppercase">
+                  {t("ardupilotSetup.motorsServos.frameClass")}
+                  <ModifiedFromDefaultDot name="FRAME_CLASS" value={frameClassEntry.value} />
+                </span>
                 <select
                   className="rounded-md border border-border bg-background px-2 py-1"
                   value={frameClassEntry.value}
@@ -300,7 +304,10 @@ export function MotorsCopterSection({
                 </select>
               </label>
               <label className="flex flex-col gap-1 text-xs">
-                <span className="font-bold tracking-wide uppercase">{t("ardupilotSetup.motorsServos.frameType")}</span>
+                <span className="flex items-center gap-1.5 font-bold tracking-wide uppercase">
+                  {t("ardupilotSetup.motorsServos.frameType")}
+                  <ModifiedFromDefaultDot name="FRAME_TYPE" value={frameTypeEntry.value} />
+                </span>
                 <select
                   className="rounded-md border border-border bg-background px-2 py-1"
                   value={frameTypeEntry.value}

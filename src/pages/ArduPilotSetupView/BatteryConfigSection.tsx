@@ -9,6 +9,7 @@ import { fetchParamDocs, vehicleFolderForMavType, type ParamDocsMap } from "../.
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import type { BatteryTelemetry } from "../../stores/mavlinkTelemetryStore/types";
 import { BATTERY_ENUM_PARAMS, BATTERY_PARAM_NAMES } from "./batteryParams";
+import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
 
 interface BatteryConfigSectionProps {
   vehicleType: MavType;
@@ -108,39 +109,42 @@ export function BatteryConfigSection({ vehicleType, battery, onLoad, onSetParam 
     return (
       <div key={name} className="flex items-center justify-between gap-2">
         <span className="font-mono text-xs">{name}</span>
-        {BATTERY_ENUM_PARAMS.has(name) && values ? (
-          <select
-            className="rounded-md border border-border bg-background px-2 py-1 text-xs"
-            value={shownValue}
-            onChange={(e) => stageChange(name, Number(e.target.value))}
-          >
-            {Object.entries(values).map(([code, label]) => (
-              <option key={code} value={code}>
-                {label}
-              </option>
-            ))}
-          </select>
-        ) : editingName === name ? (
-          <Input
-            autoFocus
-            value={editingValue}
-            onChange={(e) => setEditingValue(e.target.value)}
-            onBlur={() => commitEdit(name)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") commitEdit(name);
-              if (e.key === "Escape") setEditingName(null);
-            }}
-            className="h-7 w-28"
-          />
-        ) : (
-          <button
-            type="button"
-            className={isModified ? "font-mono text-xs text-primary hover:underline" : "font-mono text-xs hover:underline"}
-            onClick={() => startEdit(name, shownValue)}
-          >
-            {shownValue}
-          </button>
-        )}
+        <span className="flex items-center gap-1.5">
+          {BATTERY_ENUM_PARAMS.has(name) && values ? (
+            <select
+              className="rounded-md border border-border bg-background px-2 py-1 text-xs"
+              value={shownValue}
+              onChange={(e) => stageChange(name, Number(e.target.value))}
+            >
+              {Object.entries(values).map(([code, label]) => (
+                <option key={code} value={code}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          ) : editingName === name ? (
+            <Input
+              autoFocus
+              value={editingValue}
+              onChange={(e) => setEditingValue(e.target.value)}
+              onBlur={() => commitEdit(name)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitEdit(name);
+                if (e.key === "Escape") setEditingName(null);
+              }}
+              className="h-7 w-28"
+            />
+          ) : (
+            <button
+              type="button"
+              className={isModified ? "font-mono text-xs text-primary hover:underline" : "font-mono text-xs hover:underline"}
+              onClick={() => startEdit(name, shownValue)}
+            >
+              {shownValue}
+            </button>
+          )}
+          <ModifiedFromDefaultDot name={name} value={shownValue} />
+        </span>
       </div>
     );
   }

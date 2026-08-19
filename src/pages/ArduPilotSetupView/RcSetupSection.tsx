@@ -8,6 +8,7 @@ import { COPTER_MODE_NAMES, PLANE_MODE_NAMES } from "../../constants";
 import type { MavParamType, MavType } from "../../mavlink/registry/registry";
 import { fetchParamDocs, vehicleFolderForMavType, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
+import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
 import { FLTMODE_BAND_RANGE_LABELS, fltModeBandIndex } from "./rcBands";
 import { colorForRcChannel } from "./rcChannelColors";
 import {
@@ -119,17 +120,20 @@ export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetu
     const values = ownValues ?? modeNamesFallback ?? undefined;
     if (values) {
       return (
-        <select
-          className="rounded-md border border-border bg-background px-2 py-1 text-xs"
-          value={value}
-          onChange={(e) => stageChange(name, Number(e.target.value))}
-        >
-          {Object.entries(values).map(([code, label]) => (
-            <option key={code} value={code}>
-              {label}
-            </option>
-          ))}
-        </select>
+        <span className="flex items-center gap-1.5">
+          <select
+            className="rounded-md border border-border bg-background px-2 py-1 text-xs"
+            value={value}
+            onChange={(e) => stageChange(name, Number(e.target.value))}
+          >
+            {Object.entries(values).map(([code, label]) => (
+              <option key={code} value={code}>
+                {label}
+              </option>
+            ))}
+          </select>
+          <ModifiedFromDefaultDot name={name} value={value} />
+        </span>
       );
     }
     return editingName === name ? (
@@ -145,9 +149,12 @@ export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetu
         className="h-7 w-24"
       />
     ) : (
-      <button type="button" className="font-mono text-xs hover:underline" onClick={() => startEdit(name, value)}>
-        {value}
-      </button>
+      <span className="flex items-center gap-1.5">
+        <button type="button" className="font-mono text-xs hover:underline" onClick={() => startEdit(name, value)}>
+          {value}
+        </button>
+        <ModifiedFromDefaultDot name={name} value={value} />
+      </span>
     );
   }
 
@@ -169,17 +176,20 @@ export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetu
     const value = shownValue(name)!;
     if (enumValues) {
       return (
-        <select
-          className="rounded-md border border-border bg-background px-2 py-1 text-xs"
-          value={value}
-          onChange={(e) => stageChange(name, Number(e.target.value))}
-        >
-          {Object.entries(enumValues).map(([code, label]) => (
-            <option key={code} value={code}>
-              {label}
-            </option>
-          ))}
-        </select>
+        <span className="flex items-center gap-1.5">
+          <select
+            className="rounded-md border border-border bg-background px-2 py-1 text-xs"
+            value={value}
+            onChange={(e) => stageChange(name, Number(e.target.value))}
+          >
+            {Object.entries(enumValues).map(([code, label]) => (
+              <option key={code} value={code}>
+                {label}
+              </option>
+            ))}
+          </select>
+          <ModifiedFromDefaultDot name={name} value={value} />
+        </span>
       );
     }
     return editingName === name ? (
@@ -195,9 +205,12 @@ export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetu
         className="h-7 w-24"
       />
     ) : (
-      <button type="button" className="font-mono text-xs hover:underline" onClick={() => startEdit(name, value)}>
-        {value}
-      </button>
+      <span className="flex items-center gap-1.5">
+        <button type="button" className="font-mono text-xs hover:underline" onClick={() => startEdit(name, value)}>
+          {value}
+        </button>
+        <ModifiedFromDefaultDot name={name} value={value} />
+      </span>
     );
   }
 

@@ -42,6 +42,7 @@ import { DATA_EVENT, STATUS_EVENT } from "../../../services/mavlinkTransport/mav
 import { useMavlinkAccelCalStore } from "../../../stores/mavlinkAccelCalStore/mavlinkAccelCalStore";
 import { useMavlinkCompassCalStore } from "../../../stores/mavlinkCompassCalStore/mavlinkCompassCalStore";
 import { useMavlinkConnectionStore } from "../../../stores/mavlinkConnectionStore/mavlinkConnectionStore";
+import { useMavlinkParamDefaultsStore } from "../../../stores/mavlinkParamDefaultsStore/mavlinkParamDefaultsStore";
 import { useMavlinkParameterStore } from "../../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import { useMavlinkRcCalStore } from "../../../stores/mavlinkRcCalStore/mavlinkRcCalStore";
 import { useMavlinkTelemetryStore } from "../../../stores/mavlinkTelemetryStore/mavlinkTelemetryStore";
@@ -412,6 +413,7 @@ afterEach(async () => {
   useMavlinkCompassCalStore.getState().reset();
   useMavlinkAccelCalStore.getState().reset();
   useMavlinkRcCalStore.getState().reset();
+  useMavlinkParamDefaultsStore.getState().reset();
   useFileStore.getState().clearFile();
   useUiStore.getState().setPendingPresetKey(null);
   useUiStore.getState().setActiveTab("logs");
@@ -1482,6 +1484,18 @@ describe("ArduPilotSetupView", () => {
       expect(useUiStore.getState().pendingPresetKey).toBe("pidRoll");
       expect(useUiStore.getState().activeTab).toBe("graphs");
     });
+
+    it("shows a 'changed from default' marker next to a gain once FTP defaults are available and it differs", async () => {
+      mockBackend();
+      await connectCopterAndOpenPidTune();
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("ATC_RAT_RLL_P", 0.25, MavParamType.REAL32, 0, 1, 1) });
+      expect(await screen.findByText("0.25")).toBeInTheDocument();
+
+      expect(screen.queryByLabelText(/Змінено від стандартного/)).not.toBeInTheDocument();
+      useMavlinkParamDefaultsStore.getState().setDone({ ATC_RAT_RLL_P: 0.135 });
+
+      expect(await screen.findByLabelText("Змінено від стандартного (0.135)")).toBeInTheDocument();
+    });
   });
 
   describe("PID tune (Plane)", () => {
@@ -1720,6 +1734,21 @@ describe("ArduPilotSetupView", () => {
         });
         expect(setRequest).toBeDefined();
       });
+    });
+
+    it("shows a 'changed from default' marker once FTP defaults are available and the value differs", async () => {
+      mockBackend();
+      await connectAndOpenBatteryConfig();
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("BATT_CAPACITY", 6000, MavParamType.INT32, 0, 1, 1) });
+      await screen.findByText("6000");
+
+      // Simulates defaults already downloaded elsewhere this session (via the Parameters tab's
+      // own FTP flow, covered by its own test) - mavlinkParamDefaultsStore is shared app-wide,
+      // so BatteryConfigSection just passively picks it up without its own FTP trigger.
+      expect(screen.queryByLabelText(/Змінено від стандартного/)).not.toBeInTheDocument();
+      useMavlinkParamDefaultsStore.getState().setDone({ BATT_CAPACITY: 5000 });
+
+      expect(await screen.findByLabelText("Змінено від стандартного (5000)")).toBeInTheDocument();
     });
   });
 
