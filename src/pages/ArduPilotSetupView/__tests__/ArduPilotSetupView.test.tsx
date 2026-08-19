@@ -578,6 +578,66 @@ describe("ArduPilotSetupView", () => {
     expect(screen.queryByText("Очікування першого heartbeat від апарата...")).not.toBeInTheDocument();
   });
 
+  it("ignores another MAVLink system's heartbeat and telemetry sharing the same link", async () => {
+    // Real hardware links often carry more than just the flight controller's own traffic - a
+    // companion computer or telemetry-bridge relay heartbeats too, identifying itself with
+    // MAV_AUTOPILOT_INVALID (the standard MAVLink convention for "not an autopilot") rather
+    // than ArduPilot's own ARDUPILOTMEGA. Without filtering, that foreign heartbeat (and any
+    // telemetry from the same foreign sysid) could overwrite the real vehicle's display with
+    // garbage - this is exactly the bug a live user hit and reported.
+    mockBackend();
+    const { clickConnect, getStatusAlert } = getView();
+    await clickConnect();
+    await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
+    await within(getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+
+    // A foreign, non-ArduPilot heartbeat arrives first - must not populate the vehicle panel.
+    const foreignHb = new Heartbeat();
+    foreignHb.type = MavType.GENERIC;
+    foreignHb.autopilot = MavAutopilot.INVALID;
+    foreignHb.baseMode = 0 as MavModeFlag;
+    foreignHb.customMode = 841182678; // garbage, as a companion computer's own heartbeat would carry
+    foreignHb.systemStatus = MavState.ACTIVE;
+    foreignHb.mavlinkVersion = 3;
+    await emit(DATA_EVENT, { bytes: Array.from(encodePacket(foreignHb, { seq: 1, sysid: 99, compid: 1 })) });
+
+    expect(screen.queryByText("ArduPilot")).not.toBeInTheDocument();
+    expect(screen.getByText("Очікування першого heartbeat від апарата...")).toBeInTheDocument();
+
+    // The real ArduPilot heartbeat arrives on a different sysid - this one must win.
+    const realHb = new Heartbeat();
+    realHb.type = MavType.QUADROTOR;
+    realHb.autopilot = MavAutopilot.ARDUPILOTMEGA;
+    realHb.baseMode = MavModeFlag.STABILIZE_ENABLED;
+    realHb.customMode = 0;
+    realHb.systemStatus = MavState.ACTIVE;
+    realHb.mavlinkVersion = 3;
+    await emit(DATA_EVENT, { bytes: Array.from(encodePacket(realHb, { seq: 2, sysid: 1, compid: 1 })) });
+    await screen.findByText("ArduPilot");
+
+    const realSys = new SysStatus();
+    realSys.voltageBattery = 16800; // mV
+    realSys.currentBattery = 520; // cA
+    realSys.batteryRemaining = 77; // %
+    await emit(DATA_EVENT, { bytes: Array.from(encodePacket(realSys, { seq: 3, sysid: 1, compid: 1 })) });
+    await screen.findByText("16.80 V");
+
+    // The foreign system keeps heartbeating and now also sends its own SYS_STATUS - both must
+    // be ignored outright since a vehicle (sysid 1) is already established.
+    await emit(DATA_EVENT, { bytes: Array.from(encodePacket(foreignHb, { seq: 4, sysid: 99, compid: 1 })) });
+    const foreignSys = new SysStatus();
+    foreignSys.voltageBattery = 1610; // mV - the implausible reading from the reported bug
+    foreignSys.currentBattery = 7150; // cA
+    foreignSys.batteryRemaining = 88; // %
+    await emit(DATA_EVENT, { bytes: Array.from(encodePacket(foreignSys, { seq: 5, sysid: 99, compid: 1 })) });
+
+    // Still the real vehicle's data - untouched by the foreign system's packets.
+    expect(screen.getByText("ArduPilot")).toBeInTheDocument();
+    expect(screen.getByTestId(PFD_TEST_IDS.modeBadge)).toHaveTextContent("STABILIZE");
+    expect(screen.getByText("16.80 V")).toBeInTheDocument();
+    expect(screen.queryByText("841182678")).not.toBeInTheDocument();
+  });
+
   it("sends its own periodic GCS heartbeat once connected", async () => {
     const invoked = vi.fn();
     mockBackend(invoked);
