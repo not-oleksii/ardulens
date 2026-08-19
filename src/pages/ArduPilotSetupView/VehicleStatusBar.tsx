@@ -71,9 +71,8 @@ export function VehicleStatusBar({ vehicle, battery, gps, armCommandAck, onArm, 
         size="sm"
         variant={vehicle.armed ? "destructive" : "default"}
         onClick={handleArmBadgeClick}
-        className="h-6 gap-1 px-2 text-xs font-bold tracking-wide"
+        className="h-6 px-2 text-xs font-bold tracking-wide"
       >
-        {vehicle.armed ? <ShieldAlert className="h-3.5 w-3.5" /> : <ShieldCheck className="h-3.5 w-3.5" />}
         {vehicle.armed ? t("ardupilotSetup.vehicle.disarm") : t("ardupilotSetup.vehicle.arm")}
       </Button>
 
@@ -81,26 +80,33 @@ export function VehicleStatusBar({ vehicle, battery, gps, armCommandAck, onArm, 
       <span className="text-muted-foreground">{mavAutopilotLabel(t, vehicle.autopilot)}</span>
       <span className="text-muted-foreground">{mavStateLabel(t, vehicle.systemStatus)}</span>
 
-      {modeNames ? (
-        <select
-          value={vehicle.customMode in modeNames ? vehicle.customMode : ""}
-          onChange={(e) => onSetMode(Number(e.target.value))}
-          aria-label={t("ardupilotSetup.vehicle.mode")}
-          className="rounded-md border border-border bg-background px-1.5 py-0.5 font-mono text-xs font-semibold"
-        >
-          {/* The vehicle's actual current value always stays selectable, even if it's a mode
-              number this app doesn't have a name for (matches MotorsCopterSection's frame
-              class/type selects). */}
-          {!(vehicle.customMode in modeNames) && <option value="">{vehicle.customMode}</option>}
-          {Object.entries(modeNames).map(([code, label]) => (
-            <option key={code} value={code}>
-              {label}
-            </option>
-          ))}
-        </select>
-      ) : (
-        <span className="font-mono font-semibold">{flightModeLabel(vehicle.type, vehicle.customMode)}</span>
-      )}
+      <span className="flex items-center gap-1">
+        {vehicle.armed ? (
+          <ShieldAlert className="h-3.5 w-3.5 text-destructive" aria-hidden="true" />
+        ) : (
+          <ShieldCheck className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+        )}
+        {modeNames ? (
+          <select
+            value={vehicle.customMode in modeNames ? vehicle.customMode : ""}
+            onChange={(e) => onSetMode(Number(e.target.value))}
+            aria-label={t("ardupilotSetup.vehicle.mode")}
+            className="rounded-md border border-border bg-background px-1.5 py-0.5 font-mono text-xs font-semibold"
+          >
+            {/* The vehicle's actual current value always stays selectable, even if it's a
+                mode number this app doesn't have a name for (matches MotorsCopterSection's
+                frame class/type selects). */}
+            {!(vehicle.customMode in modeNames) && <option value="">{vehicle.customMode}</option>}
+            {Object.entries(modeNames).map(([code, label]) => (
+              <option key={code} value={code}>
+                {label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="font-mono font-semibold">{flightModeLabel(vehicle.type, vehicle.customMode)}</span>
+        )}
+      </span>
 
       {armCommandAck && armCommandAck.result !== MavResult.ACCEPTED && (
         <span role="alert" className="font-semibold text-destructive">

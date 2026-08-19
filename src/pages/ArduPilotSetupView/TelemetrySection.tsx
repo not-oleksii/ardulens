@@ -50,20 +50,16 @@ export function TelemetrySection({
             <p className="text-xs text-muted-foreground">{t("ardupilotSetup.vehicle.waitingForHeartbeat")}</p>
           ) : (
             <div className="flex flex-col gap-3">
-              {/* relative: anchors VehicleHealthSection's overlay directly below the PFD
-                  without it taking up flow space - see that component's own comment on why. */}
-              <div className="relative">
-                <PrimaryFlightDisplay
-                  rollRad={attitude?.rollRad ?? null}
-                  pitchRad={attitude?.pitchRad ?? null}
-                  headingDeg={vfrHud?.headingDeg ?? null}
-                  airspeed={vfrHud?.airspeed ?? null}
-                  altitudeM={vfrHud?.altitudeM ?? null}
-                  armed={vehicle.armed}
-                  modeLabel={flightModeLabel(vehicle.type, vehicle.customMode)}
-                />
-                <VehicleHealthSection sensorHealth={sensorHealth} messages={statusTextMessages} />
-              </div>
+              <PrimaryFlightDisplay
+                rollRad={attitude?.rollRad ?? null}
+                pitchRad={attitude?.pitchRad ?? null}
+                headingDeg={vfrHud?.headingDeg ?? null}
+                airspeed={vfrHud?.airspeed ?? null}
+                altitudeM={vfrHud?.altitudeM ?? null}
+                armed={vehicle.armed}
+                modeLabel={flightModeLabel(vehicle.type, vehicle.customMode)}
+                warningOverlay={<VehicleHealthSection sensorHealth={sensorHealth} messages={statusTextMessages} />}
+              />
               {battery || gps || position ? (
                 <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
                   <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.batteryVoltage")}</dt>

@@ -61,10 +61,11 @@ function messageClassName(severity: MavSeverity): string {
  * calibrated"). Renders nothing when everything's fine, per the UX feedback that prompted this:
  * an always-visible checklist of healthy sensors was mostly noise.
  *
- * Positioned as an absolute overlay anchored below the PFD (its parent must be `relative` - see
- * TelemetrySection.tsx) rather than taking up normal document flow, so it never pushes the rest
- * of the page down when a problem appears or clears - this is live telemetry, so that can happen
- * at any moment while the user is looking elsewhere on the page.
+ * Rendered via PrimaryFlightDisplay's `warningOverlay` slot (see TelemetrySection.tsx), which
+ * positions it as an overlay on the lower portion of the horizon circle rather than in normal
+ * document flow - so it never pushes the rest of the page down when a problem appears or
+ * clears, and never overlaps unrelated content below the PFD the way a full-width overlay
+ * spanning past the PFD's own bounds would.
  */
 export function VehicleHealthSection({ sensorHealth, messages }: VehicleHealthSectionProps) {
   const { t } = useTranslation();
@@ -79,7 +80,7 @@ export function VehicleHealthSection({ sensorHealth, messages }: VehicleHealthSe
   if (!prearmFailing && unhealthySensors.length === 0 && failureMessages.length === 0) return null;
 
   return (
-    <div className="absolute inset-x-0 top-full z-20 mt-2 flex max-h-40 flex-col gap-1.5 overflow-y-auto rounded-md border border-destructive/40 bg-card p-2 text-xs shadow-md">
+    <div className="flex flex-col gap-1 rounded-md border border-destructive/40 bg-card/95 p-1.5 text-xs shadow-md">
       {prearmFailing && (
         <span className="w-fit rounded-full bg-destructive px-2 py-0.5 font-bold tracking-wide text-destructive-foreground">
           {t("ardupilotSetup.health.prearmFailing")}

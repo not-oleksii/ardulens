@@ -540,14 +540,27 @@ describe("ArduPilotSetupView", () => {
       return sys;
     }
 
+    // The two SYS_STATUS tests below deliberately connect via the manual clickConnect() flow,
+    // not Dev Mode - Dev Mode's own mock vehicle streams a real, continuously-repeating
+    // SYS_STATUS every 250ms (see mockVehicleSimulator.ts's SIMULATED_SENSOR_HEALTH, always
+    // fully healthy) once telemetry starts, which would otherwise race against and overwrite
+    // the single hand-crafted (un)healthy packet each of these tests sends. The manual flow has
+    // no such background stream, so only the packet the test itself sends ever arrives.
+    async function connectAndOpenTelemetry() {
+      const view = getView();
+      await view.clickConnect();
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
+      return view;
+    }
+
     it("shows nothing once SYS_STATUS reports every present sensor healthy - this view is failures-only", async () => {
-      mockBackend(); // needed alongside Dev Mode here since these tests also emit synthetic packets directly
-      const { clickDevMode, getStatusAlert } = getView();
-      await clickDevMode();
-      await within(getStatusAlert()).findByText("Підключено: Dev mode (simulated vehicle)");
+      mockBackend();
+      await connectAndOpenTelemetry();
 
       const present = MavSysStatusSensor.SENSOR_3D_GYRO | MavSysStatusSensor.SENSOR_GPS | MavSysStatusSensor.PREARM_CHECK;
-      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(buildSysStatus(present, present), { seq: 1, sysid: 1, compid: 1 })) });
+      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(buildSysStatus(present, present), { seq: 2, sysid: 1, compid: 1 })) });
 
       // No reliable "it arrived and was processed" signal to await for a UI that stays empty -
       // a short real wait is the only option here (see the STATUSTEXT INFO-filtering test above
@@ -557,23 +570,17 @@ describe("ArduPilotSetupView", () => {
       expect(screen.queryByText("Гіроскоп")).not.toBeInTheDocument();
     });
 
-    it(
-      "flags an unhealthy present sensor and a failing pre-arm badge",
-      async () => {
-        mockBackend();
-        const { clickDevMode, getStatusAlert } = getView();
-        await clickDevMode();
-        await within(getStatusAlert()).findByText("Підключено: Dev mode (simulated vehicle)");
+    it("flags an unhealthy present sensor and a failing pre-arm badge", async () => {
+      mockBackend();
+      await connectAndOpenTelemetry();
 
-        const present = MavSysStatusSensor.SENSOR_3D_GYRO | MavSysStatusSensor.PREARM_CHECK;
-        // Both present, neither healthy - health=0 for both bits.
-        await emit(DATA_EVENT, { bytes: Array.from(encodePacket(buildSysStatus(present, 0), { seq: 1, sysid: 1, compid: 1 })) });
+      const present = MavSysStatusSensor.SENSOR_3D_GYRO | MavSysStatusSensor.PREARM_CHECK;
+      // Both present, neither healthy - health=0 for both bits.
+      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(buildSysStatus(present, 0), { seq: 2, sysid: 1, compid: 1 })) });
 
-        expect(await screen.findByText("Перевірки перед зльотом не пройдено", {}, { timeout: 15000 })).toBeInTheDocument();
-        expect(screen.getByText("Гіроскоп")).toBeInTheDocument();
-      },
-      20000,
-    );
+      expect(await screen.findByText("Перевірки перед зльотом не пройдено")).toBeInTheDocument();
+      expect(screen.getByText("Гіроскоп")).toBeInTheDocument();
+    });
 
     it("shows recent STATUSTEXT failure messages (WARNING or worse), most recent first", async () => {
       mockBackend();
