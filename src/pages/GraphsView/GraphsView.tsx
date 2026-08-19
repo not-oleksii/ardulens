@@ -1,5 +1,5 @@
 import { ChevronDown, RotateCcw, Trash2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import type { TimelineSeriesInput } from "../../components/TimelineChart/types";
 import { useDerivedFromFile } from "../../hooks/useDerivedFromFile/useDerivedFromFile";
 import { getCoreWorker } from "../../services/coreWorkerClient/coreWorkerClient";
 import { useFileStore } from "../../stores/fileStore/fileStore";
+import { useUiStore } from "../../stores/uiStore/uiStore";
 import { isParsedFlights } from "../../types";
 
 interface Derived {
@@ -30,6 +31,8 @@ const SERIES_COLORS = ["#3b82f6", "#f97316", "#22c55e", "#ef4444", "#a855f7", "#
 export function GraphsView() {
   const { t } = useTranslation();
   const file = useFileStore((s) => s.file);
+  const pendingPresetKey = useUiStore((s) => s.pendingPresetKey);
+  const setPendingPresetKey = useUiStore((s) => s.setPendingPresetKey);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [paramFilter, setParamFilter] = useState("");
   const [openCategories, setOpenCategories] = useState<Set<string>>(new Set());
@@ -88,6 +91,25 @@ export function GraphsView() {
   function applyPreset(candidateKeys: string[]) {
     setSelectedKeys((prev) => [...prev, ...candidateKeys.filter((k) => !prev.includes(k))]);
   }
+
+  // Consumes a preset deep-linked in from elsewhere (currently PID Tune's per-axis "View in
+  // Graphs" button, see PidTuneSection.tsx) - a one-shot hand-off via uiStore. The local
+  // selectedKeys update happens right here, during render, the same safe "adjust state during
+  // render" way as resetKeyFile above; but clearing the external uiStore field is deferred to
+  // the effect below - calling a Zustand setter (which synchronously notifies every subscriber,
+  // including this same component) synchronously during render triggers React's "Cannot update
+  // a component while rendering a different component" warning, since it's a genuinely
+  // different update source than this component's own useState setters.
+  const [consumedPresetKey, setConsumedPresetKey] = useState<string | null>(null);
+  if (pendingPresetKey && pendingPresetKey !== consumedPresetKey && rawLog) {
+    setConsumedPresetKey(pendingPresetKey);
+    const preset = PRESETS.find((p) => p.key === pendingPresetKey);
+    const keys = preset ? resolvePreset(preset, rawLog.series) : null;
+    if (keys) applyPreset(keys);
+  }
+  useEffect(() => {
+    if (consumedPresetKey) setPendingPresetKey(null);
+  }, [consumedPresetKey, setPendingPresetKey]);
 
   const isFiltering = paramFilter.trim().length > 0;
   const filteredCategories = useMemo(() => {

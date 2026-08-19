@@ -10,4 +10,6 @@ export const VISIBLE_TABS: readonly Tab[] = ["logs", "graphs", "map"];
 export const useUiStore = create<UiState>((set) => ({
   activeTab: "logs",
   setActiveTab: (tab) => set({ activeTab: tab }),
+  pendingPresetKey: null,
+  setPendingPresetKey: (key) => set({ pendingPresetKey: key }),
 }));

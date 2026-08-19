@@ -1,11 +1,13 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { RawLogResult } from "../../../analysis/raw-log/types";
 import { buildRawLog } from "../../../analysis/raw-log/raw-log";
 import { FlightBinBuilder } from "../../../builders/FlightBinBuilder/FlightBinBuilder";
 import { SkylogFileBuilder } from "../../../builders/SkylogFileBuilder/SkylogFileBuilder";
 import { getCoreWorker } from "../../../services/coreWorkerClient/coreWorkerClient";
 import { useFileStore } from "../../../stores/fileStore/fileStore";
+import { useUiStore } from "../../../stores/uiStore/uiStore";
 import { GraphsView } from "../GraphsView";
 
 vi.mock("../../../services/coreWorkerClient/coreWorkerClient", async () => {
@@ -56,6 +58,7 @@ function getView() {
 
 afterEach(() => {
   useFileStore.getState().clearFile();
+  useUiStore.getState().setPendingPresetKey(null);
   vi.mocked(getCoreWorker).mockRestore();
 });
 
@@ -228,6 +231,31 @@ describe("GraphsView", () => {
     getView();
 
     expect(await screen.findByText(/Скористайтесь \.bin/)).toBeInTheDocument();
+  });
+
+  it("auto-applies a preset deep-linked in via uiStore.pendingPresetKey (PID Tune's 'View in Graphs'), then clears it", async () => {
+    const rateLog: RawLogResult = {
+      fmt: "bin",
+      timeRangeMs: [0, 1000],
+      modeSegments: [],
+      categories: [{ key: "other", params: [{ key: "RATE.RDes", label: "RATE.RDes" }, { key: "RATE.R", label: "RATE.R" }] }],
+      series: {
+        "RATE.RDes": [{ t: 0, v: 0 }],
+        "RATE.R": [{ t: 0, v: 0 }],
+      },
+    };
+    vi.mocked(getCoreWorker).mockReturnValueOnce({
+      buildRawLog: () => Promise.resolve(rateLog),
+      parseFile: () => Promise.resolve({ flights: [], boards: [], fmt: "bin" }),
+    } as unknown as ReturnType<typeof getCoreWorker>);
+    loadFile("sample-flight.bin", sampleBinBuf());
+    useUiStore.getState().setPendingPresetKey("pidRoll");
+
+    getView();
+
+    expect(await screen.findByText("RATE.RDes")).toBeInTheDocument();
+    expect(screen.getByText("RATE.R")).toBeInTheDocument();
+    expect(useUiStore.getState().pendingPresetKey).toBeNull();
   });
 
   it("resets plots/search/open-categories when a different file is loaded", async () => {

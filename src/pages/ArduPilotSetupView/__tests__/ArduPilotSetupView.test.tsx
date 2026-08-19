@@ -46,6 +46,8 @@ import { useMavlinkParameterStore } from "../../../stores/mavlinkParameterStore/
 import { useMavlinkRcCalStore } from "../../../stores/mavlinkRcCalStore/mavlinkRcCalStore";
 import { useMavlinkTelemetryStore } from "../../../stores/mavlinkTelemetryStore/mavlinkTelemetryStore";
 import { useMavlinkVehicleStore } from "../../../stores/mavlinkVehicleStore/mavlinkVehicleStore";
+import { useFileStore } from "../../../stores/fileStore/fileStore";
+import { useUiStore } from "../../../stores/uiStore/uiStore";
 import { ArduPilotSetupView } from "../ArduPilotSetupView";
 
 // ParametersPanel virtualizes its table (see ParametersPanel.tsx) via useVirtualizer, which
@@ -410,6 +412,9 @@ afterEach(async () => {
   useMavlinkCompassCalStore.getState().reset();
   useMavlinkAccelCalStore.getState().reset();
   useMavlinkRcCalStore.getState().reset();
+  useFileStore.getState().clearFile();
+  useUiStore.getState().setPendingPresetKey(null);
+  useUiStore.getState().setActiveTab("logs");
   vi.unstubAllGlobals();
 });
 
@@ -1454,6 +1459,28 @@ describe("ArduPilotSetupView", () => {
         });
         expect(setRequest).toBeDefined();
       });
+    });
+
+    it("hides the 'View in Graphs' deep-link when no flight log is loaded", async () => {
+      mockBackend();
+      const { user } = await connectCopterAndOpenPidTune();
+      await user.click(screen.getByRole("button", { name: "Завантажити параметри PID" }));
+      expect(screen.queryByRole("button", { name: "Переглянути в Графіках" })).not.toBeInTheDocument();
+    });
+
+    it("shows a 'View in Graphs' button per roll/pitch/yaw axis once a flight log is loaded, and clicking one sets the Graphs deep-link", async () => {
+      mockBackend();
+      useFileStore.getState().setFile({ name: "sample.bin", buf: new ArrayBuffer(0) });
+      const { user } = await connectCopterAndOpenPidTune();
+      await user.click(screen.getByRole("button", { name: "Завантажити параметри PID" }));
+
+      const viewInGraphsButtons = screen.getAllByRole("button", { name: "Переглянути в Графіках" });
+      expect(viewInGraphsButtons).toHaveLength(3); // roll, pitch, yaw
+
+      await user.click(viewInGraphsButtons[0]!); // roll is the first axis rendered
+
+      expect(useUiStore.getState().pendingPresetKey).toBe("pidRoll");
+      expect(useUiStore.getState().activeTab).toBe("graphs");
     });
   });
 
