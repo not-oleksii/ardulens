@@ -51,6 +51,20 @@ export { FileTransferProtocol, MavFtpOpcode, MavFtpErr } from "mavlink-mappings/
 // GLOBAL_POSITION_INT lives in the "standard" dialect file, not "common" - this package
 // splits a curated subset of core messages there even though they're not ArduPilot-specific.
 export { GlobalPositionInt } from "mavlink-mappings/dist/lib/standard";
+// STATUSTEXT carries ArduPilot's human-readable messages, including its prearm-failure reasons
+// (e.g. "PreArm: Compass not calibrated") - the only place those reasons appear at all, since a
+// rejected arm COMMAND_ACK only carries a generic MAV_RESULT code. `id`/`chunkSeq` support
+// reassembling a message split across multiple STATUSTEXT packets - this app treats every
+// message as a single chunk (id=0, the overwhelmingly common case for ArduPilot's own short
+// messages) rather than implementing full reassembly, matching this app's already-accepted "no
+// exotic retry/reorder handling" scope for other multi-packet flows (see mavFtpCodec.ts).
+export { StatusText, MavSeverity } from "mavlink-mappings/dist/lib/common";
+// SYS_STATUS's onboard_control_sensors_present/enabled/health fields are each a bitmask of
+// this enum - `present` says which sensors the vehicle actually has, `health` says which of
+// those are currently OK. PREARM_CHECK is not a physical sensor but ArduPilot's own summary
+// "would pre-arm checks pass right now" bit - confirmed against MAVLink's own common.xml
+// (<enum name="MAV_SYS_STATUS_SENSOR">), not guessed.
+export { MavSysStatusSensor } from "mavlink-mappings/dist/lib/common";
 // COMPONENT_ARM_DISARM (MAV_CMD 400, COMMAND_LONG wrapper) arms/disarms the vehicle - `arm`
 // (param1) is 1/0, `force` (param2) is 0 for a normal request (still subject to pre-arm
 // checks) or the documented magic value 21196 to force through them. This app only ever sends

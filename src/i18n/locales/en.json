@@ -337,13 +337,9 @@
       "bytesUnit": "{{count}} B"
     },
     "vehicle": {
-      "heading": "Vehicle",
       "waitingForHeartbeat": "Waiting for the vehicle's first heartbeat...",
-      "type": "Type",
-      "autopilot": "Autopilot",
       "armed": "Armed",
       "disarmed": "Disarmed",
-      "status": "Status",
       "arm": "Arm",
       "disarm": "Disarm",
       "confirmArmTitle": "Arm the vehicle?",
@@ -388,7 +384,6 @@
       }
     },
     "telemetry": {
-      "heading": "Telemetry",
       "waitingForTelemetry": "Waiting for telemetry...",
       "pfdAriaLabel": "Primary flight display",
       "pfd": {
@@ -421,6 +416,42 @@
         "static": "Static",
         "ppp": "PPP",
         "unknown": "Unknown ({{value}})"
+      }
+    },
+    "health": {
+      "prearmFailing": "Pre-arm checks failing",
+      "sensors": {
+        "gyro": "Gyro",
+        "accel": "Accelerometer",
+        "mag": "Compass",
+        "baro": "Barometer",
+        "airspeed": "Airspeed sensor",
+        "gps": "GPS",
+        "opticalFlow": "Optical flow",
+        "visionPosition": "Vision position",
+        "laserPosition": "Laser position",
+        "externalGroundTruth": "External ground truth",
+        "rateControl": "Rate control",
+        "attitudeStabilization": "Attitude stabilization",
+        "yawPosition": "Yaw position",
+        "altitudeControl": "Altitude control",
+        "positionControl": "Position control",
+        "motorOutputs": "Motor outputs",
+        "rcReceiver": "RC receiver",
+        "gyro2": "Gyro 2",
+        "accel2": "Accelerometer 2",
+        "mag2": "Compass 2",
+        "geofence": "Geofence",
+        "ahrs": "AHRS",
+        "terrain": "Terrain",
+        "reverseMotor": "Reverse motor",
+        "logging": "Logging",
+        "battery": "Battery monitor",
+        "proximity": "Proximity sensor",
+        "satcom": "Satellite comm",
+        "obstacleAvoidance": "Obstacle avoidance",
+        "propulsion": "Propulsion",
+        "unknown": "Unknown sensor ({{value}})"
       }
     }
   },

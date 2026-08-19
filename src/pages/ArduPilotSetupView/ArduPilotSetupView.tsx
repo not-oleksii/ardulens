@@ -66,6 +66,7 @@ import {
   RequestDataStream,
   ServoOutputRaw,
   SetMode,
+  StatusText,
   SysStatus,
   VfrHud,
 } from "../../mavlink/registry/registry";
@@ -90,6 +91,7 @@ import { useMavlinkParamDefaultsStore } from "../../stores/mavlinkParamDefaultsS
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import type { ParamEntry } from "../../stores/mavlinkParameterStore/types";
 import { useMavlinkRcCalStore } from "../../stores/mavlinkRcCalStore/mavlinkRcCalStore";
+import { useMavlinkStatusTextStore } from "../../stores/mavlinkStatusTextStore/mavlinkStatusTextStore";
 import { useMavlinkTelemetryStore } from "../../stores/mavlinkTelemetryStore/mavlinkTelemetryStore";
 import { useMavlinkVehicleStore } from "../../stores/mavlinkVehicleStore/mavlinkVehicleStore";
 
@@ -191,14 +193,19 @@ export function ArduPilotSetupView() {
   const battery = useMavlinkTelemetryStore((s) => s.battery);
   const gps = useMavlinkTelemetryStore((s) => s.gps);
   const position = useMavlinkTelemetryStore((s) => s.position);
+  const sensorHealth = useMavlinkTelemetryStore((s) => s.sensorHealth);
   const setAttitude = useMavlinkTelemetryStore((s) => s.setAttitude);
   const setVfrHud = useMavlinkTelemetryStore((s) => s.setVfrHud);
   const setBattery = useMavlinkTelemetryStore((s) => s.setBattery);
   const setGps = useMavlinkTelemetryStore((s) => s.setGps);
   const setPosition = useMavlinkTelemetryStore((s) => s.setPosition);
+  const setSensorHealth = useMavlinkTelemetryStore((s) => s.setSensorHealth);
   const servoOutputs = useMavlinkTelemetryStore((s) => s.servoOutputs);
   const mergeServoOutputs = useMavlinkTelemetryStore((s) => s.mergeServoOutputs);
   const resetTelemetry = useMavlinkTelemetryStore((s) => s.reset);
+  const statusTextMessages = useMavlinkStatusTextStore((s) => s.messages);
+  const addStatusText = useMavlinkStatusTextStore((s) => s.addMessage);
+  const resetStatusText = useMavlinkStatusTextStore((s) => s.reset);
   const setParams = useMavlinkParameterStore((s) => s.setParams);
   const resetParameters = useMavlinkParameterStore((s) => s.reset);
   const startParamDefaults = useMavlinkParamDefaultsStore((s) => s.start);
@@ -399,6 +406,17 @@ export function ArduPilotSetupView() {
               remainingPercent: msg.batteryRemaining >= 0 ? msg.batteryRemaining : null,
               updatedAt: now,
             });
+            setSensorHealth({
+              present: msg.onboardControlSensorsPresent,
+              enabled: msg.onboardControlSensorsEnabled,
+              health: msg.onboardControlSensorsHealth,
+              updatedAt: now,
+            });
+            break;
+          }
+          case StatusText.MSG_ID: {
+            const msg = packet.message as StatusText;
+            addStatusText({ severity: msg.severity, text: msg.text, receivedAt: now });
             break;
           }
           case GpsRawInt.MSG_ID: {
@@ -603,6 +621,7 @@ export function ArduPilotSetupView() {
         setDisconnected();
         resetVehicle();
         resetTelemetry();
+        resetStatusText();
         resetParameters();
         resetCompassCal();
         resetAccelCal();
@@ -616,6 +635,7 @@ export function ArduPilotSetupView() {
         setError(s.message);
         resetVehicle();
         resetTelemetry();
+        resetStatusText();
         resetParameters();
         resetCompassCal();
         resetAccelCal();
@@ -650,8 +670,11 @@ export function ArduPilotSetupView() {
     setBattery,
     setGps,
     setPosition,
+    setSensorHealth,
     mergeServoOutputs,
     resetTelemetry,
+    addStatusText,
+    resetStatusText,
     resetParameters,
     resetCompassCal,
     setCompassCalProgress,
@@ -789,6 +812,7 @@ export function ArduPilotSetupView() {
     setConnecting();
     resetVehicle();
     resetTelemetry();
+    resetStatusText();
     resetParameters();
     resetCompassCal();
     resetAccelCal();
@@ -844,6 +868,7 @@ export function ArduPilotSetupView() {
     setConnecting();
     resetVehicle();
     resetTelemetry();
+    resetStatusText();
     resetParameters();
     resetCompassCal();
     resetAccelCal();
@@ -1285,6 +1310,8 @@ export function ArduPilotSetupView() {
               battery={battery}
               gps={gps}
               position={position}
+              sensorHealth={sensorHealth}
+              statusTextMessages={statusTextMessages}
               onNavigateToSection={setActiveSection}
             />
           ) : activeSection === "parameters" ? (

@@ -255,7 +255,16 @@ function HeadingTape({ headingDeg }: { headingDeg: number | null }) {
   );
 }
 
-export function PrimaryFlightDisplay({ rollRad, pitchRad, headingDeg, airspeed, altitudeM, armed, modeLabel }: PrimaryFlightDisplayProps) {
+export function PrimaryFlightDisplay({
+  rollRad,
+  pitchRad,
+  headingDeg,
+  airspeed,
+  altitudeM,
+  armed,
+  modeLabel,
+  warningOverlay,
+}: PrimaryFlightDisplayProps) {
   const { t } = useTranslation();
 
   return (
@@ -279,29 +288,43 @@ export function PrimaryFlightDisplay({ rollRad, pitchRad, headingDeg, airspeed, 
           {modeLabel}
         </span>
       </div>
-      <svg viewBox="0 0 400 300" className="w-full" role="img" aria-label={t("ardupilotSetup.telemetry.pfdAriaLabel")}>
-        <VerticalTape
-          x={0}
-          side="left"
-          label={t("ardupilotSetup.telemetry.pfd.airspeedLabel")}
-          value={airspeed}
-          halfSpan={SPEED_HALF_SPAN}
-          step={SPEED_STEP}
-          pxPerUnit={SPEED_PX_PER_UNIT}
-          decimals={1}
-        />
-        <AttitudeIndicator rollRad={rollRad} pitchRad={pitchRad} />
-        <VerticalTape
-          x={340}
-          side="right"
-          label={t("ardupilotSetup.telemetry.pfd.altitudeLabel")}
-          value={altitudeM}
-          halfSpan={ALT_HALF_SPAN}
-          step={ALT_STEP}
-          pxPerUnit={ALT_PX_PER_UNIT}
-          decimals={0}
-        />
-      </svg>
+      {/* relative: anchors warningOverlay precisely against this SVG's own known 400x300
+          coordinate space (the attitude circle spans x=95-305, y=45-255, i.e. 15-85% either
+          way) - not against the whole panel, whose total height also depends on the badges
+          row and heading tape below, which aren't a fixed proportion of the panel's width. */}
+      <div className="relative">
+        <svg viewBox="0 0 400 300" className="w-full" role="img" aria-label={t("ardupilotSetup.telemetry.pfdAriaLabel")}>
+          <VerticalTape
+            x={0}
+            side="left"
+            label={t("ardupilotSetup.telemetry.pfd.airspeedLabel")}
+            value={airspeed}
+            halfSpan={SPEED_HALF_SPAN}
+            step={SPEED_STEP}
+            pxPerUnit={SPEED_PX_PER_UNIT}
+            decimals={1}
+          />
+          <AttitudeIndicator rollRad={rollRad} pitchRad={pitchRad} />
+          <VerticalTape
+            x={340}
+            side="right"
+            label={t("ardupilotSetup.telemetry.pfd.altitudeLabel")}
+            value={altitudeM}
+            halfSpan={ALT_HALF_SPAN}
+            step={ALT_STEP}
+            pxPerUnit={ALT_PX_PER_UNIT}
+            decimals={0}
+          />
+        </svg>
+        {warningOverlay && (
+          // Lower portion of the horizon circle only (58%-96% vertically, 15%-85%
+          // horizontally) - real HUD/OSD convention for warning text, and guarantees this
+          // never spills past the SVG's own bottom edge into whatever comes after the PFD.
+          <div className="absolute inset-x-[15%] top-[58%] bottom-[4%] z-10 flex flex-col justify-end overflow-y-auto">
+            {warningOverlay}
+          </div>
+        )}
+      </div>
       <HeadingTape headingDeg={headingDeg} />
     </div>
   );
