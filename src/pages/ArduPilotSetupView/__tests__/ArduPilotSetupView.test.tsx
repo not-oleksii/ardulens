@@ -864,8 +864,10 @@ describe("ArduPilotSetupView", () => {
       await emit(STATUS_EVENT, { kind: "connected", detail: "serial:COM3@57600" });
       await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
 
+      // The connected detail string already names the exact port/baud that won - the port
+      // select itself is hidden once connected (see ArduPilotSetupHeader.tsx), so this is the
+      // only place left to confirm which one auto-connect actually landed on.
       expect(await within(getStatusAlert()).findByText("Підключено: serial:COM3@57600")).toBeInTheDocument();
-      expect(screen.getByLabelText("Серійний порт")).toHaveValue("COM3");
     });
 
     it(
@@ -895,8 +897,9 @@ describe("ArduPilotSetupView", () => {
         await emit(STATUS_EVENT, { kind: "connected", detail: "serial:COM4@57600" });
         await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
 
+        // The port select is hidden once connected (see ArduPilotSetupHeader.tsx) - the
+        // connected detail string is now the only place confirming COM4, not COM3, won.
         expect(await within(getStatusAlert()).findByText("Підключено: serial:COM4@57600")).toBeInTheDocument();
-        expect(screen.getByLabelText("Серійний порт")).toHaveValue("COM4");
       },
       20000,
     );

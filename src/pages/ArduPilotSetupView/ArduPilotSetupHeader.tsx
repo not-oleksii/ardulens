@@ -81,94 +81,102 @@ export function ArduPilotSetupHeader({
         {t("ardupilotSetup.backToHome")}
       </Link>
 
-      {liveAvailable && (
-        <div className="flex shrink-0 gap-1">
-          <Button
-            type="button"
-            size="sm"
-            variant={mode === "serial" ? "secondary" : "outline"}
-            disabled={isConnected || isBusy}
-            onClick={() => setMode("serial")}
-          >
-            {t("ardupilotSetup.connect.modeSerial")}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={mode === "udp" ? "secondary" : "outline"}
-            disabled={isConnected || isBusy}
-            onClick={() => setMode("udp")}
-          >
-            {t("ardupilotSetup.connect.modeUdp")}
-          </Button>
-        </div>
-      )}
+      {/* Once connected, none of this (mode toggle, port/baud/UDP inputs, the web-only notice)
+          is still actionable - it used to just sit there disabled, cluttering the bar with
+          controls for a step that's already done. Mission Planner/Betaflight both drop their
+          own connection-setup controls the same way once a session is live. */}
+      {!isConnected && (
+        <>
+          {liveAvailable && (
+            <div className="flex shrink-0 gap-1">
+              <Button
+                type="button"
+                size="sm"
+                variant={mode === "serial" ? "secondary" : "outline"}
+                disabled={isBusy}
+                onClick={() => setMode("serial")}
+              >
+                {t("ardupilotSetup.connect.modeSerial")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={mode === "udp" ? "secondary" : "outline"}
+                disabled={isBusy}
+                onClick={() => setMode("udp")}
+              >
+                {t("ardupilotSetup.connect.modeUdp")}
+              </Button>
+            </div>
+          )}
 
-      {liveAvailable &&
-        (mode === "serial" ? (
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <select
-              aria-label={t("ardupilotSetup.connect.portLabel")}
-              className={SELECT_CLASSNAME}
-              value={selectedPort}
-              disabled={isConnected || isBusy}
-              onChange={(e) => setSelectedPort(e.target.value)}
-            >
-              {ports.length === 0 && (
-                <option value="" className="bg-card text-card-foreground">
-                  {t("ardupilotSetup.connect.portPlaceholder")}
-                </option>
-              )}
-              {ports.map((p) => (
-                <option key={p.name} value={p.name} className="bg-card text-card-foreground">
-                  {p.description ? `${p.name} - ${p.description}` : p.name}
-                </option>
-              ))}
-            </select>
+          {liveAvailable &&
+            (mode === "serial" ? (
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
+                <select
+                  aria-label={t("ardupilotSetup.connect.portLabel")}
+                  className={SELECT_CLASSNAME}
+                  value={selectedPort}
+                  disabled={isBusy}
+                  onChange={(e) => setSelectedPort(e.target.value)}
+                >
+                  {ports.length === 0 && (
+                    <option value="" className="bg-card text-card-foreground">
+                      {t("ardupilotSetup.connect.portPlaceholder")}
+                    </option>
+                  )}
+                  {ports.map((p) => (
+                    <option key={p.name} value={p.name} className="bg-card text-card-foreground">
+                      {p.description ? `${p.name} - ${p.description}` : p.name}
+                    </option>
+                  ))}
+                </select>
 
-            <select
-              aria-label={t("ardupilotSetup.connect.baudLabel")}
-              className={SELECT_CLASSNAME}
-              value={baudRate}
-              disabled={isConnected || isBusy}
-              onChange={(e) => setBaudRate(Number(e.target.value))}
-            >
-              {baudRates.map((rate) => (
-                <option key={rate} value={rate} className="bg-card text-card-foreground">
-                  {rate}
-                </option>
-              ))}
-            </select>
+                <select
+                  aria-label={t("ardupilotSetup.connect.baudLabel")}
+                  className={SELECT_CLASSNAME}
+                  value={baudRate}
+                  disabled={isBusy}
+                  onChange={(e) => setBaudRate(Number(e.target.value))}
+                >
+                  {baudRates.map((rate) => (
+                    <option key={rate} value={rate} className="bg-card text-card-foreground">
+                      {rate}
+                    </option>
+                  ))}
+                </select>
 
-            <Button type="button" size="sm" variant="ghost" onClick={onRefreshPorts} disabled={isConnected || isBusy}>
-              {t("ardupilotSetup.connect.refreshPorts")}
-            </Button>
+                <Button type="button" size="sm" variant="ghost" onClick={onRefreshPorts} disabled={isBusy}>
+                  {t("ardupilotSetup.connect.refreshPorts")}
+                </Button>
 
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={onAutoConnect}
-              disabled={isConnected || isBusy || ports.length === 0}
-            >
-              {t("ardupilotSetup.connect.autoConnect")}
-            </Button>
-          </div>
-        ) : (
-          <div className="flex shrink-0 items-center gap-2">
-            <Input
-              aria-label={t("ardupilotSetup.connect.udpPortLabel")}
-              type="number"
-              className="h-8 w-24 text-xs"
-              value={udpPort}
-              disabled={isConnected || isBusy}
-              onChange={(e) => setUdpPort(Number(e.target.value))}
-            />
-          </div>
-        ))}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={onAutoConnect}
+                  disabled={isBusy || ports.length === 0}
+                >
+                  {t("ardupilotSetup.connect.autoConnect")}
+                </Button>
+              </div>
+            ) : (
+              <div className="flex shrink-0 items-center gap-2">
+                <Input
+                  aria-label={t("ardupilotSetup.connect.udpPortLabel")}
+                  type="number"
+                  className="h-8 w-24 text-xs"
+                  value={udpPort}
+                  disabled={isBusy}
+                  onChange={(e) => setUdpPort(Number(e.target.value))}
+                />
+              </div>
+            ))}
 
-      {!liveAvailable && (
-        <p className="shrink-0 text-xs text-muted-foreground">{t("ardupilotSetup.connect.webOnlyNotice")}</p>
+          {!liveAvailable && (
+            <p className="shrink-0 text-xs text-muted-foreground">{t("ardupilotSetup.connect.webOnlyNotice")}</p>
+          )}
+        </>
       )}
 
       {isConnected ? (
