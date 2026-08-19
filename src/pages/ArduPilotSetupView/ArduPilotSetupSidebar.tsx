@@ -7,6 +7,7 @@ import {
   Gauge,
   Joystick,
   List,
+  MonitorPlay,
   MoveDiagonal,
   Radio,
   SlidersHorizontal,
@@ -30,7 +31,8 @@ export type ArduPilotSetupSection =
   | "escCal"
   | "motorsSetup"
   | "batteryConfig"
-  | "pidTune";
+  | "pidTune"
+  | "osdSetup";
 
 const SECTIONS: readonly ArduPilotSetupSection[] = [
   "telemetry",
@@ -43,6 +45,7 @@ const SECTIONS: readonly ArduPilotSetupSection[] = [
   "motorsSetup",
   "batteryConfig",
   "pidTune",
+  "osdSetup",
 ];
 
 const SECTION_ICONS = {
@@ -56,6 +59,7 @@ const SECTION_ICONS = {
   motorsSetup: Cog,
   batteryConfig: BatteryMedium,
   pidTune: SlidersHorizontal,
+  osdSetup: MonitorPlay,
 } as const satisfies Record<ArduPilotSetupSection, typeof Gauge>;
 
 interface ArduPilotSetupSidebarProps {

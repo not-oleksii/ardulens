@@ -1,0 +1,319 @@
+import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
+import type { MavParamType, MavType } from "../../mavlink/registry/registry";
+import { fetchParamDocs, vehicleFolderForMavType, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
+import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
+import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
+import {
+  allOsdParamNames,
+  OSD_ELEMENT_KEYS,
+  OSD_SCREEN_NUMBERS,
+  osdElementLabel,
+  osdElementParamName,
+  osdScreenControlParamNames,
+  type OsdScreenNumber,
+} from "./osdSetupParams";
+
+interface OsdSetupSectionProps {
+  vehicleType: MavType;
+  onLoad: () => void;
+  onSetParam: (name: string, value: number, type: MavParamType) => void;
+}
+
+export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSectionProps) {
+  const { t } = useTranslation();
+  const params = useMavlinkParameterStore((s) => s.params);
+  const [docs, setDocs] = useState<ParamDocsMap | null>(null);
+  const [requested, setRequested] = useState(false);
+  const [pendingChanges, setPendingChanges] = useState<Record<string, number>>({});
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [activeScreen, setActiveScreen] = useState<OsdScreenNumber>(1);
+  const [elementFilter, setElementFilter] = useState("");
+
+  const vehicleFolder = vehicleFolderForMavType(vehicleType);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchParamDocs(vehicleFolder)
+      .then((result) => {
+        if (!cancelled) setDocs(result);
+      })
+      .catch(() => {
+        // Enum labels (OSD_TYPE/OSD_UNITS) are a nice-to-have - the raw numeric codes still
+        // work without them, same fallback RcSetupSection/BatteryConfigSection use.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [vehicleFolder]);
+
+  function handleLoadClick() {
+    setRequested(true);
+    onLoad();
+  }
+
+  function shownValue(name: string): number | undefined {
+    return pendingChanges[name] ?? params[name]?.value;
+  }
+
+  function stageChange(name: string, value: number) {
+    const original = params[name]?.value;
+    setPendingChanges((prev) => {
+      const next = { ...prev };
+      if (original !== undefined && value === original) {
+        delete next[name];
+      } else {
+        next[name] = value;
+      }
+      return next;
+    });
+  }
+
+  function handleResetAll() {
+    setPendingChanges({});
+  }
+
+  function handleConfirmSaveAll() {
+    for (const [name, value] of Object.entries(pendingChanges)) {
+      const type = params[name]?.type;
+      if (type !== undefined) onSetParam(name, value, type);
+    }
+    setPendingChanges({});
+    setConfirmOpen(false);
+  }
+
+  const hasAnyLoaded = allOsdParamNames().some((name) => params[name] !== undefined);
+  const hasStarted = requested || hasAnyLoaded;
+  const pendingEntries = Object.entries(pendingChanges);
+  const hasPendingChanges = pendingEntries.length > 0;
+
+  function numberField(name: string) {
+    const entry = params[name];
+    if (!entry) return <span className="font-mono text-xs text-muted-foreground">-</span>;
+    const value = shownValue(name)!;
+    return (
+      <span className="flex items-center gap-1.5">
+        <Input
+          type="number"
+          value={value}
+          onChange={(e) => {
+            const parsed = Number(e.target.value);
+            if (Number.isFinite(parsed)) stageChange(name, parsed);
+          }}
+          className="h-7 w-20 text-xs"
+        />
+        <ModifiedFromDefaultDot name={name} value={value} />
+      </span>
+    );
+  }
+
+  function enumField(name: string) {
+    const entry = params[name];
+    const values = docs?.[name]?.values;
+    if (!entry) return <span className="font-mono text-xs text-muted-foreground">-</span>;
+    const value = shownValue(name)!;
+    if (!values) return numberField(name);
+    return (
+      <span className="flex items-center gap-1.5">
+        <select
+          className="rounded-md border border-border bg-background px-2 py-1 text-xs"
+          value={value}
+          onChange={(e) => stageChange(name, Number(e.target.value))}
+        >
+          {Object.entries(values).map(([code, label]) => (
+            <option key={code} value={code}>
+              {label}
+            </option>
+          ))}
+        </select>
+        <ModifiedFromDefaultDot name={name} value={value} />
+      </span>
+    );
+  }
+
+  const filteredElements = OSD_ELEMENT_KEYS.filter((key) =>
+    osdElementLabel(t, key).toLowerCase().includes(elementFilter.toLowerCase()),
+  );
+
+  const [enableParam, chanMinParam, chanMaxParam] = osdScreenControlParamNames(activeScreen);
+  const screenEnableEntry = params[enableParam];
+
+  return (
+    <div className="flex h-full flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.osdSetup.heading")}</h3>
+        <div className="flex items-center gap-2">
+          <Button type="button" size="sm" onClick={handleLoadClick}>
+            {t("ardupilotSetup.osdSetup.load")}
+          </Button>
+          {hasPendingChanges && (
+            <>
+              <Button type="button" size="sm" variant="ghost" onClick={handleResetAll}>
+                {t("ardupilotSetup.osdSetup.reset")}
+              </Button>
+              <Button type="button" size="sm" onClick={() => setConfirmOpen(true)}>
+                {t("ardupilotSetup.osdSetup.saveAll", { count: pendingEntries.length })}
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {!hasStarted ? (
+        <p className="shrink-0 text-xs text-muted-foreground">{t("ardupilotSetup.osdSetup.notLoaded")}</p>
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+          <p className="shrink-0 text-xs text-muted-foreground">{t("ardupilotSetup.osdSetup.description")}</p>
+
+          <div className="flex flex-wrap items-center gap-4 rounded-lg border border-border p-2 text-xs">
+            <label className="flex items-center gap-1.5">
+              <span className="text-muted-foreground">{t("ardupilotSetup.osdSetup.osdType")}</span>
+              {enumField("OSD_TYPE")}
+            </label>
+            <label className="flex items-center gap-1.5">
+              <span className="text-muted-foreground">{t("ardupilotSetup.osdSetup.osdUnits")}</span>
+              {enumField("OSD_UNITS")}
+            </label>
+            <label className="flex items-center gap-1.5">
+              <span className="text-muted-foreground">{t("ardupilotSetup.osdSetup.osdChan")}</span>
+              {numberField("OSD_CHAN")}
+            </label>
+          </div>
+
+          <div className="flex shrink-0 gap-1 border-b border-border">
+            {OSD_SCREEN_NUMBERS.map((screen) => (
+              <button
+                key={screen}
+                type="button"
+                onClick={() => setActiveScreen(screen)}
+                className={cn(
+                  "rounded-t-md px-3 py-1.5 text-xs font-semibold",
+                  activeScreen === screen ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent",
+                )}
+              >
+                {t("ardupilotSetup.osdSetup.screenTab", { screen })}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-4 text-xs">
+            <label className="flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={screenEnableEntry ? shownValue(enableParam) !== 0 : false}
+                disabled={!screenEnableEntry}
+                onChange={(e) => stageChange(enableParam, e.target.checked ? 1 : 0)}
+              />
+              {t("ardupilotSetup.osdSetup.screenEnable")}
+              {screenEnableEntry && <ModifiedFromDefaultDot name={enableParam} value={shownValue(enableParam)!} />}
+            </label>
+            <label className="flex items-center gap-1.5">
+              <span className="text-muted-foreground">{t("ardupilotSetup.osdSetup.screenChanMin")}</span>
+              {numberField(chanMinParam)}
+            </label>
+            <label className="flex items-center gap-1.5">
+              <span className="text-muted-foreground">{t("ardupilotSetup.osdSetup.screenChanMax")}</span>
+              {numberField(chanMaxParam)}
+            </label>
+          </div>
+
+          <Input
+            value={elementFilter}
+            onChange={(e) => setElementFilter(e.target.value)}
+            placeholder={t("ardupilotSetup.osdSetup.elementSearchPlaceholder")}
+            className="h-7 w-64 shrink-0 text-xs"
+          />
+
+          <div className="min-h-0 flex-1 overflow-y-auto rounded-md border border-border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("ardupilotSetup.osdSetup.elementColumn")}</TableHead>
+                  <TableHead>{t("ardupilotSetup.osdSetup.enabledColumn")}</TableHead>
+                  <TableHead>{t("ardupilotSetup.osdSetup.xColumn")}</TableHead>
+                  <TableHead>{t("ardupilotSetup.osdSetup.yColumn")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredElements.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center text-xs text-muted-foreground">
+                      {t("ardupilotSetup.osdSetup.noMatches")}
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredElements.map((key) => {
+                    const enName = osdElementParamName(activeScreen, key, "EN");
+                    const xName = osdElementParamName(activeScreen, key, "X");
+                    const yName = osdElementParamName(activeScreen, key, "Y");
+                    const enEntry = params[enName];
+                    return (
+                      <TableRow key={key}>
+                        <TableCell className="text-xs">{osdElementLabel(t, key)}</TableCell>
+                        <TableCell>
+                          <span className="flex items-center gap-1.5">
+                            <input
+                              type="checkbox"
+                              checked={enEntry ? shownValue(enName) !== 0 : false}
+                              disabled={!enEntry}
+                              onChange={(e) => stageChange(enName, e.target.checked ? 1 : 0)}
+                            />
+                            {enEntry && <ModifiedFromDefaultDot name={enName} value={shownValue(enName)!} />}
+                          </span>
+                        </TableCell>
+                        <TableCell>{numberField(xName)}</TableCell>
+                        <TableCell>{numberField(yName)}</TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      )}
+
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("ardupilotSetup.osdSetup.confirmTitle")}</DialogTitle>
+            <DialogDescription>{t("ardupilotSetup.osdSetup.confirmDescription", { count: pendingEntries.length })}</DialogDescription>
+          </DialogHeader>
+          <div className="max-h-80 overflow-y-auto rounded-md border border-border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("ardupilotSetup.parameters.name")}</TableHead>
+                  <TableHead>{t("ardupilotSetup.osdSetup.from")}</TableHead>
+                  <TableHead>{t("ardupilotSetup.osdSetup.to")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pendingEntries.map(([name, value]) => (
+                  <TableRow key={name}>
+                    <TableCell className="font-mono">{name}</TableCell>
+                    <TableCell className="font-mono">{params[name]?.value}</TableCell>
+                    <TableCell className="font-mono">{value}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmOpen(false)}>
+              {t("ardupilotSetup.osdSetup.cancel")}
+            </Button>
+            <Button type="button" onClick={handleConfirmSaveAll}>
+              {t("ardupilotSetup.osdSetup.confirmSave")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
