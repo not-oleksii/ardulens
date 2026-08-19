@@ -100,15 +100,16 @@ export function ArduPilotSetupSidebar({ activeSection, onSelect }: ArduPilotSetu
                 value={section}
                 aria-label={label}
                 title={collapsed ? label : undefined}
-                className={cn(collapsed && "justify-center px-0")}
+                className={cn(
+                  collapsed ? "justify-center px-0" : "h-auto items-start py-2 whitespace-normal",
+                )}
               >
-                <Icon className="h-4 w-4 shrink-0" />
-                {/* TODO: Ukrainian labels (e.g. "Налаштування моторів", "Калібрування
-                    акселерометра") run noticeably longer than their English counterparts and
-                    overflow/clip past the sidebar's fixed w-56 in a narrow window - either
-                    let the sidebar width grow to fit the active locale's longest label, or
-                    wrap/shrink the label text instead of clipping it. */}
-                {!collapsed && <span>{label}</span>}
+                {/* Ukrainian labels (e.g. "Калібрування акселерометра") run noticeably longer
+                    than their English counterparts and would clip past the sidebar's fixed
+                    w-56 with the default single-line/nowrap tab style - wraps onto a second
+                    line instead, with the icon nudged down to align with the first line. */}
+                <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+                {!collapsed && <span className="min-w-0 break-words">{label}</span>}
               </TabsTrigger>
             );
           })}
