@@ -7,6 +7,7 @@ import type { MavParamType, MavType } from "../../mavlink/registry/registry";
 import { fetchParamDocs, vehicleFolderForMavType, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import { ComingSoonSection } from "./ComingSoonSection";
+import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
 import { MotorsCopterSection } from "./MotorsCopterSection";
 
 interface MotorsServosSectionProps {
@@ -148,12 +149,17 @@ export function MotorsServosSection({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {channels.map(({ channel, functionLabel, trim, testPwm }) => {
+              {channels.map(({ channel, functionCode, functionLabel, trim, testPwm }) => {
                 const liveOutput = servoOutputs[channel];
                 return (
                   <TableRow key={channel}>
                     <TableCell className="font-mono">{channel}</TableCell>
-                    <TableCell>{functionLabel}</TableCell>
+                    <TableCell>
+                      <span className="flex items-center gap-1.5">
+                        {functionLabel}
+                        <ModifiedFromDefaultDot name={`SERVO${channel}_FUNCTION`} value={functionCode} />
+                      </span>
+                    </TableCell>
                     <TableCell className="font-mono">{liveOutput !== undefined ? `${liveOutput} us` : "-"}</TableCell>
                     <TableCell>
                       <Button

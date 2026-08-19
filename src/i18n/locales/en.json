@@ -250,6 +250,7 @@
       "defaultsLoading": "Downloading defaults... {{received}} / {{total}}",
       "defaultsErrorLabel": "Couldn't download defaults",
       "onlyModifiedFromDefault": "Only changed from default",
+      "changedFromDefault": "Changed from default ({{default}})",
       "dirty": "pending",
       "modified": "modified",
       "categoriesHeading": "Categories",

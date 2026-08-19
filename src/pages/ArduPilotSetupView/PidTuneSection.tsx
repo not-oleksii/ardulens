@@ -11,6 +11,7 @@ import { useFileStore } from "../../stores/fileStore/fileStore";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import { useUiStore } from "../../stores/uiStore/uiStore";
 import { ComingSoonSection } from "./ComingSoonSection";
+import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
 import { pidConfigForVehicleFolder, type PidAxis } from "./pidGroups";
 
 interface PidTuneSectionProps {
@@ -165,13 +166,16 @@ export function PidTuneSection({ vehicleType, onLoad, onSetParam }: PidTuneSecti
                   className="h-7 w-28"
                 />
               ) : (
-                <button
-                  type="button"
-                  className={isModified ? "font-mono text-xs text-primary hover:underline" : "font-mono text-xs hover:underline"}
-                  onClick={() => startEdit(resolvedName, shownValue)}
-                >
-                  {shownValue}
-                </button>
+                <span className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    className={isModified ? "font-mono text-xs text-primary hover:underline" : "font-mono text-xs hover:underline"}
+                    onClick={() => startEdit(resolvedName, shownValue)}
+                  >
+                    {shownValue}
+                  </button>
+                  <ModifiedFromDefaultDot name={resolvedName} value={shownValue} />
+                </span>
               )}
             </div>
           );
