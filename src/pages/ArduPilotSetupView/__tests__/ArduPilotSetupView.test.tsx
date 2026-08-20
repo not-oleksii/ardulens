@@ -3505,7 +3505,7 @@ describe("ArduPilotSetupView", () => {
     });
 
     it("sizes each flight-mode band's overview-bar segment to its real proportional PWM width, with a live needle", async () => {
-      // Betaflight-style overview bar redesign - the 6 bands are real, fixed ArduPilot firmware
+      // Overview bar redesign - the 6 bands are real, fixed ArduPilot firmware
       // boundaries (RC_Channel::read_6pos_switch), not equal-width boxes: band 1 (900-1231,
       // 331us) is genuinely wider than band 2 (1231-1360, 130us), and this asserts the rendered
       // segment widths actually reflect that, not just that all 6 render.

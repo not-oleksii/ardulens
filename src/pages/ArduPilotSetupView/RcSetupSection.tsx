@@ -37,8 +37,8 @@ function scalePct(value: number): number {
   return Math.min(100, Math.max(0, ((value - SCALE_MIN) / (SCALE_MAX - SCALE_MIN)) * 100));
 }
 
-// Round-number gridlines on every live PWM bar (Betaflight-style rulers) - purely visual, not
-// meaningful boundaries the way the flight-mode band edges below are.
+// Round-number gridlines on every live PWM bar - purely visual, not meaningful boundaries the
+// way the flight-mode band edges below are.
 const TICK_PWM_VALUES = [1000, 1200, 1400, 1600, 1800, 2000];
 
 // The real 6-band edges (900 and 2100 close off the first/last band) - used to size each flight-
@@ -400,8 +400,8 @@ export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetu
                         {channel}
                       </span>
                       {/* A wide ruled bar (tick marks at round PWM values) with a bold needle for
-                          the live position - Betaflight's own receiver-tab look, in place of the
-                          previous thin bar + barely-visible dot. */}
+                          the live position, in place of the previous thin bar + barely-visible
+                          dot. */}
                       <div className="relative h-5 min-w-0 flex-[2] overflow-hidden rounded-md bg-muted">
                         {TICK_PWM_VALUES.map((tick) => (
                           <div key={tick} className="absolute inset-y-0 w-px bg-border/70" style={{ left: `${scalePct(tick)}%` }} />
@@ -428,9 +428,9 @@ export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetu
             {/* A wide overview bar sized to the 6 bands' REAL proportional PWM widths (e.g.
                 "1231-1360" is genuinely narrower than "≥1751") with a live needle for the flight-
                 mode channel's current position - these bands are real, fixed ArduPilot firmware
-                boundaries (RC_Channel::read_6pos_switch), not an editable range like Betaflight's
-                own mode sliders, so this is a live readout only; the list below is still where
-                each band's assigned mode is actually changed. */}
+                boundaries (RC_Channel::read_6pos_switch), not an editable range, so this is a
+                live readout only; the list below is still where each band's assigned mode is
+                actually changed. */}
             <div className="relative flex h-8 shrink-0 overflow-hidden rounded-md border border-border">
               {FLIGHT_MODE_SLOT_NAMES.map((name, i) => {
                 const widthPct = scalePct(FLTMODE_BAND_EDGES[i + 1]!) - scalePct(FLTMODE_BAND_EDGES[i]!);
