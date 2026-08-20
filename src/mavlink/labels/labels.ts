@@ -183,3 +183,15 @@ export function sensorLabel(t: Translate, sensor: MavSysStatusSensor): string {
   const key = SENSOR_KEYS[sensor];
   return key ? t(`ardupilotSetup.health.sensors.${key}`) : t("ardupilotSetup.health.sensors.unknown", { value: sensor });
 }
+
+/** A likely cause + fix for one unhealthy sensor bit, for the hover hint on VehicleHealthSection's
+ *  failure badges - grounded in ArduPilot's own real prearm-check/sensor-health behavior (e.g.
+ *  YAW_POSITION failing is almost always an uncalibrated/interfered compass, not a "yaw sensor"
+ *  of its own - ArduPilot has no such discrete hardware), not generic troubleshooting copy.
+ *  Returns null for a sensor bit with no known cause/fix text (currently none, kept for the same
+ *  "unknown code stays representable" fallback pattern sensorLabel uses). */
+export function sensorHint(t: Translate, sensor: MavSysStatusSensor): { cause: string; fix: string } | null {
+  const key = SENSOR_KEYS[sensor];
+  if (!key) return null;
+  return { cause: t(`ardupilotSetup.health.hints.${key}.cause`), fix: t(`ardupilotSetup.health.hints.${key}.fix`) };
+}

@@ -5,19 +5,14 @@ import { ArduPilotSetupHeader } from "./ArduPilotSetupHeader";
 import { ArduPilotSetupSidebar, type ArduPilotSetupSection } from "./ArduPilotSetupSidebar";
 import { AccelCalSection } from "./AccelCalSection";
 import { BatteryConfigSection } from "./BatteryConfigSection";
-import { BATTERY_PARAM_NAMES } from "./batteryParams";
 import { CompassCalSection } from "./CompassCalSection";
 import { EscCalSection } from "./EscCalSection";
 import { MotorsServosSection } from "./MotorsServosSection";
 import { ParametersPanel } from "./ParametersPanel";
-import { allPidCandidateNames, pidConfigForVehicleFolder } from "./pidGroups";
 import { PidTuneSection } from "./PidTuneSection";
 import { RcCalSection } from "./RcCalSection";
-import { RC_SETUP_PARAM_NAMES } from "./rcSetupParams";
 import { OsdSetupSection } from "./OsdSetupSection";
-import { allOsdParamNames } from "./osdSetupParams";
 import { VtxSetupSection } from "./VtxSetupSection";
-import { VTX_PARAM_NAMES } from "./vtxSetupParams";
 import { RcSetupSection } from "./RcSetupSection";
 import { TelemetrySection } from "./TelemetrySection";
 import { VehicleStatusBar } from "./VehicleStatusBar";
@@ -75,7 +70,6 @@ import {
   VfrHud,
 } from "../../mavlink/registry/registry";
 import type { MavMode } from "../../mavlink/registry/registry";
-import { vehicleFolderForMavType } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import {
   connectMock,
   connectSerial,
@@ -128,10 +122,6 @@ const REQUESTED_DATA_STREAMS = [
   MavDataStream.RC_CHANNELS,
 ];
 const DATA_STREAM_RATE_HZ = 4;
-// Every ArduPilot board defines all of SERVO1_FUNCTION..SERVO16_FUNCTION regardless of how
-// many outputs it physically has (unused ones just report Disabled) - 16 covers every real
-// board without needing to guess the actual output count up front.
-const SERVO_CHANNEL_COUNT = 16;
 // The firmware's own auto-stop safety net (see DoMotorTestCommand.timeout) - independent of,
 // and in addition to, the explicit throttle=0 command this app sends on release, in case that
 // release command is ever lost.
@@ -263,6 +253,7 @@ export function ArduPilotSetupView() {
   const framerRef = useRef(new MavlinkFramer());
   const outgoingSeqRef = useRef(0);
   const streamsRequestedRef = useRef(false);
+  const fullParamsRequestedRef = useRef(false);
   // Incoming PARAM_VALUE decodes land here first, then get flushed to the store in one
   // batch on an interval (see PARAM_FLUSH_INTERVAL_MS) rather than one store update - and
   // one full-table React re-render - per packet.
@@ -636,6 +627,7 @@ export function ArduPilotSetupView() {
         pendingParamCountRef.current = null;
         ftpSessionRef.current = null;
         streamsRequestedRef.current = false;
+        fullParamsRequestedRef.current = false;
       } else {
         setError(s.message);
         resetVehicle();
@@ -650,6 +642,7 @@ export function ArduPilotSetupView() {
         pendingParamCountRef.current = null;
         ftpSessionRef.current = null;
         streamsRequestedRef.current = false;
+        fullParamsRequestedRef.current = false;
       }
     }).then((unlisten) => {
       if (cancelled) unlisten();
@@ -1101,130 +1094,12 @@ export function ArduPilotSetupView() {
     stopRcCal();
   }
 
-  // Requests exactly the params the Motors/Servos section needs (function + travel range per
-  // output channel) by name rather than depending on the full parameter list being loaded
-  // elsewhere - self-contained, and far cheaper than a full 1000+ param dump.
-  function handleLoadServoOutputs() {
-    if (!vehicle) return;
-    for (let channel = 1; channel <= SERVO_CHANNEL_COUNT; channel++) {
-      for (const suffix of ["FUNCTION", "MIN", "MAX", "TRIM", "REVERSED"]) {
-        const req = new ParamRequestRead();
-        req.targetSystem = vehicle.sysid;
-        req.targetComponent = vehicle.compid;
-        req.paramId = `SERVO${channel}_${suffix}`;
-        req.paramIndex = -1; // addressed by name, not index
-        sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-      }
-    }
-  }
-
   function handleSetServoPwm(channel: number, pwm: number) {
     if (!vehicle) return;
     const cmd = new DoSetServoCommand(vehicle.sysid, vehicle.compid);
     cmd.instance = channel;
     cmd.pwm = pwm;
     sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-  }
-
-  // Requests everything the Copter half of Motors & Servos needs: the vehicle's real motor
-  // layout (FRAME_CLASS/FRAME_TYPE, see frameDiagrams.ts) plus each output channel's reverse
-  // flag (SERVOx_REVERSED - a real, generic param every servo/motor output has, confirmed
-  // against ArduCopter's own apm.pdef.xml: "Reverse servo operation... reverse this output
-  // channel") - same self-contained by-name pattern as handleLoadServoOutputs above, rather
-  // than depending on the full parameter list.
-  function handleLoadMotorSetup() {
-    if (!vehicle) return;
-    for (const name of ["FRAME_CLASS", "FRAME_TYPE"]) {
-      const req = new ParamRequestRead();
-      req.targetSystem = vehicle.sysid;
-      req.targetComponent = vehicle.compid;
-      req.paramId = name;
-      req.paramIndex = -1;
-      sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-    }
-    for (let channel = 1; channel <= SERVO_CHANNEL_COUNT; channel++) {
-      const req = new ParamRequestRead();
-      req.targetSystem = vehicle.sysid;
-      req.targetComponent = vehicle.compid;
-      req.paramId = `SERVO${channel}_REVERSED`;
-      req.paramIndex = -1;
-      sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-    }
-  }
-
-  // Requests every candidate PID/rate-controller param name for the connected vehicle's
-  // family (see pidGroups.ts) - Plane's naming differs by firmware version, so both the
-  // modern and legacy candidates are requested and the UI shows whichever one actually
-  // responds, rather than this app guessing which scheme the vehicle runs.
-  function handleLoadPidParams() {
-    if (!vehicle) return;
-    const config = pidConfigForVehicleFolder(vehicleFolderForMavType(vehicle.type));
-    if (!config) return;
-    for (const name of allPidCandidateNames(config)) {
-      const req = new ParamRequestRead();
-      req.targetSystem = vehicle.sysid;
-      req.targetComponent = vehicle.compid;
-      req.paramId = name;
-      req.paramIndex = -1;
-      sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-    }
-  }
-
-  // Requests the primary battery monitor's config params by name - see
-  // BatteryConfigSection.tsx's BATTERY_PARAM_NAMES for the real param list.
-  function handleLoadBatteryConfig() {
-    if (!vehicle) return;
-    for (const name of BATTERY_PARAM_NAMES) {
-      const req = new ParamRequestRead();
-      req.targetSystem = vehicle.sysid;
-      req.targetComponent = vehicle.compid;
-      req.paramId = name;
-      req.paramIndex = -1;
-      sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-    }
-  }
-
-  // Requests every OSD parameter by name - see osdSetupParams.ts for the real, generic
-  // (not vehicle-specific) OSD_TYPE/OSD_UNITS/OSD_CHAN + per-screen element list, confirmed
-  // against ArduCopter's own apm.pdef.xml.
-  function handleLoadOsdSetup() {
-    if (!vehicle) return;
-    for (const name of allOsdParamNames()) {
-      const req = new ParamRequestRead();
-      req.targetSystem = vehicle.sysid;
-      req.targetComponent = vehicle.compid;
-      req.paramId = name;
-      req.paramIndex = -1;
-      sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-    }
-  }
-
-  // Requests every VTX_* parameter by name - see vtxSetupParams.ts for the real, generic
-  // (not vehicle-specific) list, confirmed against ArduCopter's own apm.pdef.xml.
-  function handleLoadVtxSetup() {
-    if (!vehicle) return;
-    for (const name of VTX_PARAM_NAMES) {
-      const req = new ParamRequestRead();
-      req.targetSystem = vehicle.sysid;
-      req.targetComponent = vehicle.compid;
-      req.paramId = name;
-      req.paramIndex = -1;
-      sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-    }
-  }
-
-  // Requests the flight-mode-switch and per-channel option params by name - see
-  // rcSetupParams.ts for the real, generic (not vehicle-specific) param list.
-  function handleLoadRcSetup() {
-    if (!vehicle) return;
-    for (const name of RC_SETUP_PARAM_NAMES) {
-      const req = new ParamRequestRead();
-      req.targetSystem = vehicle.sysid;
-      req.targetComponent = vehicle.compid;
-      req.paramId = name;
-      req.paramIndex = -1;
-      sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-    }
   }
 
   // Reboots the flight controller - needed for RebootRequired params (e.g. FRAME_CLASS/
@@ -1285,46 +1160,26 @@ export function ArduPilotSetupView() {
 
   const isConnected = status === "connected";
 
-  // Auto-loads a setup section's current config the moment the user navigates into it (or the
-  // moment a connection completes while already sitting on one), instead of requiring a manual
-  // "Load" click every visit - matches Mission Planner's own behavior of showing the vehicle's
-  // saved OSD/RC/battery/PID/VTX config immediately on connect. The manual Load buttons stay in
-  // each section too, as an explicit "reload" action (e.g. after changing something via another
-  // GCS). Deliberately excludes the calibration tabs (compass/accel/RC/ESC) - those actively
-  // START a procedure rather than just reading config (ESC cal spins up throttle after a
-  // reboot), so auto-triggering one just from opening its tab would be a real safety hazard, not
-  // just an inconvenience. Depends only on activeSection/status, not `vehicle` itself, since a
-  // new vehicle object is set on every heartbeat (~1/s) - depending on it directly would re-fire
-  // every tick instead of once per navigation/connection.
+  // Downloads the FULL parameter list once per connection (not per tab/section) - matches
+  // Mission Planner's own behavior of fetching every parameter immediately on connect, and is
+  // the only approach that's actually reliable over a real vehicle's link. Every setup section
+  // used to send its own burst of individual by-name PARAM_REQUEST_READ packets instead - fine
+  // against Dev Mode's lossless simulated replies, but OSD Setup alone is ~780 individual
+  // requests (65 elements x 4 screens x 3 fields each) - a real serial/telemetry link can't
+  // reliably push a burst that size through, so most of them silently got lost (reported as
+  // "OSD Setup shows a black screen even though the vehicle already has one configured"). Every
+  // section now just reads from the same store this populates, showing a progress bar (see
+  // ParamLoadProgress) while it's still incomplete rather than gating on its own "Load" click.
+  // Guarded by a ref (not state) so it fires exactly once per connection regardless of which tab
+  // is open when the vehicle's heartbeat first arrives - same pattern as streamsRequestedRef
+  // above, and depends on `vehicle` directly for the same reason: the ref guard, not the
+  // dependency array, is what prevents this from re-firing every heartbeat.
   useEffect(() => {
-    if (status !== "connected" || !vehicle) return;
-    switch (activeSection) {
-      case "rcSetup":
-        handleLoadRcSetup();
-        break;
-      case "motorsSetup":
-        // Only Plane's flat servo table (MotorsServosSection's own "onLoad") - Copter's frame
-        // wizard (handleLoadMotorSetup) has its own step-based flow (Frame/Test&Reverse/Reboot)
-        // that doesn't fit a single blind auto-load the way every other section here does.
-        handleLoadServoOutputs();
-        break;
-      case "batteryConfig":
-        handleLoadBatteryConfig();
-        break;
-      case "pidTune":
-        handleLoadPidParams();
-        break;
-      case "osdSetup":
-        handleLoadOsdSetup();
-        break;
-      case "vtxSetup":
-        handleLoadVtxSetup();
-        break;
-      default:
-        break;
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSection, status]);
+    if (status !== "connected" || !vehicle || fullParamsRequestedRef.current) return;
+    fullParamsRequestedRef.current = true;
+    handleLoadParameters();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleLoadParameters intentionally excluded: the ref guard above, not this array, is what prevents re-firing (same pattern as streamsRequestedRef)
+  }, [status, vehicle]);
 
   return (
     <div className="ardupilot-setup-theme flex h-svh flex-col overflow-hidden">
@@ -1438,7 +1293,7 @@ export function ArduPilotSetupView() {
             <RcSetupSection
               vehicleType={vehicle?.type ?? MavType.GENERIC}
               live={rcCalLive}
-              onLoad={handleLoadRcSetup}
+              onLoad={handleLoadParameters}
               onSetParam={handleSetParam}
             />
           ) : activeSection === "escCal" ? (
@@ -1447,9 +1302,9 @@ export function ArduPilotSetupView() {
             <MotorsServosSection
               vehicleType={vehicle?.type ?? MavType.GENERIC}
               servoOutputs={servoOutputs}
-              onLoad={handleLoadServoOutputs}
+              onLoad={handleLoadParameters}
               onTestServo={handleSetServoPwm}
-              onLoadMotorSetup={handleLoadMotorSetup}
+              onLoadMotorSetup={handleLoadParameters}
               onSetFrameParam={handleSetParam}
               onTestMotor={handleTestMotor}
               onReboot={handleReboot}
@@ -1458,15 +1313,15 @@ export function ArduPilotSetupView() {
             <BatteryConfigSection
               vehicleType={vehicle?.type ?? MavType.GENERIC}
               battery={battery}
-              onLoad={handleLoadBatteryConfig}
+              onLoad={handleLoadParameters}
               onSetParam={handleSetParam}
             />
           ) : activeSection === "pidTune" ? (
-            <PidTuneSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoad={handleLoadPidParams} onSetParam={handleSetParam} />
+            <PidTuneSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoad={handleLoadParameters} onSetParam={handleSetParam} />
           ) : activeSection === "osdSetup" ? (
-            <OsdSetupSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoad={handleLoadOsdSetup} onSetParam={handleSetParam} />
+            <OsdSetupSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoad={handleLoadParameters} onSetParam={handleSetParam} />
           ) : activeSection === "vtxSetup" ? (
-            <VtxSetupSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoad={handleLoadVtxSetup} onSetParam={handleSetParam} />
+            <VtxSetupSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoad={handleLoadParameters} onSetParam={handleSetParam} />
           ) : null}
         </main>
       </div>

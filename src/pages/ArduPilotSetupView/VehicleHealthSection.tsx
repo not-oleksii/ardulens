@@ -1,6 +1,7 @@
 import { CircleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { sensorLabel } from "../../mavlink/labels/labels";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
+import { sensorHint, sensorLabel } from "../../mavlink/labels/labels";
 import { MavSeverity, MavSysStatusSensor } from "../../mavlink/registry/registry";
 import type { StatusTextEntry } from "../../stores/mavlinkStatusTextStore/types";
 import type { SensorHealthTelemetry } from "../../stores/mavlinkTelemetryStore/types";
@@ -88,12 +89,38 @@ export function VehicleHealthSection({ sensorHealth, messages }: VehicleHealthSe
       )}
       {unhealthySensors.length > 0 && (
         <ul className="flex flex-wrap gap-x-3 gap-y-1">
-          {unhealthySensors.map((bit) => (
-            <li key={bit} className="flex items-center gap-1 font-semibold text-destructive">
-              <CircleAlert className="h-3 w-3" aria-hidden="true" />
-              {sensorLabel(t, bit)}
-            </li>
-          ))}
+          {unhealthySensors.map((bit) => {
+            const hint = sensorHint(t, bit);
+            const badgeClassName = "flex items-center gap-1 font-semibold text-destructive";
+            // Every bit in SENSOR_ORDER has a real hint (see labels.ts's sensorHint) - the null
+            // case is only a defensive fallback for a future/unrecognized sensor code, matching
+            // sensorLabel's own "unknown" fallback pattern.
+            if (!hint) {
+              return (
+                <li key={bit} className={badgeClassName}>
+                  <CircleAlert className="h-3 w-3" aria-hidden="true" />
+                  {sensorLabel(t, bit)}
+                </li>
+              );
+            }
+            return (
+              <li key={bit}>
+                <HoverCard>
+                  <HoverCardTrigger asChild>
+                    <button type="button" className={`${badgeClassName} cursor-default`}>
+                      <CircleAlert className="h-3 w-3" aria-hidden="true" />
+                      {sensorLabel(t, bit)}
+                    </button>
+                  </HoverCardTrigger>
+                  <HoverCardContent className="w-80 text-xs">
+                    <p className="font-semibold text-destructive">{sensorLabel(t, bit)}</p>
+                    <p className="mt-1.5 text-muted-foreground">{hint.cause}</p>
+                    <p className="mt-1.5">{hint.fix}</p>
+                  </HoverCardContent>
+                </HoverCard>
+              </li>
+            );
+          })}
         </ul>
       )}
       {failureMessages.map((message, i) => (

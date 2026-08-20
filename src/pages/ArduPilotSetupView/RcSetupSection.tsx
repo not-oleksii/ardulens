@@ -9,6 +9,7 @@ import type { MavParamType, MavType } from "../../mavlink/registry/registry";
 import { fetchParamDocs, vehicleFolderForMavType, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
+import { ParamLoadProgress } from "./ParamLoadProgress";
 import { FLTMODE_BAND_RANGE_LABELS, fltModeBandIndex } from "./rcBands";
 import { colorForRcChannel } from "./rcChannelColors";
 import {
@@ -40,7 +41,6 @@ export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetu
   const { t } = useTranslation();
   const params = useMavlinkParameterStore((s) => s.params);
   const [docs, setDocs] = useState<ParamDocsMap | null>(null);
-  const [requested, setRequested] = useState(false);
   const [editingName, setEditingName] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
   const [pendingChanges, setPendingChanges] = useState<Record<string, number>>({});
@@ -67,11 +67,6 @@ export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetu
       cancelled = true;
     };
   }, [vehicleFolder]);
-
-  function handleLoadClick() {
-    setRequested(true);
-    onLoad();
-  }
 
   function stageChange(name: string, value: number) {
     const original = params[name]?.value;
@@ -100,7 +95,6 @@ export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetu
   }
 
   const hasAnyLoaded = RC_SETUP_PARAM_NAMES.some((name) => params[name] !== undefined);
-  const hasStarted = requested || hasAnyLoaded;
   const pendingEntries = Object.entries(pendingChanges);
   const hasPendingChanges = pendingEntries.length > 0;
 
@@ -260,7 +254,7 @@ export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetu
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.rcSetup.heading")}</h3>
         <div className="flex items-center gap-2">
-          <Button type="button" size="sm" onClick={handleLoadClick}>
+          <Button type="button" size="sm" variant="outline" onClick={onLoad}>
             {t("ardupilotSetup.rcSetup.load")}
           </Button>
           {hasPendingChanges && (
@@ -276,7 +270,9 @@ export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetu
         </div>
       </div>
 
-      {!hasStarted ? (
+      <ParamLoadProgress />
+
+      {!hasAnyLoaded ? (
         <p className="shrink-0 text-xs text-muted-foreground">{t("ardupilotSetup.rcSetup.notLoaded")}</p>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">

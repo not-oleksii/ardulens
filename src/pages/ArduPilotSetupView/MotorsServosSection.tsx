@@ -10,6 +10,7 @@ import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mav
 import { ComingSoonSection } from "./ComingSoonSection";
 import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
 import { MotorsCopterSection } from "./MotorsCopterSection";
+import { ParamLoadProgress } from "./ParamLoadProgress";
 import { colorForRcChannel } from "./rcChannelColors";
 
 interface MotorsServosSectionProps {
@@ -154,6 +155,22 @@ export function MotorsServosSection({
     onSetFrameParam(name, parsed, type);
   }
 
+  // Nudges Min/Trim/Max by arrow key instead of requiring a full retype for every adjustment -
+  // 1us per press, 10us with Shift for coarser moves. Commits immediately on each press (rather
+  // than waiting for blur/Enter) so a held-down surface visibly moves in real time, the same way
+  // a transmitter's own trim buttons behave, clamped to the same 900-2100us PWM range the live
+  // output bar above already assumes.
+  function nudgeEditingValue(channel: number, field: EditableField, direction: 1 | -1, coarse: boolean) {
+    const name = `SERVO${channel}_${field}`;
+    const current = Number(editingValue);
+    const base = Number.isFinite(current) ? current : (params[name]?.value ?? 0);
+    const step = coarse ? 10 : 1;
+    const next = Math.min(SCALE_MAX, Math.max(SCALE_MIN, base + direction * step));
+    setEditingValue(String(next));
+    const type = params[name]?.type ?? MavParamType.INT16;
+    onSetFrameParam(name, next, type);
+  }
+
   function editableNumberCell(channel: number, field: EditableField, value: number) {
     const isEditing = editingCell?.channel === channel && editingCell.field === field;
     const name = `SERVO${channel}_${field}`;
@@ -161,12 +178,17 @@ export function MotorsServosSection({
       return (
         <Input
           autoFocus
+          title={t("ardupilotSetup.motorsServos.arrowKeyHint")}
           value={editingValue}
           onChange={(e) => setEditingValue(e.target.value)}
           onBlur={commitEdit}
           onKeyDown={(e) => {
             if (e.key === "Enter") commitEdit();
             if (e.key === "Escape") setEditingCell(null);
+            if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+              e.preventDefault();
+              nudgeEditingValue(channel, field, e.key === "ArrowUp" ? 1 : -1, e.shiftKey);
+            }
           }}
           className="h-7 w-20 font-mono text-xs"
         />
@@ -186,7 +208,7 @@ export function MotorsServosSection({
     <div className="flex h-full flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.motorsServos.heading")}</h3>
-        <Button type="button" size="sm" onClick={onLoad}>
+        <Button type="button" size="sm" variant="outline" onClick={onLoad}>
           {t("ardupilotSetup.motorsServos.load")}
         </Button>
       </div>
@@ -194,6 +216,8 @@ export function MotorsServosSection({
       <Alert variant="warning" className="shrink-0">
         <AlertDescription>{t("ardupilotSetup.motorsServos.safetyWarning")}</AlertDescription>
       </Alert>
+
+      <ParamLoadProgress />
 
       {!hasLoaded ? (
         <p className="text-xs text-muted-foreground">{t("ardupilotSetup.motorsServos.notLoaded")}</p>

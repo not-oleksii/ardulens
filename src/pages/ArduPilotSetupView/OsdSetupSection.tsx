@@ -9,6 +9,7 @@ import type { MavParamType, MavType } from "../../mavlink/registry/registry";
 import { fetchParamDocs, vehicleFolderForMavType, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
+import { ParamLoadProgress } from "./ParamLoadProgress";
 import {
   ALIGNMENT_ANCHORS,
   alignmentAnchorLabel,
@@ -39,7 +40,6 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
   const { t } = useTranslation();
   const params = useMavlinkParameterStore((s) => s.params);
   const [docs, setDocs] = useState<ParamDocsMap | null>(null);
-  const [requested, setRequested] = useState(false);
   const [pendingChanges, setPendingChanges] = useState<Record<string, number>>({});
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [activeScreen, setActiveScreen] = useState<OsdScreenNumber>(1);
@@ -62,11 +62,6 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
       cancelled = true;
     };
   }, [vehicleFolder]);
-
-  function handleLoadClick() {
-    setRequested(true);
-    onLoad();
-  }
 
   function shownValue(name: string): number | undefined {
     return pendingChanges[name] ?? params[name]?.value;
@@ -99,7 +94,6 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
   }
 
   const hasAnyLoaded = allOsdParamNames().some((name) => params[name] !== undefined);
-  const hasStarted = requested || hasAnyLoaded;
   const pendingEntries = Object.entries(pendingChanges);
   const hasPendingChanges = pendingEntries.length > 0;
 
@@ -191,7 +185,7 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.osdSetup.heading")}</h3>
         <div className="flex items-center gap-2">
-          <Button type="button" size="sm" onClick={handleLoadClick}>
+          <Button type="button" size="sm" variant="outline" onClick={onLoad}>
             {t("ardupilotSetup.osdSetup.load")}
           </Button>
           {hasPendingChanges && (
@@ -207,7 +201,9 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
         </div>
       </div>
 
-      {!hasStarted ? (
+      <ParamLoadProgress />
+
+      {!hasAnyLoaded ? (
         <p className="shrink-0 text-xs text-muted-foreground">{t("ardupilotSetup.osdSetup.notLoaded")}</p>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
@@ -336,6 +332,8 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
                 selectedKey={selectedElementKey}
                 onSelect={setSelectedElementKey}
                 onMove={handleMoveElement}
+                osdType={shownValue("OSD_TYPE")}
+                txtRes={shownValue(`OSD${activeScreen}_TXT_RES`)}
               />
               <p className="shrink-0 text-xs text-muted-foreground">{t("ardupilotSetup.osdSetup.dragHint")}</p>
 

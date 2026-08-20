@@ -2,10 +2,16 @@
 
 /* Fonts for the ArduPilot Setup cockpit theme only - self-hosted so the app keeps working
    fully offline. Only the weights actually used are imported (400/700 for UI text, 400 for
-   the monospace telemetry values - PT Mono only ships weight 400). */
+   the monospace telemetry values - PT Mono only ships weight 400). Share Tech Mono is a
+   digital-display-style monospace used only for the OSD Setup layout preview's chip labels
+   (see OsdScreenLayout.tsx and its --font-osd variable below) - real OSD hardware (MAX7456,
+   Betaflight/INAV canvas fonts, Walksnail/HD digital fonts) all render a bold, blocky, high-
+   contrast monospace, not this app's normal UI font, so using the same UI font there would
+   look convincingly wrong even with the correct grid/resolution.  */
 @import "@fontsource/exo-2/400.css";
 @import "@fontsource/exo-2/700.css";
 @import "@fontsource/pt-mono/400.css";
+@import "@fontsource/share-tech-mono/400.css";
 
 /* Tailwind's Preflight resets button cursor to the browser default instead of
    pointer - every clickable control in this app is a real <button>, so this
@@ -81,6 +87,7 @@
 .ardupilot-setup-theme {
   --font-sans: "Exo 2", system-ui, "Segoe UI", Roboto, sans-serif;
   --font-mono: "PT Mono", ui-monospace, Consolas, monospace;
+  --font-osd: "Share Tech Mono", ui-monospace, Consolas, monospace;
   font-family: var(--font-sans);
 }
 
@@ -110,6 +117,7 @@
 
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
+  --font-osd: var(--font-osd);
 }
 
 * {

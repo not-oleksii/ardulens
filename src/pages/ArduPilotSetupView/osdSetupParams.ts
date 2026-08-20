@@ -71,6 +71,49 @@ export function clampOsdY(y: number): number {
   return Math.min(OSD_GRID_ROWS - 1, Math.max(0, Math.round(y)));
 }
 
+// Real MAX7456 hardware (analog OSD_TYPE=1) physically only has 30 character columns, and
+// either 16 rows (PAL) or 13 rows (NTSC) - fixed by the chip itself, confirmed against Maxim's
+// own MAX7456 datasheet, not assumed. ArduPilot's X/Y parameters still accept the full 0-59/0-21
+// range on an analog board (nothing stops you from *setting* OSD1_ALTITUDE_X=45), but an element
+// placed past column 29 or row 15/12 simply never appears on screen - so the visual preview
+// marks this real hardware limit rather than implying the full parameter range is always visible.
+export const ANALOG_SAFE_COLS = 30;
+export const ANALOG_SAFE_ROWS_NTSC = 13;
+export const ANALOG_SAFE_ROWS_PAL = 16;
+
+// A digital/MSP DisplayPort screen's real visible grid when OSD{n}_TXT_RES=1 ("HD" text
+// resolution) - confirmed against Mission Planner's own OSD layout editor, which draws this
+// exact 50x18 box (labelled "50x18" in its own UI) inside the full 60x22 parameter range for a
+// real vehicle's Screen 1 with OSD1_TXT_RES=1. TXT_RES=0 ("SD") isn't covered here - Mission
+// Planner's own editor wasn't checked against a real SD-digital screen, so that case is left as
+// the generic full-range preview rather than guessing a size.
+export const DIGITAL_HD_COLS = 50;
+export const DIGITAL_HD_ROWS = 18;
+
+export type OsdPreviewKind = "analog" | "digital" | "generic";
+
+// OSD_TYPE codes, per OSD_TYPE_FALLBACK_VALUES above: 1=MAX7456 is the one case with a
+// confidently-known physical character grid (real analog hardware). 3=MSP and 5=MSP_DISPLAYPORT
+// are digital/canvas systems (e.g. Walksnail, HDZero, DJI O3) whose actual resolution is
+// negotiated with the goggles/VTX at runtime over MSP. 0=None/2=SITL/4=TXONLY aren't real
+// physical displays this app can characterize, so they fall back to the generic full
+// parameter-range preview.
+export function osdPreviewKind(osdType: number | undefined): OsdPreviewKind {
+  if (osdType === 1) return "analog";
+  if (osdType === 3 || osdType === 5) return "digital";
+  return "generic";
+}
+
+// The real visible character grid to overlay inside the full 60x22 parameter range, or null when
+// there's no confidently-known size for this combination (in which case the preview shows the
+// full range with no overlay, rather than a fabricated box). See DIGITAL_HD_COLS/ROWS's own
+// comment for where the digital HD size comes from.
+export function osdVisibleSafeArea(osdType: number | undefined, txtRes: number | undefined): { cols: number; rows: number } | null {
+  if (osdType === 1) return { cols: ANALOG_SAFE_COLS, rows: ANALOG_SAFE_ROWS_PAL };
+  if ((osdType === 3 || osdType === 5) && txtRes === 1) return { cols: DIGITAL_HD_COLS, rows: DIGITAL_HD_ROWS };
+  return null;
+}
+
 // A Betaflight/INAV-style 3x3 "quick position" preset - snaps an element to one of the 9
 // obvious screen anchors instead of hand-typing X/Y. The margins are a fixed best-effort inset,
 // not an exact flush-right/flush-bottom fit: real element text width varies by value and by
