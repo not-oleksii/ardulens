@@ -502,6 +502,8 @@
       "connect": "Connect",
       "disconnect": "Disconnect",
       "reboot": "Reboot",
+      "rebootAccepted": "Reboot command sent - vehicle should reconnect shortly.",
+      "rebootRejected": "Reboot rejected: {{result}}",
       "devMode": "Dev Mode",
       "devModeCopter": "Dev Mode (Copter)",
       "devFramePresetLabel": "Dev Copter frame type",

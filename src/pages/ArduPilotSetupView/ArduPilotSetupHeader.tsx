@@ -4,7 +4,10 @@ import { Link } from "react-router";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { VERIFIED_FRAME_PRESETS } from "../../mavlink/frameDiagrams/frameDiagrams";
+import { mavResultLabel } from "../../mavlink/labels/labels";
+import { MavResult } from "../../mavlink/registry/registry";
 import type { SerialPortInfo } from "../../services/mavlinkTransport/types";
 
 const SELECT_CLASSNAME =
@@ -36,6 +39,7 @@ export interface ArduPilotSetupHeaderProps {
   onConnect: () => void;
   onDisconnect: () => void;
   onReboot: () => void;
+  rebootLastCommandAck: MavResult | null;
   onDevMode: () => void;
   onDevModeCopter: () => void;
   devFramePresetKey: string;
@@ -68,6 +72,7 @@ export function ArduPilotSetupHeader({
   onConnect,
   onDisconnect,
   onReboot,
+  rebootLastCommandAck,
   onDevMode,
   onDevModeCopter,
   devFramePresetKey,
@@ -201,6 +206,20 @@ export function ArduPilotSetupHeader({
             <RotateCw className="h-3.5 w-3.5" />
             {t("ardupilotSetup.connect.reboot")}
           </Button>
+          {rebootLastCommandAck !== null && (
+            // Without this, a rejected reboot (e.g. DENIED while armed) looked exactly like the
+            // button doing nothing at all - nothing else in the UI changes on a NACK.
+            <span
+              className={cn(
+                "shrink-0 text-xs",
+                rebootLastCommandAck === MavResult.ACCEPTED ? "text-muted-foreground" : "text-destructive",
+              )}
+            >
+              {rebootLastCommandAck === MavResult.ACCEPTED
+                ? t("ardupilotSetup.connect.rebootAccepted")
+                : t("ardupilotSetup.connect.rebootRejected", { result: mavResultLabel(t, rebootLastCommandAck) })}
+            </span>
+          )}
           <Button type="button" size="sm" variant="destructive" className="shrink-0" onClick={onDisconnect}>
             {t("ardupilotSetup.connect.disconnect")}
           </Button>
