@@ -448,6 +448,7 @@
     "vtxSetup": {
       "heading": "VTX Setup",
       "description": "Configure the vehicle's on-board video transmitter (SmartAudio/Tramp/CRSF/MSP, handled natively by the flight controller) - band, channel, power, and control options.",
+      "supportDisclaimer": "These settings only take effect if your VTX has a control link to the flight controller (SmartAudio, Tramp Telemetry, CRSF, or MSP VTX control - see VTX Types below). A plain analog VTX with no smart link, or a digital HD system that only speaks MSP DisplayPort for the OSD overlay (common for Walksnail/HDZero/DJI goggles), won't react to anything set here - check your VTX/goggles' own menu instead.",
       "load": "Load VTX Setup",
       "notLoaded": "VTX settings haven't been loaded yet.",
       "reset": "Reset",
