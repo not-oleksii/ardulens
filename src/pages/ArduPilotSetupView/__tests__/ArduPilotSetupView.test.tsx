@@ -1256,21 +1256,16 @@ describe("ArduPilotSetupView", () => {
       expect(screen.getByText("Виходи серво ще не завантажено.")).toBeInTheDocument();
     });
 
-    it("requests SERVOx_FUNCTION/MIN/MAX/TRIM by name for all 16 channels when Load is clicked", async () => {
-      const invoked = vi.fn();
-      mockBackend(invoked);
-      const { user } = await connectPlaneAndOpenMotors();
-
-      await user.click(screen.getByRole("button", { name: "Завантажити виходи серво" }));
-
-      const byNameRequests = invoked.mock.calls.filter(([cmd, payload]) => {
+    function servoByNameRequests(invoked: ReturnType<typeof vi.fn>) {
+      return invoked.mock.calls.filter(([cmd, payload]) => {
         if (cmd !== "send_bytes") return false;
         const bytes = (payload as { bytes: number[] }).bytes;
         return bytes[7] === ParamRequestRead.MSG_ID;
       });
-      expect(byNameRequests.length).toBe(16 * 5);
+    }
 
-      const requestedNames = new Set(
+    function requestedParamNames(byNameRequests: ReturnType<typeof vi.fn>["mock"]["calls"]) {
+      return new Set(
         byNameRequests.map(([, payload]) => {
           const bytes = (payload as { bytes: number[] }).bytes;
           // param_id: char[16] at payload offset 4 (after param_index:int16, target_system/
@@ -1280,8 +1275,32 @@ describe("ArduPilotSetupView", () => {
           return String.fromCharCode(...nameBytes.slice(0, nullIndex === -1 ? undefined : nullIndex));
         }),
       );
+    }
+
+    it("requests SERVOx_FUNCTION/MIN/MAX/TRIM/REVERSED by name for all 16 channels automatically once the tab opens", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      await connectPlaneAndOpenMotors();
+
+      const byNameRequests = servoByNameRequests(invoked);
+      expect(byNameRequests.length).toBe(16 * 5);
+
+      const requestedNames = requestedParamNames(byNameRequests);
       expect(requestedNames.has("SERVO1_FUNCTION")).toBe(true);
       expect(requestedNames.has("SERVO16_TRIM")).toBe(true);
+      expect(requestedNames.has("SERVO1_REVERSED")).toBe(true);
+    });
+
+    it("the Load button re-sends the same by-name requests as an explicit reload", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectPlaneAndOpenMotors();
+      invoked.mockClear(); // drop the auto-load-on-navigate batch, isolate the manual click
+
+      await user.click(screen.getByRole("button", { name: "Завантажити виходи серво" }));
+
+      const requestedNames = requestedParamNames(servoByNameRequests(invoked));
+      expect(requestedNames.has("SERVO1_FUNCTION")).toBe(true);
       expect(requestedNames.has("SERVO1_REVERSED")).toBe(true);
     });
 
@@ -2166,8 +2185,11 @@ describe("ArduPilotSetupView", () => {
       await user.click(screen.getByRole("button", { name: "Зверху ліворуч" }));
 
       expect(await screen.findByRole("button", { name: "Зберегти все (2)" })).toBeInTheDocument();
-      expect(within(row).getByDisplayValue("2")).toBeInTheDocument();
-      expect(within(row).getByDisplayValue("1")).toBeInTheDocument();
+      // X/Y now live in the Quick Position panel (not the element list, which is a flat
+      // Element/Enabled checkbox list only - see the OSD UX pass that removed X/Y columns
+      // there to eliminate a horizontal scrollbar).
+      expect(screen.getByDisplayValue("2")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("1")).toBeInTheDocument();
     });
 
     it("dragging an enabled element's chip in the visual layout restages its X/Y", async () => {
@@ -2196,9 +2218,89 @@ describe("ArduPilotSetupView", () => {
       fireEvent.pointerMove(chip, { pointerId: 1, clientX: 300, clientY: 110 });
       fireEvent.pointerUp(chip, { pointerId: 1 });
 
-      const row = screen.getByRole("cell", { name: "Висота (AGL)" }).closest("tr")!;
-      expect(within(row).getByDisplayValue("30")).toBeInTheDocument();
-      expect(within(row).getByDisplayValue("11")).toBeInTheDocument();
+      // Restaged X/Y is verified via the chip's own title (X/Y no longer live in the element
+      // list, which is a flat checkbox list only) - "(30, 11)" reflects the dragged-to position.
+      expect(await screen.findByTitle("Висота (AGL) (30, 11)")).toBeInTheDocument();
+    });
+  });
+
+  describe("VTX setup", () => {
+    async function connectAndOpenVtxSetup() {
+      const view = getView();
+      await view.clickConnect();
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
+      await view.user.click(screen.getByRole("tab", { name: "Налаштування VTX" }));
+      return view;
+    }
+
+    it("shows a Load button and not-loaded message", async () => {
+      mockBackend();
+      await connectAndOpenVtxSetup();
+      expect(screen.getByRole("button", { name: "Завантажити налаштування VTX" })).toBeInTheDocument();
+      expect(screen.getByText("Налаштування VTX ще не завантажено.")).toBeInTheDocument();
+    });
+
+    it("requests every VTX_* param by name when Load is clicked", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenVtxSetup();
+
+      await user.click(screen.getByRole("button", { name: "Завантажити налаштування VTX" }));
+
+      const requestedNames = new Set(
+        invoked.mock.calls
+          .filter(([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamRequestRead.MSG_ID)
+          .map(([, payload]) => {
+            const bytes = (payload as { bytes: number[] }).bytes;
+            const nameBytes = bytes.slice(14, 14 + 16);
+            const nullIndex = nameBytes.indexOf(0);
+            return String.fromCharCode(...nameBytes.slice(0, nullIndex === -1 ? undefined : nullIndex));
+          }),
+      );
+      expect(requestedNames.has("VTX_ENABLE")).toBe(true);
+      expect(requestedNames.has("VTX_BAND")).toBe(true);
+      expect(requestedNames.has("VTX_TYPES")).toBe(true);
+    });
+
+    it("shows VTX_BAND as a labeled dropdown and VTX_FREQ read-only once loaded", async () => {
+      mockBackend();
+      await connectAndOpenVtxSetup();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("VTX_BAND", 4, MavParamType.INT8, 0, 1, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("VTX_FREQ", 5658, MavParamType.INT16, 1, 1, 2) });
+
+      const bandSelect = await screen.findByLabelText<HTMLSelectElement>("Діапазон");
+      expect(bandSelect.value).toBe("4");
+      expect(within(bandSelect).getByText("RaceBand")).toBeInTheDocument();
+      expect(screen.getByText("5658 MHz")).toBeInTheDocument();
+    });
+
+    it("toggling an Options bit stages a change and Save all sends PARAM_SET with the updated bitmask", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenVtxSetup();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("VTX_OPTIONS", 0, MavParamType.INT8, 0, 1, 1) });
+      await user.click(await screen.findByLabelText("Pitmode"));
+
+      const saveAllButton = await screen.findByRole("button", { name: "Зберегти все (1)" });
+      await user.click(saveAllButton);
+      const dialog = screen.getByRole("dialog");
+      expect(within(dialog).getByText("VTX_OPTIONS")).toBeInTheDocument();
+      expect(within(dialog).getByText("1")).toBeInTheDocument(); // bit 0 set
+
+      await user.click(within(dialog).getByRole("button", { name: "Зберегти" }));
+
+      await vi.waitFor(() => {
+        const setRequest = invoked.mock.calls.find(([cmd, payload]) => {
+          if (cmd !== "send_bytes") return false;
+          const bytes = (payload as { bytes: number[] }).bytes;
+          return bytes[7] === ParamSet.MSG_ID;
+        });
+        expect(setRequest).toBeDefined();
+      });
     });
   });
 

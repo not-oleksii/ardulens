@@ -186,11 +186,9 @@ export function MotorsServosSection({
     <div className="flex h-full flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.motorsServos.heading")}</h3>
-        {!hasLoaded && (
-          <Button type="button" size="sm" onClick={onLoad}>
-            {t("ardupilotSetup.motorsServos.load")}
-          </Button>
-        )}
+        <Button type="button" size="sm" onClick={onLoad}>
+          {t("ardupilotSetup.motorsServos.load")}
+        </Button>
       </div>
 
       <Alert variant="warning" className="shrink-0">

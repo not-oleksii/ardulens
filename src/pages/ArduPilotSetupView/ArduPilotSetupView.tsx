@@ -16,6 +16,8 @@ import { RcCalSection } from "./RcCalSection";
 import { RC_SETUP_PARAM_NAMES } from "./rcSetupParams";
 import { OsdSetupSection } from "./OsdSetupSection";
 import { allOsdParamNames } from "./osdSetupParams";
+import { VtxSetupSection } from "./VtxSetupSection";
+import { VTX_PARAM_NAMES } from "./vtxSetupParams";
 import { RcSetupSection } from "./RcSetupSection";
 import { TelemetrySection } from "./TelemetrySection";
 import { VehicleStatusBar } from "./VehicleStatusBar";
@@ -1197,6 +1199,20 @@ export function ArduPilotSetupView() {
     }
   }
 
+  // Requests every VTX_* parameter by name - see vtxSetupParams.ts for the real, generic
+  // (not vehicle-specific) list, confirmed against ArduCopter's own apm.pdef.xml.
+  function handleLoadVtxSetup() {
+    if (!vehicle) return;
+    for (const name of VTX_PARAM_NAMES) {
+      const req = new ParamRequestRead();
+      req.targetSystem = vehicle.sysid;
+      req.targetComponent = vehicle.compid;
+      req.paramId = name;
+      req.paramIndex = -1;
+      sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+    }
+  }
+
   // Requests the flight-mode-switch and per-channel option params by name - see
   // rcSetupParams.ts for the real, generic (not vehicle-specific) param list.
   function handleLoadRcSetup() {
@@ -1268,6 +1284,47 @@ export function ArduPilotSetupView() {
   }
 
   const isConnected = status === "connected";
+
+  // Auto-loads a setup section's current config the moment the user navigates into it (or the
+  // moment a connection completes while already sitting on one), instead of requiring a manual
+  // "Load" click every visit - matches Mission Planner's own behavior of showing the vehicle's
+  // saved OSD/RC/battery/PID/VTX config immediately on connect. The manual Load buttons stay in
+  // each section too, as an explicit "reload" action (e.g. after changing something via another
+  // GCS). Deliberately excludes the calibration tabs (compass/accel/RC/ESC) - those actively
+  // START a procedure rather than just reading config (ESC cal spins up throttle after a
+  // reboot), so auto-triggering one just from opening its tab would be a real safety hazard, not
+  // just an inconvenience. Depends only on activeSection/status, not `vehicle` itself, since a
+  // new vehicle object is set on every heartbeat (~1/s) - depending on it directly would re-fire
+  // every tick instead of once per navigation/connection.
+  useEffect(() => {
+    if (status !== "connected" || !vehicle) return;
+    switch (activeSection) {
+      case "rcSetup":
+        handleLoadRcSetup();
+        break;
+      case "motorsSetup":
+        // Only Plane's flat servo table (MotorsServosSection's own "onLoad") - Copter's frame
+        // wizard (handleLoadMotorSetup) has its own step-based flow (Frame/Test&Reverse/Reboot)
+        // that doesn't fit a single blind auto-load the way every other section here does.
+        handleLoadServoOutputs();
+        break;
+      case "batteryConfig":
+        handleLoadBatteryConfig();
+        break;
+      case "pidTune":
+        handleLoadPidParams();
+        break;
+      case "osdSetup":
+        handleLoadOsdSetup();
+        break;
+      case "vtxSetup":
+        handleLoadVtxSetup();
+        break;
+      default:
+        break;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSection, status]);
 
   return (
     <div className="ardupilot-setup-theme flex h-svh flex-col overflow-hidden">
@@ -1408,6 +1465,8 @@ export function ArduPilotSetupView() {
             <PidTuneSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoad={handleLoadPidParams} onSetParam={handleSetParam} />
           ) : activeSection === "osdSetup" ? (
             <OsdSetupSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoad={handleLoadOsdSetup} onSetParam={handleSetParam} />
+          ) : activeSection === "vtxSetup" ? (
+            <VtxSetupSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoad={handleLoadVtxSetup} onSetParam={handleSetParam} />
           ) : null}
         </main>
       </div>

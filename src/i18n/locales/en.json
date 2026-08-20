@@ -51,7 +51,8 @@
       "motorsSetup": "Motors Setup",
       "batteryConfig": "Battery Config",
       "pidTune": "PID Tune",
-      "osdSetup": "OSD Setup"
+      "osdSetup": "OSD Setup",
+      "vtxSetup": "VTX Setup"
     },
     "comingSoon": {
       "pidTune": "PID tuning - coming in a future release."
@@ -427,6 +428,44 @@
         "rcAnt": "RC active antenna",
         "rcLq": "RC link quality"
       }
+    },
+    "vtxSetup": {
+      "heading": "VTX Setup",
+      "description": "Configure the vehicle's on-board video transmitter (SmartAudio/Tramp/CRSF/MSP, handled natively by the flight controller) - band, channel, power, and control options.",
+      "load": "Load VTX Setup",
+      "notLoaded": "VTX settings haven't been loaded yet.",
+      "reset": "Reset",
+      "saveAll": "Save all ({{count}})",
+      "unlockedWarning": "Do not enable \"Unlocked\" unless you have the appropriate permissions in your jurisdiction to transmit at high power levels or on restricted frequencies.",
+      "enable": "Enable",
+      "band": "Band",
+      "channel": "Channel",
+      "power": "Power",
+      "maxPower": "Max power",
+      "freq": "Frequency",
+      "freqHint": "Read-only - derived from Band and Channel.",
+      "optionsHeading": "Options",
+      "typesHeading": "Control transports",
+      "options": {
+        "pitmode": "Pitmode",
+        "pitmodeUntilArmed": "Pitmode until armed",
+        "pitmodeWhenDisarmed": "Pitmode when disarmed",
+        "unlocked": "Unlocked",
+        "leadingZeroByte": "Add leading zero byte to requests",
+        "oneStopBit": "Use 1 stop-bit in SmartAudio",
+        "ignoreCrc": "Ignore CRC in SmartAudio",
+        "ignoreCrsfStatus": "Ignore status updates in CRSF",
+        "crsf": "CRSF",
+        "smartAudio": "SmartAudio",
+        "tramp": "Tramp",
+        "msp": "MSP"
+      },
+      "confirmTitle": "Apply VTX setup changes?",
+      "confirmDescription": "This will write {{count}} parameter(s) to the vehicle.",
+      "from": "From",
+      "to": "To",
+      "cancel": "Cancel",
+      "confirmSave": "Save"
     },
     "connect": {
       "modeSerial": "USB / Serial",
