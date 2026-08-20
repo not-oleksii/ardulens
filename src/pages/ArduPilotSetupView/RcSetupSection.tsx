@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -8,6 +8,7 @@ import { COPTER_MODE_NAMES, PLANE_MODE_NAMES } from "../../constants";
 import type { MavParamType, MavType } from "../../mavlink/registry/registry";
 import { fetchParamDocs, vehicleFolderForMavType, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
+import { AUX_FUNCTION_NAMES_COPTER, AUX_FUNCTION_NAMES_PLANE } from "./auxFunctionNames";
 import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
 import { ParamLoadProgress } from "./ParamLoadProgress";
 import { FLTMODE_BAND_RANGE_LABELS, FLTMODE_BAND_UPPER_BOUNDS, fltModeBandIndex } from "./rcBands";
@@ -19,8 +20,75 @@ import {
   RC_SETUP_PARAM_NAMES,
   RCMAP_AXIS_LABELS,
   RCMAP_PARAM_NAMES,
-  type AssignableFunction,
 } from "./rcSetupParams";
+
+const CUSTOM_CODE_VALUE = "custom";
+const NONE_VALUE = "none";
+const FLTMODE_VALUE = "fltmode";
+function rcmapValue(param: (typeof RCMAP_PARAM_NAMES)[number]): string {
+  return `rcmap:${param}`;
+}
+function optionValue(code: number | string): string {
+  return `option:${code}`;
+}
+
+interface FunctionOption {
+  value: string;
+  label: string;
+}
+
+/** Pure so ChannelFunctionSelect's own useMemo can skip rebuilding this on every render - the
+ *  aux-function list is ~140 entries, so with 16 channels' selects this is real DOM/diff weight,
+ *  and RcSetupSection re-renders at the live RC_CHANNELS telemetry rate (10Hz) while this tab is
+ *  open (see ArduPilotSetupView.tsx's rcCalLive). */
+function buildFunctionOptions(current: string, base: readonly FunctionOption[], customCodeLabel: string): FunctionOption[] {
+  if (current.startsWith("option:") && !base.some((item) => item.value === current)) {
+    return [...base, { value: current, label: `#${current.slice(7)}` }, { value: CUSTOM_CODE_VALUE, label: customCodeLabel }];
+  }
+  return [...base, { value: CUSTOM_CODE_VALUE, label: customCodeLabel }];
+}
+
+interface ChannelFunctionSelectProps {
+  channel: number;
+  current: string;
+  baseFunctionOptions: readonly FunctionOption[];
+  customCodeLabel: string;
+  ariaLabel: string;
+  onChange: (channel: number, raw: string) => void;
+}
+
+// Memoized so a live PWM tick elsewhere in the row (channel/pwm text, needle position) doesn't
+// force React to re-diff this select's ~140 <option> children - see buildFunctionOptions above.
+// Every prop here is either a primitive or a reference RcSetupSection keeps stable across pure
+// PWM-tick re-renders (baseFunctionOptions via useMemo, onChange via useCallback), so memo
+// actually bails out on those ticks instead of comparing objects that "happen" to be equal.
+const ChannelFunctionSelect = memo(function ChannelFunctionSelect({
+  channel,
+  current,
+  baseFunctionOptions,
+  customCodeLabel,
+  ariaLabel,
+  onChange,
+}: ChannelFunctionSelectProps) {
+  const options = useMemo(
+    () => buildFunctionOptions(current, baseFunctionOptions, customCodeLabel),
+    [current, baseFunctionOptions, customCodeLabel],
+  );
+  return (
+    <select
+      aria-label={ariaLabel}
+      value={current}
+      onChange={(e) => onChange(channel, e.target.value)}
+      className="h-7 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-xs"
+    >
+      {options.map((item) => (
+        <option key={item.value} value={item.value}>
+          {item.label}
+        </option>
+      ))}
+    </select>
+  );
+});
 
 interface RcSetupSectionProps {
   vehicleType: MavType;
@@ -54,11 +122,12 @@ export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetu
   const [editingValue, setEditingValue] = useState("");
   const [pendingChanges, setPendingChanges] = useState<Record<string, number>>({});
   const [confirmOpen, setConfirmOpen] = useState(false);
-  // Assignment flow: pick a function on the left, then click the channel bar it should apply
-  // to on the right (see rcSetupParams.ts's AssignableFunction).
-  const [selectedFunction, setSelectedFunction] = useState<AssignableFunction | null>(null);
-  const [functionFilter, setFunctionFilter] = useState("");
-  const [customCodeInput, setCustomCodeInput] = useState("");
+  // A channel picking "Custom code..." from its function <select> drops into this inline
+  // numeric-entry mode instead (see buildFunctionOptions) - used both as the fallback when the
+  // docs-driven RCx_OPTION enum hasn't loaded, and to reach a real firmware option code the
+  // fetched docs don't happen to list.
+  const [customCodeChannel, setCustomCodeChannel] = useState<number | null>(null);
+  const [customCodeValue, setCustomCodeValue] = useState("");
 
   const vehicleFolder = vehicleFolderForMavType(vehicleType);
   const modeNamesFallback = vehicleFolder === "ArduCopter" ? COPTER_MODE_NAMES : vehicleFolder === "ArduPlane" ? PLANE_MODE_NAMES : null;
@@ -77,18 +146,24 @@ export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetu
     };
   }, [vehicleFolder]);
 
-  function stageChange(name: string, value: number) {
-    const original = params[name]?.value;
-    setPendingChanges((prev) => {
-      const next = { ...prev };
-      if (original !== undefined && value === original) {
-        delete next[name];
-      } else {
-        next[name] = value;
-      }
-      return next;
-    });
-  }
+  // useCallback (not a plain function) so it stays referentially stable across the pure PWM-tick
+  // re-renders RcSetupSection gets at 10Hz while this tab is open - handleChannelFunctionChange
+  // below depends on it, and needs to stay stable itself for ChannelFunctionSelect's memo to work.
+  const stageChange = useCallback(
+    (name: string, value: number) => {
+      const original = params[name]?.value;
+      setPendingChanges((prev) => {
+        const next = { ...prev };
+        if (original !== undefined && value === original) {
+          delete next[name];
+        } else {
+          next[name] = value;
+        }
+        return next;
+      });
+    },
+    [params],
+  );
 
   function handleResetAll() {
     setPendingChanges({});
@@ -128,9 +203,28 @@ export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetu
     return values?.[value] ?? String(value);
   }
 
+  // Collapses adjacent FLTMODE slots that resolve to the same mode label into one wider overview-
+  // bar segment - a switch with fewer physical positions than 6 typically has several of its bands
+  // assigned the same mode (or left unconfigured), and showing 6 near-identical segments in that
+  // case obscures how many modes are actually reachable rather than clarifying it.
+  const notSelectedLabel = t("ardupilotSetup.rcSetup.notSelected");
+  const mergedFlightModeBands = FLIGHT_MODE_SLOT_NAMES.reduce<{ startIndex: number; endIndex: number; label: string }[]>(
+    (bands, name, i) => {
+      const label = modeLabelFor(name) ?? notSelectedLabel;
+      const last = bands[bands.length - 1];
+      if (last && last.label === label) {
+        last.endIndex = i;
+      } else {
+        bands.push({ startIndex: i, endIndex: i, label });
+      }
+      return bands;
+    },
+    [],
+  );
+
   function modeSelect(name: string, ownValues: Record<number, string> | undefined) {
     const entry = params[name];
-    if (!entry) return <span className="font-mono text-xs text-muted-foreground">-</span>;
+    if (!entry) return <span className="font-mono text-xs text-muted-foreground">{t("ardupilotSetup.rcSetup.notSelected")}</span>;
     const value = shownValue(name)!;
     const values = ownValues ?? modeNamesFallback ?? undefined;
     if (values) {
@@ -231,43 +325,98 @@ export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetu
 
   // The RCx_OPTION aux-function enum is identical across every channel - RC1_OPTION's own
   // real code->label list (fetched from ArduPilot's own docs) is the canonical source for the
-  // assignable-function list, rather than re-fetching or hardcoding it per channel.
-  const optionValues = docs?.RC1_OPTION?.values;
-  const filteredOptions = optionValues
-    ? Object.entries(optionValues).filter(([, label]) => label.toLowerCase().includes(functionFilter.toLowerCase()))
-    : [];
+  // assignable-function list, rather than re-fetching or hardcoding it per channel. Falls back to
+  // a bundled snapshot (see auxFunctionNames.ts) when the live docs fetch hasn't landed yet - most
+  // often because there's no internet access out where the vehicle actually is - so previously-set
+  // functions still show their real name instead of a bare code.
+  const auxFunctionNamesFallback =
+    vehicleFolder === "ArduCopter" ? AUX_FUNCTION_NAMES_COPTER : vehicleFolder === "ArduPlane" ? AUX_FUNCTION_NAMES_PLANE : null;
+  const optionValues = docs?.RC1_OPTION?.values ?? auxFunctionNamesFallback ?? undefined;
 
-  function isSelected(candidate: AssignableFunction): boolean {
-    if (!selectedFunction) return false;
-    if (candidate.kind !== selectedFunction.kind) return false;
-    if (candidate.kind === "rcmap" && selectedFunction.kind === "rcmap") return candidate.param === selectedFunction.param;
-    if (candidate.kind === "option" && selectedFunction.kind === "option") return candidate.code === selectedFunction.code;
-    return candidate.kind === "fltmodeChannel";
+  // The base <option> list every channel's function <select> shares - a channel-specific
+  // "current value not in this list" entry (an undocumented/newer-firmware option code) and the
+  // "Custom code..." escape hatch are appended per-channel by ChannelFunctionSelect/buildFunctionOptions.
+  const baseFunctionOptions = useMemo(() => {
+    const items: { value: string; label: string }[] = [
+      { value: NONE_VALUE, label: t("ardupilotSetup.rcSetup.notSelected") },
+      { value: FLTMODE_VALUE, label: t("ardupilotSetup.rcSetup.fltmodeChannelLong") },
+      ...RCMAP_PARAM_NAMES.map((param) => ({
+        value: rcmapValue(param),
+        label: t("ardupilotSetup.rcSetup.rcmapLabel", { axis: RCMAP_AXIS_LABELS[param] }),
+      })),
+    ];
+    if (optionValues) {
+      // Alphabetical, not raw parameter-code order - with 150+ aux functions, scanning for one
+      // by name is far easier than by whatever code ArduPilot happened to assign it.
+      const auxItems = Object.entries(optionValues)
+        .filter(([code]) => code !== "0") // code 0 ("Do Nothing") is exactly the NONE_VALUE state above
+        .map(([code, label]) => ({ value: optionValue(code), label }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+      items.push(...auxItems);
+    }
+    return items;
+  }, [optionValues, t]);
+  const customCodeLabel = t("ardupilotSetup.rcSetup.customCodeOption");
+
+  /** Which function (if any) a channel currently holds, as one of buildFunctionOptions's values. */
+  function currentFunctionValue(channel: number): string {
+    if (fltModeChannel === channel) return FLTMODE_VALUE;
+    for (const param of RCMAP_PARAM_NAMES) {
+      if (shownValue(param) === channel) return rcmapValue(param);
+    }
+    const optValue = shownValue(`RC${channel}_OPTION`);
+    if (optValue !== undefined && optValue !== 0) return optionValue(optValue);
+    return NONE_VALUE;
   }
 
-  function assignmentLabelsFor(channel: number): string[] {
-    const labels: string[] = [];
-    if (fltModeChannel === channel) labels.push(t("ardupilotSetup.rcSetup.fltmodeChannelShort"));
-    for (const rcmapName of RCMAP_PARAM_NAMES) {
-      if (shownValue(rcmapName) === channel) labels.push(RCMAP_AXIS_LABELS[rcmapName]);
-    }
-    const optName = `RC${channel}_OPTION`;
-    const optValue = shownValue(optName);
-    if (optValue !== undefined && optValue !== 0) {
-      labels.push(docs?.[optName]?.values?.[optValue] ?? String(optValue));
-    }
-    return labels;
-  }
+  // useCallback so this stays referentially stable across pure PWM-tick re-renders - it's passed
+  // as a prop to every channel's memoized ChannelFunctionSelect (see that component's own comment
+  // for why). Reads pendingChanges/params directly (not via the shownValue helper above) so its
+  // dependency array can name them explicitly instead of depending on shownValue's own identity,
+  // which is rebuilt every render and would defeat the memoization entirely.
+  const handleChannelFunctionChange = useCallback(
+    (channel: number, raw: string) => {
+      const optName = `RC${channel}_OPTION`;
+      const readValue = (name: string) => pendingChanges[name] ?? params[name]?.value;
 
-  function assignToChannel(channel: number) {
-    if (!selectedFunction) return;
-    if (selectedFunction.kind === "fltmodeChannel") {
-      stageChange("FLTMODE_CH", channel);
-    } else if (selectedFunction.kind === "rcmap") {
-      stageChange(selectedFunction.param, channel);
-    } else {
-      stageChange(`RC${channel}_OPTION`, selectedFunction.code);
-    }
+      if (raw === CUSTOM_CODE_VALUE) {
+        const current = readValue(optName);
+        setCustomCodeChannel(channel);
+        setCustomCodeValue(current !== undefined && current !== 0 ? String(current) : "");
+        return;
+      }
+
+      const currentOpt = readValue(optName);
+      const clearOption = () => {
+        if (currentOpt !== undefined && currentOpt !== 0) stageChange(optName, 0);
+      };
+      const clearFltmodeIfHeld = () => {
+        if (fltModeChannel === channel) stageChange("FLTMODE_CH", 0);
+      };
+
+      if (raw === FLTMODE_VALUE) {
+        clearOption();
+        stageChange("FLTMODE_CH", channel);
+      } else if (raw.startsWith("rcmap:")) {
+        clearOption();
+        clearFltmodeIfHeld();
+        stageChange(raw.slice("rcmap:".length), channel);
+      } else if (raw.startsWith("option:")) {
+        clearFltmodeIfHeld();
+        stageChange(optName, Number(raw.slice("option:".length)));
+      } else {
+        clearOption();
+        clearFltmodeIfHeld();
+      }
+    },
+    [pendingChanges, params, fltModeChannel, stageChange],
+  );
+
+  function commitCustomCode(channel: number) {
+    setCustomCodeChannel(null);
+    const parsed = Number(customCodeValue);
+    if (!Number.isFinite(parsed)) return;
+    handleChannelFunctionChange(channel, optionValue(parsed));
   }
 
   return (
@@ -297,130 +446,67 @@ export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetu
         <p className="shrink-0 text-xs text-muted-foreground">{t("ardupilotSetup.rcSetup.notLoaded")}</p>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
-          <p className="shrink-0 text-xs text-muted-foreground">{t("ardupilotSetup.rcSetup.assignIntro")}</p>
-
-          <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(200px,280px)_1fr]">
-            <section className="flex min-h-0 flex-col gap-2 rounded-lg border border-border p-2">
-              <h4 className="text-xs font-bold tracking-wide uppercase text-muted-foreground">
-                {t("ardupilotSetup.rcSetup.functionsHeading")}
-              </h4>
-              <Input
-                value={functionFilter}
-                onChange={(e) => setFunctionFilter(e.target.value)}
-                placeholder={t("ardupilotSetup.rcSetup.functionSearch")}
-                className="h-7 text-xs"
-              />
-              <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
-                <button
-                  type="button"
-                  onClick={() => setSelectedFunction({ kind: "fltmodeChannel" })}
-                  className={`rounded-md px-2 py-1 text-left text-xs ${isSelected({ kind: "fltmodeChannel" }) ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
-                >
-                  {t("ardupilotSetup.rcSetup.fltmodeChannelLong")}
-                </button>
-                {RCMAP_PARAM_NAMES.map((param) => {
-                  const candidate: AssignableFunction = { kind: "rcmap", param, axisLabel: RCMAP_AXIS_LABELS[param] };
-                  return (
-                    <button
-                      key={param}
-                      type="button"
-                      onClick={() => setSelectedFunction(candidate)}
-                      className={`rounded-md px-2 py-1 text-left text-xs ${isSelected(candidate) ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
-                    >
-                      {t("ardupilotSetup.rcSetup.rcmapLabel", { axis: RCMAP_AXIS_LABELS[param] })}
-                    </button>
-                  );
-                })}
-                <div className="my-1 border-t border-border" />
-                {optionValues ? (
-                  filteredOptions.map(([code, label]) => {
-                    const candidate: AssignableFunction = { kind: "option", code: Number(code), label };
-                    return (
-                      <button
-                        key={code}
-                        type="button"
-                        onClick={() => setSelectedFunction(candidate)}
-                        className={`rounded-md px-2 py-1 text-left text-xs ${isSelected(candidate) ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })
-                ) : (
-                  <p className="px-2 py-1 text-xs text-muted-foreground">{t("ardupilotSetup.rcSetup.optionsUnavailable")}</p>
-                )}
-              </div>
-              {/* Docs-driven labels are a nice-to-have - offline (or a fetch that just failed)
-                  shouldn't block assigning a function whose numeric code you already know. */}
-              <div className="flex items-center gap-1 border-t border-border pt-1.5">
-                <Input
-                  value={customCodeInput}
-                  onChange={(e) => setCustomCodeInput(e.target.value)}
-                  placeholder={t("ardupilotSetup.rcSetup.customCodePlaceholder")}
-                  className="h-7 text-xs"
-                />
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    const code = Number(customCodeInput);
-                    if (!Number.isFinite(code)) return;
-                    setSelectedFunction({ kind: "option", code, label: optionValues?.[code] ?? `#${code}` });
-                  }}
-                >
-                  {t("ardupilotSetup.rcSetup.customCodeUse")}
-                </Button>
-              </div>
-            </section>
-
-            <section className="flex min-h-0 flex-col gap-2">
-              <h4 className="text-xs font-bold tracking-wide uppercase text-muted-foreground">
-                {t("ardupilotSetup.rcSetup.channelsHeading")}
-              </h4>
-              <p className="text-xs text-muted-foreground">
-                {selectedFunction ? t("ardupilotSetup.rcSetup.clickToAssign") : t("ardupilotSetup.rcSetup.selectFunctionFirst")}
-              </p>
-              <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
-                {Array.from({ length: RC_OPTION_CHANNEL_COUNT }, (_, i) => i + 1).map((channel) => {
-                  const color = colorForRcChannel(channel);
-                  const pwm = live[channel];
-                  const labels = assignmentLabelsFor(channel);
-                  return (
-                    <button
-                      key={channel}
-                      type="button"
-                      disabled={!selectedFunction}
-                      onClick={() => assignToChannel(channel)}
-                      aria-label={t("ardupilotSetup.rcSetup.channelButtonLabel", { channel })}
-                      className="flex items-center gap-3 rounded-lg border border-border p-2 text-left text-xs enabled:hover:border-primary disabled:opacity-70"
-                    >
-                      <span className="flex w-7 shrink-0 flex-col items-center gap-0.5 font-mono font-semibold" style={{ color }}>
-                        <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />
-                        {channel}
-                      </span>
-                      {/* A wide ruled bar (tick marks at round PWM values) with a bold needle for
-                          the live position, in place of the previous thin bar + barely-visible
-                          dot. */}
-                      <div className="relative h-5 min-w-0 flex-[2] overflow-hidden rounded-md bg-muted">
-                        {TICK_PWM_VALUES.map((tick) => (
-                          <div key={tick} className="absolute inset-y-0 w-px bg-border/70" style={{ left: `${scalePct(tick)}%` }} />
-                        ))}
-                        {pwm !== undefined && (
-                          <div
-                            className="absolute inset-y-0 w-1 -translate-x-1/2 rounded-full shadow-sm"
-                            style={{ left: `${scalePct(pwm)}%`, background: color }}
-                          />
-                        )}
-                      </div>
-                      <span className="w-14 shrink-0 font-mono text-muted-foreground">{pwm !== undefined ? `${pwm} us` : "-"}</span>
-                      <span className="min-w-0 flex-1 truncate text-muted-foreground">{labels.join(", ") || "-"}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-          </div>
+          <section className="flex flex-col gap-2">
+            <h4 className="text-xs font-bold tracking-wide uppercase text-muted-foreground">
+              {t("ardupilotSetup.rcSetup.channelsHeading")}
+            </h4>
+            <p className="text-xs text-muted-foreground">{t("ardupilotSetup.rcSetup.assignIntro")}</p>
+            <div className="flex flex-col gap-2">
+              {Array.from({ length: RC_OPTION_CHANNEL_COUNT }, (_, i) => i + 1).map((channel) => {
+                const color = colorForRcChannel(channel);
+                const pwm = live[channel];
+                const current = currentFunctionValue(channel);
+                const isEditingCode = customCodeChannel === channel;
+                return (
+                  <div key={channel} className="flex items-center gap-3 rounded-lg border border-border p-2 text-xs">
+                    <span className="flex w-7 shrink-0 flex-col items-center gap-0.5 font-mono font-semibold" style={{ color }}>
+                      <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />
+                      {channel}
+                    </span>
+                    {/* A wide ruled bar (tick marks at round PWM values) with a bold needle for
+                        the live position, in place of the previous thin bar + barely-visible
+                        dot. */}
+                    <div className="relative h-5 min-w-0 flex-[2] overflow-hidden rounded-md bg-muted">
+                      {TICK_PWM_VALUES.map((tick) => (
+                        <div key={tick} className="absolute inset-y-0 w-px bg-border/70" style={{ left: `${scalePct(tick)}%` }} />
+                      ))}
+                      {pwm !== undefined && (
+                        <div
+                          className="absolute inset-y-0 w-1 -translate-x-1/2 rounded-full shadow-sm"
+                          style={{ left: `${scalePct(pwm)}%`, background: color }}
+                        />
+                      )}
+                    </div>
+                    <span className="w-14 shrink-0 font-mono text-muted-foreground">{pwm !== undefined ? `${pwm} us` : "-"}</span>
+                    {isEditingCode ? (
+                      <Input
+                        autoFocus
+                        type="number"
+                        value={customCodeValue}
+                        onChange={(e) => setCustomCodeValue(e.target.value)}
+                        onBlur={() => commitCustomCode(channel)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commitCustomCode(channel);
+                          if (e.key === "Escape") setCustomCodeChannel(null);
+                        }}
+                        placeholder={t("ardupilotSetup.rcSetup.customCodePlaceholder")}
+                        className="h-7 min-w-0 flex-1 text-xs"
+                      />
+                    ) : (
+                      <ChannelFunctionSelect
+                        channel={channel}
+                        current={current}
+                        baseFunctionOptions={baseFunctionOptions}
+                        customCodeLabel={customCodeLabel}
+                        ariaLabel={t("ardupilotSetup.rcSetup.channelFunctionLabel", { channel })}
+                        onChange={handleChannelFunctionChange}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
 
           <section className="flex flex-col gap-2">
             <h4 className="text-xs font-bold tracking-wide uppercase text-muted-foreground">{t("ardupilotSetup.rcSetup.flightModesHeading")}</h4>
@@ -430,20 +516,21 @@ export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetu
                 mode channel's current position - these bands are real, fixed ArduPilot firmware
                 boundaries (RC_Channel::read_6pos_switch), not an editable range, so this is a
                 live readout only; the list below is still where each band's assigned mode is
-                actually changed. */}
+                actually changed. Adjacent bands sharing the same assigned mode are merged into one
+                segment, so e.g. a 3-position switch that only ever lands on 3 distinct modes shows
+                3 segments here instead of always 6. */}
             <div className="relative flex h-8 shrink-0 overflow-hidden rounded-md border border-border">
-              {FLIGHT_MODE_SLOT_NAMES.map((name, i) => {
-                const widthPct = scalePct(FLTMODE_BAND_EDGES[i + 1]!) - scalePct(FLTMODE_BAND_EDGES[i]!);
-                const isActive = activeBandIndex === i;
-                const label = modeLabelFor(name);
+              {mergedFlightModeBands.map((band) => {
+                const widthPct = scalePct(FLTMODE_BAND_EDGES[band.endIndex + 1]!) - scalePct(FLTMODE_BAND_EDGES[band.startIndex]!);
+                const isActive = activeBandIndex !== null && activeBandIndex >= band.startIndex && activeBandIndex <= band.endIndex;
                 return (
                   <div
-                    key={name}
+                    key={band.startIndex}
                     className={`flex items-center justify-center overflow-hidden border-r border-border/60 px-0.5 text-center text-[10px] font-semibold whitespace-nowrap last:border-r-0 ${isActive ? "bg-primary/25 text-primary" : "bg-muted/50 text-muted-foreground"}`}
                     style={{ width: `${widthPct}%` }}
-                    title={label ?? undefined}
+                    title={band.label}
                   >
-                    <span className="truncate">{label ?? "-"}</span>
+                    <span className="truncate">{band.label}</span>
                   </div>
                 );
               })}
@@ -465,7 +552,6 @@ export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetu
                   >
                     <span className="font-mono text-muted-foreground">{FLTMODE_BAND_RANGE_LABELS[i]} us</span>
                     {modeSelect(name, docs?.[name]?.values ?? docs?.FLTMODE1?.values)}
-                    {isActive && <span className="text-primary">{t("ardupilotSetup.rcSetup.active")}</span>}
                   </div>
                 );
               })}

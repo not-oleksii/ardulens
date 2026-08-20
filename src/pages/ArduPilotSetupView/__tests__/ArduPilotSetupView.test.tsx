@@ -3460,34 +3460,57 @@ describe("ArduPilotSetupView", () => {
       expect(listRequests.length).toBe(1);
 
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("FLTMODE_CH", 5, MavParamType.INT8, 0, 7, 1) });
-      expect(await screen.findByRole("button", { name: "Канал режиму польоту" })).toBeInTheDocument();
+      const channel5Select = await screen.findByRole("combobox", { name: "Функція каналу 5" });
+      expect(channel5Select).toHaveValue("fltmode");
     });
 
-    it("changing the flight-mode channel stages an edit, and Save All sends PARAM_SET", async () => {
-      const invoked = vi.fn();
-      mockBackend(invoked);
-      const { user } = await connectAndOpenRcSetup();
+    it("resolves an already-set RCx_OPTION to its real name from the offline fallback table, not a raw code", async () => {
+      // Regression test for a real report: the live docs fetch needs internet access, which a
+      // vehicle is often configured without (out in the field) - fetch is stubbed to reject in
+      // this whole suite, so this exercises exactly that "docs never loaded" case. Code 153 is
+      // "ArmDisarm (4.2 and higher)" per auxFunctionNames.ts's bundled Copter snapshot.
+      mockBackend();
+      await connectAndOpenRcSetup();
 
-      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FLTMODE_CH", 5, MavParamType.INT8, 0, 7, 1) });
-      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FLTMODE1", 0, MavParamType.INT8, 1, 7, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("RC7_OPTION", 153, MavParamType.INT16, 1, 7, 1) });
 
-      const fltModeChannelFunction = await screen.findByRole("button", { name: "Канал режиму польоту" });
-      await user.click(fltModeChannelFunction);
-      await user.click(screen.getByRole("button", { name: "Канал 6" }));
-
-      const saveAllButton = await screen.findByRole("button", { name: "Зберегти все (1)" });
-      await user.click(saveAllButton);
-      await user.click(screen.getByRole("button", { name: "Зберегти" }));
-
-      const paramSet = invoked.mock.calls.find(
-        ([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamSet.MSG_ID,
-      );
-      expect(paramSet).toBeDefined();
-      const bytes = (paramSet![1] as { bytes: number[] }).bytes;
-      const nameBytes = bytes.slice(16, 16 + 16);
-      const nullIndex = nameBytes.indexOf(0);
-      expect(String.fromCharCode(...nameBytes.slice(0, nullIndex === -1 ? undefined : nullIndex))).toBe("FLTMODE_CH");
+      const channel7Select = await screen.findByRole("combobox", { name: "Функція каналу 7" });
+      expect(channel7Select).toHaveValue("option:153");
+      expect(within(channel7Select).getByText("ArmDisarm (4.2 and higher)")).toBeInTheDocument();
     });
+
+    it(
+      "changing a channel's function selector stages an edit, and Save All sends PARAM_SET",
+      async () => {
+        const invoked = vi.fn();
+        mockBackend(invoked);
+        const { user } = await connectAndOpenRcSetup();
+
+        await emit(DATA_EVENT, { bytes: buildParamValueBytes("FLTMODE_CH", 5, MavParamType.INT8, 0, 7, 1) });
+        await emit(DATA_EVENT, { bytes: buildParamValueBytes("FLTMODE1", 0, MavParamType.INT8, 1, 7, 2) });
+
+        const channel6Select = await screen.findByRole("combobox", { name: "Функція каналу 6" });
+        // userEvent.selectOptions simulates real pointer/keyboard interaction across the ~140-item
+        // option list (see auxFunctionNames.ts's offline fallback) - jsdom is slow enough at that
+        // scale to need more than vitest's 5s default here, even though the app itself is fine (a
+        // real browser handles a <select> with hundreds of options without any perceptible delay).
+        await user.selectOptions(channel6Select, "fltmode");
+
+        const saveAllButton = await screen.findByRole("button", { name: "Зберегти все (1)" });
+        await user.click(saveAllButton);
+        await user.click(screen.getByRole("button", { name: "Зберегти" }));
+
+        const paramSet = invoked.mock.calls.find(
+          ([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamSet.MSG_ID,
+        );
+        expect(paramSet).toBeDefined();
+        const bytes = (paramSet![1] as { bytes: number[] }).bytes;
+        const nameBytes = bytes.slice(16, 16 + 16);
+        const nullIndex = nameBytes.indexOf(0);
+        expect(String.fromCharCode(...nameBytes.slice(0, nullIndex === -1 ? undefined : nullIndex))).toBe("FLTMODE_CH");
+      },
+      15000,
+    );
 
     it("highlights the FLTMODE slot whose PWM band matches the live flight-mode-channel signal", async () => {
       mockBackend();
@@ -3495,13 +3518,15 @@ describe("ArduPilotSetupView", () => {
 
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("FLTMODE_CH", 5, MavParamType.INT8, 0, 7, 1) });
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("FLTMODE1", 0, MavParamType.INT8, 1, 7, 2) });
-      await screen.findByRole("heading", { name: "Функції" });
+      await screen.findByRole("heading", { name: "Канали" });
 
       // Band 3 (1361-1490us, third FLTMODE slot) - see rcBands.ts's documented boundaries.
       await emit(DATA_EVENT, { bytes: buildRcChannelsBytes({ 5: 1425 }, 8, 1) });
 
-      expect(await screen.findByText("активний")).toBeInTheDocument();
-      expect(screen.getByText("1361-1490 us")).toBeInTheDocument();
+      // No separate "active" text label any more (background highlight color is enough) - assert
+      // the highlight class lands on the row for the live band instead.
+      const activeRow = await screen.findByText("1361-1490 us");
+      expect(activeRow.closest("div")!.className).toContain("bg-primary/15");
     });
 
     it("sizes each flight-mode band's overview-bar segment to its real proportional PWM width, with a live needle", async () => {
@@ -3517,7 +3542,7 @@ describe("ArduPilotSetupView", () => {
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("FLTMODE_CH", 5, MavParamType.INT8, 0, 7, 1) });
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("FLTMODE1", 0, MavParamType.INT8, 1, 7, 2) }); // STABILIZE
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("FLTMODE2", 2, MavParamType.INT8, 2, 7, 3) }); // ALT_HOLD
-      await screen.findByRole("heading", { name: "Функції" });
+      await screen.findByRole("heading", { name: "Канали" });
 
       await emit(DATA_EVENT, { bytes: buildRcChannelsBytes({ 5: 1425 }, 8, 1) });
 
@@ -3537,33 +3562,38 @@ describe("ArduPilotSetupView", () => {
       expect(parseFloat(needle!.style.left)).toBeCloseTo(43.75, 1);
     });
 
-    it("staging an RC option edit and saving sends PARAM_SET for that channel", async () => {
-      const invoked = vi.fn();
-      mockBackend(invoked);
-      const { user } = await connectAndOpenRcSetup();
+    it(
+      "staging an RC option edit and saving sends PARAM_SET for that channel",
+      async () => {
+        const invoked = vi.fn();
+        mockBackend(invoked);
+        const { user } = await connectAndOpenRcSetup();
 
-      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FLTMODE_CH", 5, MavParamType.INT8, 0, 7, 1) });
-      await emit(DATA_EVENT, { bytes: buildParamValueBytes("RC7_OPTION", 0, MavParamType.INT16, 1, 7, 2) });
+        await emit(DATA_EVENT, { bytes: buildParamValueBytes("FLTMODE_CH", 5, MavParamType.INT8, 0, 7, 1) });
+        await emit(DATA_EVENT, { bytes: buildParamValueBytes("RC7_OPTION", 0, MavParamType.INT16, 1, 7, 2) });
 
-      // Docs fetch is stubbed to reject in this suite, so the RCx_OPTION enum never loads -
-      // this exercises the custom-function-code fallback path instead of the docs-driven list.
-      const customCodeInput = await screen.findByPlaceholderText("Або введіть код функції...");
-      await user.type(customCodeInput, "153");
-      await user.click(screen.getByRole("button", { name: "Застосувати" }));
-      await user.click(screen.getByRole("button", { name: "Канал 7" }));
+        // Docs fetch is stubbed to reject in this suite, so the live RCx_OPTION enum never loads -
+        // only the bundled offline fallback (auxFunctionNames.ts) is available. 999 isn't in that
+        // fallback table either, so this exercises the true "unknown code" custom-entry path.
+        const channel7Select = await screen.findByRole("combobox", { name: "Функція каналу 7" });
+        await user.selectOptions(channel7Select, "custom");
+        const customCodeInput = await screen.findByPlaceholderText("Введіть код функції...");
+        await user.type(customCodeInput, "999{Enter}");
 
-      const saveAllButton = await screen.findByRole("button", { name: "Зберегти все (1)" });
-      await user.click(saveAllButton);
-      await user.click(screen.getByRole("button", { name: "Зберегти" }));
+        const saveAllButton = await screen.findByRole("button", { name: "Зберегти все (1)" });
+        await user.click(saveAllButton);
+        await user.click(screen.getByRole("button", { name: "Зберегти" }));
 
-      const paramSet = invoked.mock.calls.find(
-        ([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamSet.MSG_ID,
-      );
-      expect(paramSet).toBeDefined();
-      const bytes = (paramSet![1] as { bytes: number[] }).bytes;
-      const nameBytes = bytes.slice(16, 16 + 16);
-      const nullIndex = nameBytes.indexOf(0);
-      expect(String.fromCharCode(...nameBytes.slice(0, nullIndex === -1 ? undefined : nullIndex))).toBe("RC7_OPTION");
-    });
+        const paramSet = invoked.mock.calls.find(
+          ([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamSet.MSG_ID,
+        );
+        expect(paramSet).toBeDefined();
+        const bytes = (paramSet![1] as { bytes: number[] }).bytes;
+        const nameBytes = bytes.slice(16, 16 + 16);
+        const nullIndex = nameBytes.indexOf(0);
+        expect(String.fromCharCode(...nameBytes.slice(0, nullIndex === -1 ? undefined : nullIndex))).toBe("RC7_OPTION");
+      },
+      15000,
+    );
   });
 });
