@@ -1,4 +1,4 @@
-import { ArrowLeft, FlaskConical } from "lucide-react";
+import { ArrowLeft, FlaskConical, RotateCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -35,6 +35,7 @@ export interface ArduPilotSetupHeaderProps {
   onAutoConnect: () => void;
   onConnect: () => void;
   onDisconnect: () => void;
+  onReboot: () => void;
   onDevMode: () => void;
   onDevModeCopter: () => void;
   devFramePresetKey: string;
@@ -66,6 +67,7 @@ export function ArduPilotSetupHeader({
   onAutoConnect,
   onConnect,
   onDisconnect,
+  onReboot,
   onDevMode,
   onDevModeCopter,
   devFramePresetKey,
@@ -194,9 +196,15 @@ export function ArduPilotSetupHeader({
       )}
 
       {isConnected ? (
-        <Button type="button" size="sm" variant="destructive" className="shrink-0" onClick={onDisconnect}>
-          {t("ardupilotSetup.connect.disconnect")}
-        </Button>
+        <>
+          <Button type="button" size="sm" variant="outline" className="shrink-0 gap-1" onClick={onReboot}>
+            <RotateCw className="h-3.5 w-3.5" />
+            {t("ardupilotSetup.connect.reboot")}
+          </Button>
+          <Button type="button" size="sm" variant="destructive" className="shrink-0" onClick={onDisconnect}>
+            {t("ardupilotSetup.connect.disconnect")}
+          </Button>
+        </>
       ) : (
         <>
           {liveAvailable && (
