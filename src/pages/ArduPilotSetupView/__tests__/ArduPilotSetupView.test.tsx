@@ -1256,21 +1256,16 @@ describe("ArduPilotSetupView", () => {
       expect(screen.getByText("Виходи серво ще не завантажено.")).toBeInTheDocument();
     });
 
-    it("requests SERVOx_FUNCTION/MIN/MAX/TRIM by name for all 16 channels when Load is clicked", async () => {
-      const invoked = vi.fn();
-      mockBackend(invoked);
-      const { user } = await connectPlaneAndOpenMotors();
-
-      await user.click(screen.getByRole("button", { name: "Завантажити виходи серво" }));
-
-      const byNameRequests = invoked.mock.calls.filter(([cmd, payload]) => {
+    function servoByNameRequests(invoked: ReturnType<typeof vi.fn>) {
+      return invoked.mock.calls.filter(([cmd, payload]) => {
         if (cmd !== "send_bytes") return false;
         const bytes = (payload as { bytes: number[] }).bytes;
         return bytes[7] === ParamRequestRead.MSG_ID;
       });
-      expect(byNameRequests.length).toBe(16 * 5);
+    }
 
-      const requestedNames = new Set(
+    function requestedParamNames(byNameRequests: ReturnType<typeof vi.fn>["mock"]["calls"]) {
+      return new Set(
         byNameRequests.map(([, payload]) => {
           const bytes = (payload as { bytes: number[] }).bytes;
           // param_id: char[16] at payload offset 4 (after param_index:int16, target_system/
@@ -1280,8 +1275,32 @@ describe("ArduPilotSetupView", () => {
           return String.fromCharCode(...nameBytes.slice(0, nullIndex === -1 ? undefined : nullIndex));
         }),
       );
+    }
+
+    it("requests SERVOx_FUNCTION/MIN/MAX/TRIM/REVERSED by name for all 16 channels automatically once the tab opens", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      await connectPlaneAndOpenMotors();
+
+      const byNameRequests = servoByNameRequests(invoked);
+      expect(byNameRequests.length).toBe(16 * 5);
+
+      const requestedNames = requestedParamNames(byNameRequests);
       expect(requestedNames.has("SERVO1_FUNCTION")).toBe(true);
       expect(requestedNames.has("SERVO16_TRIM")).toBe(true);
+      expect(requestedNames.has("SERVO1_REVERSED")).toBe(true);
+    });
+
+    it("the Load button re-sends the same by-name requests as an explicit reload", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectPlaneAndOpenMotors();
+      invoked.mockClear(); // drop the auto-load-on-navigate batch, isolate the manual click
+
+      await user.click(screen.getByRole("button", { name: "Завантажити виходи серво" }));
+
+      const requestedNames = requestedParamNames(servoByNameRequests(invoked));
+      expect(requestedNames.has("SERVO1_FUNCTION")).toBe(true);
       expect(requestedNames.has("SERVO1_REVERSED")).toBe(true);
     });
 
