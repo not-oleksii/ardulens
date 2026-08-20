@@ -2202,6 +2202,86 @@ describe("ArduPilotSetupView", () => {
     });
   });
 
+  describe("VTX setup", () => {
+    async function connectAndOpenVtxSetup() {
+      const view = getView();
+      await view.clickConnect();
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
+      await view.user.click(screen.getByRole("tab", { name: "Налаштування VTX" }));
+      return view;
+    }
+
+    it("shows a Load button and not-loaded message", async () => {
+      mockBackend();
+      await connectAndOpenVtxSetup();
+      expect(screen.getByRole("button", { name: "Завантажити налаштування VTX" })).toBeInTheDocument();
+      expect(screen.getByText("Налаштування VTX ще не завантажено.")).toBeInTheDocument();
+    });
+
+    it("requests every VTX_* param by name when Load is clicked", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenVtxSetup();
+
+      await user.click(screen.getByRole("button", { name: "Завантажити налаштування VTX" }));
+
+      const requestedNames = new Set(
+        invoked.mock.calls
+          .filter(([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamRequestRead.MSG_ID)
+          .map(([, payload]) => {
+            const bytes = (payload as { bytes: number[] }).bytes;
+            const nameBytes = bytes.slice(14, 14 + 16);
+            const nullIndex = nameBytes.indexOf(0);
+            return String.fromCharCode(...nameBytes.slice(0, nullIndex === -1 ? undefined : nullIndex));
+          }),
+      );
+      expect(requestedNames.has("VTX_ENABLE")).toBe(true);
+      expect(requestedNames.has("VTX_BAND")).toBe(true);
+      expect(requestedNames.has("VTX_TYPES")).toBe(true);
+    });
+
+    it("shows VTX_BAND as a labeled dropdown and VTX_FREQ read-only once loaded", async () => {
+      mockBackend();
+      await connectAndOpenVtxSetup();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("VTX_BAND", 4, MavParamType.INT8, 0, 1, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("VTX_FREQ", 5658, MavParamType.INT16, 1, 1, 2) });
+
+      const bandSelect = await screen.findByLabelText<HTMLSelectElement>("Діапазон");
+      expect(bandSelect.value).toBe("4");
+      expect(within(bandSelect).getByText("RaceBand")).toBeInTheDocument();
+      expect(screen.getByText("5658 MHz")).toBeInTheDocument();
+    });
+
+    it("toggling an Options bit stages a change and Save all sends PARAM_SET with the updated bitmask", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenVtxSetup();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("VTX_OPTIONS", 0, MavParamType.INT8, 0, 1, 1) });
+      await user.click(await screen.findByLabelText("Pitmode"));
+
+      const saveAllButton = await screen.findByRole("button", { name: "Зберегти все (1)" });
+      await user.click(saveAllButton);
+      const dialog = screen.getByRole("dialog");
+      expect(within(dialog).getByText("VTX_OPTIONS")).toBeInTheDocument();
+      expect(within(dialog).getByText("1")).toBeInTheDocument(); // bit 0 set
+
+      await user.click(within(dialog).getByRole("button", { name: "Зберегти" }));
+
+      await vi.waitFor(() => {
+        const setRequest = invoked.mock.calls.find(([cmd, payload]) => {
+          if (cmd !== "send_bytes") return false;
+          const bytes = (payload as { bytes: number[] }).bytes;
+          return bytes[7] === ParamSet.MSG_ID;
+        });
+        expect(setRequest).toBeDefined();
+      });
+    });
+  });
+
   describe("Dev Mode frame-preset selector", () => {
     it("starts the simulated Copter seeded with whichever verified frame preset is selected, not just the Quad X default", async () => {
       mockBackend();

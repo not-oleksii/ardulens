@@ -11,6 +11,7 @@ import {
   MoveDiagonal,
   Radio,
   SlidersHorizontal,
+  Video,
   Zap,
 } from "lucide-react";
 import { useState } from "react";
@@ -32,7 +33,8 @@ export type ArduPilotSetupSection =
   | "motorsSetup"
   | "batteryConfig"
   | "pidTune"
-  | "osdSetup";
+  | "osdSetup"
+  | "vtxSetup";
 
 const SECTIONS: readonly ArduPilotSetupSection[] = [
   "telemetry",
@@ -46,6 +48,7 @@ const SECTIONS: readonly ArduPilotSetupSection[] = [
   "batteryConfig",
   "pidTune",
   "osdSetup",
+  "vtxSetup",
 ];
 
 const SECTION_ICONS = {
@@ -60,6 +63,7 @@ const SECTION_ICONS = {
   batteryConfig: BatteryMedium,
   pidTune: SlidersHorizontal,
   osdSetup: MonitorPlay,
+  vtxSetup: Video,
 } as const satisfies Record<ArduPilotSetupSection, typeof Gauge>;
 
 interface ArduPilotSetupSidebarProps {

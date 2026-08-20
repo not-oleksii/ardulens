@@ -51,7 +51,8 @@
       "motorsSetup": "Налаштування моторів",
       "batteryConfig": "Налаштування батареї",
       "pidTune": "Налаштування PID",
-      "osdSetup": "Налаштування OSD"
+      "osdSetup": "Налаштування OSD",
+      "vtxSetup": "Налаштування VTX"
     },
     "comingSoon": {
       "pidTune": "Налаштування PID - у наступному релізі."
@@ -427,6 +428,44 @@
         "rcAnt": "Активна антена RC",
         "rcLq": "Якість каналу RC"
       }
+    },
+    "vtxSetup": {
+      "heading": "Налаштування VTX",
+      "description": "Налаштуйте бортовий відеопередавач апарата (SmartAudio/Tramp/CRSF/MSP, підтримується безпосередньо польотним контролером) - діапазон, канал, потужність та параметри керування.",
+      "load": "Завантажити налаштування VTX",
+      "notLoaded": "Налаштування VTX ще не завантажено.",
+      "reset": "Скинути",
+      "saveAll": "Зберегти все ({{count}})",
+      "unlockedWarning": "Не вмикайте \"Unlocked\", якщо у вас немає відповідного дозволу передавати на високій потужності або на обмежених частотах у вашій юрисдикції.",
+      "enable": "Увімкнено",
+      "band": "Діапазон",
+      "channel": "Канал",
+      "power": "Потужність",
+      "maxPower": "Макс. потужність",
+      "freq": "Частота",
+      "freqHint": "Лише для читання - визначається з діапазону та каналу.",
+      "optionsHeading": "Опції",
+      "typesHeading": "Транспорти керування",
+      "options": {
+        "pitmode": "Pitmode",
+        "pitmodeUntilArmed": "Pitmode до озброєння",
+        "pitmodeWhenDisarmed": "Pitmode після роззброєння",
+        "unlocked": "Розблоковано (Unlocked)",
+        "leadingZeroByte": "Додавати нульовий байт до запитів",
+        "oneStopBit": "Використовувати 1 стоп-біт у SmartAudio",
+        "ignoreCrc": "Ігнорувати CRC у SmartAudio",
+        "ignoreCrsfStatus": "Ігнорувати оновлення статусу в CRSF",
+        "crsf": "CRSF",
+        "smartAudio": "SmartAudio",
+        "tramp": "Tramp",
+        "msp": "MSP"
+      },
+      "confirmTitle": "Застосувати зміни налаштувань VTX?",
+      "confirmDescription": "Ці {{count}} налаштування буде надіслано на апарат.",
+      "from": "Було",
+      "to": "Стане",
+      "cancel": "Скасувати",
+      "confirmSave": "Зберегти"
     },
     "connect": {
       "modeSerial": "USB / Серійний порт",

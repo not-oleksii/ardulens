@@ -202,6 +202,16 @@ const FAKE_PARAM_SEED: ReadonlyArray<readonly [string, number, MavParamType]> = 
   ["OSD1_GPSLAT_EN", 0, MavParamType.INT8],
   ["OSD1_GPSLAT_X", 0, MavParamType.INT8],
   ["OSD1_GPSLAT_Y", 0, MavParamType.INT8],
+  // VTX Setup tab - real AP_VideoTX param names confirmed against ArduCopter's own
+  // apm.pdef.xml (see vtxSetupParams.ts). Plausible demo values, not claimed stock defaults.
+  ["VTX_ENABLE", 1, MavParamType.INT8],
+  ["VTX_POWER", 25, MavParamType.INT16],
+  ["VTX_CHANNEL", 0, MavParamType.INT8],
+  ["VTX_BAND", 4, MavParamType.INT8], // RaceBand
+  ["VTX_FREQ", 5658, MavParamType.INT16], // RaceBand channel 1
+  ["VTX_OPTIONS", 0, MavParamType.INT8],
+  ["VTX_MAX_POWER", 800, MavParamType.INT16],
+  ["VTX_TYPES", 0b0110, MavParamType.INT8], // SmartAudio + Tramp
 ];
 
 export interface MockVehicleHandle {
