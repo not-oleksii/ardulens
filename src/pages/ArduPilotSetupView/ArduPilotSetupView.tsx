@@ -1105,7 +1105,7 @@ export function ArduPilotSetupView() {
   function handleLoadServoOutputs() {
     if (!vehicle) return;
     for (let channel = 1; channel <= SERVO_CHANNEL_COUNT; channel++) {
-      for (const suffix of ["FUNCTION", "MIN", "MAX", "TRIM"]) {
+      for (const suffix of ["FUNCTION", "MIN", "MAX", "TRIM", "REVERSED"]) {
         const req = new ParamRequestRead();
         req.targetSystem = vehicle.sysid;
         req.targetComponent = vehicle.compid;

@@ -1268,7 +1268,7 @@ describe("ArduPilotSetupView", () => {
         const bytes = (payload as { bytes: number[] }).bytes;
         return bytes[7] === ParamRequestRead.MSG_ID;
       });
-      expect(byNameRequests.length).toBe(16 * 4);
+      expect(byNameRequests.length).toBe(16 * 5);
 
       const requestedNames = new Set(
         byNameRequests.map(([, payload]) => {
@@ -1282,6 +1282,7 @@ describe("ArduPilotSetupView", () => {
       );
       expect(requestedNames.has("SERVO1_FUNCTION")).toBe(true);
       expect(requestedNames.has("SERVO16_TRIM")).toBe(true);
+      expect(requestedNames.has("SERVO1_REVERSED")).toBe(true);
     });
 
     it("lists an active channel's function label and live output once params and SERVO_OUTPUT_RAW arrive", async () => {
@@ -1301,13 +1302,17 @@ describe("ArduPilotSetupView", () => {
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERVO1_TRIM", 1500, MavParamType.INT16, 3, 1, 4) });
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERVO2_FUNCTION", 0, MavParamType.INT16, 4, 1, 5) });
 
-      expect(await screen.findByText("Aileron")).toBeInTheDocument();
-      const table = screen.getByRole("table");
-      expect(within(table).getByText("1")).toBeInTheDocument(); // channel number
-      // Scoped to the table, not the whole page - VehicleStatusBar also renders "-" for an
-      // unavailable battery reading, which this test never sends.
-      expect(within(table).getByText("-")).toBeInTheDocument(); // no SERVO_OUTPUT_RAW yet
-      expect(screen.getAllByRole("row")).toHaveLength(2); // header + exactly one active channel (2 is Disabled)
+      const table = await screen.findByRole("table");
+      // Header + one row per channel with a known SERVO_FUNCTION - both 1 (Aileron) and 2
+      // (Disabled) got one, since this app now lists every loaded channel, not just active ones
+      // (matches Mission Planner's own "Servo Output" screen, which always shows all 16 rows).
+      // Every channel's function dropdown lists the same option set, so "Aileron" appears once
+      // per row (not page-wide) - assertions below are scoped to channel 1's own row.
+      const rows = screen.getAllByRole("row");
+      expect(rows).toHaveLength(3);
+      const channel1Row = within(table).getByText("1").closest("tr")!;
+      expect(within(channel1Row).getByText("Aileron")).toBeInTheDocument();
+      expect(within(channel1Row).getByText("-")).toBeInTheDocument(); // no SERVO_OUTPUT_RAW yet
 
       await emit(DATA_EVENT, { bytes: buildServoOutputRawBytes(0, [1500], 5) });
       expect(await screen.findByText("1500 us")).toBeInTheDocument();
@@ -1331,6 +1336,50 @@ describe("ArduPilotSetupView", () => {
 
       fireEvent.pointerUp(testButton);
       expect(findSetServoPwm(invoked, 1)).toBe(1500); // last DO_SET_SERVO(1, ...) is at trim again
+    });
+
+    it("toggling a channel's Reverse checkbox sends SERVO1_REVERSED via PARAM_SET", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectPlaneAndOpenMotors();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERVO1_FUNCTION", 4, MavParamType.INT16, 0, 1, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERVO1_REVERSED", 0, MavParamType.INT8, 1, 1, 2) });
+      const checkbox = await screen.findByRole("checkbox");
+
+      await user.click(checkbox);
+
+      const paramSet = invoked.mock.calls.find(
+        ([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamSet.MSG_ID,
+      );
+      expect(paramSet).toBeDefined();
+      const bytes = (paramSet![1] as { bytes: number[] }).bytes;
+      const payload = new Uint8Array(bytes.slice(10));
+      expect(paramWireBitsToValue(readParamValueBits(payload), MavParamType.INT8)).toBe(1);
+    });
+
+    it("editing a channel's Min field commits SERVO1_MIN via PARAM_SET on blur", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectPlaneAndOpenMotors();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERVO1_FUNCTION", 4, MavParamType.INT16, 0, 1, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERVO1_MIN", 1000, MavParamType.INT16, 1, 1, 2) });
+      const minButton = await screen.findByRole("button", { name: "1000" });
+
+      await user.click(minButton);
+      const input = screen.getByRole("textbox");
+      await user.clear(input);
+      await user.type(input, "1100");
+      fireEvent.blur(input);
+
+      const paramSet = invoked.mock.calls.find(
+        ([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamSet.MSG_ID,
+      );
+      expect(paramSet).toBeDefined();
+      const bytes = (paramSet![1] as { bytes: number[] }).bytes;
+      const payload = new Uint8Array(bytes.slice(10));
+      expect(paramWireBitsToValue(readParamValueBits(payload), MavParamType.INT16)).toBe(1100);
     });
   });
 
