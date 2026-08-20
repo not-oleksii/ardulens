@@ -40,6 +40,7 @@
     "description": "Connect to a real ArduPilot vehicle for live telemetry, parameters, calibration, and motor/servo setup - separate from the offline log viewer.",
     "backToHome": "Back to Home",
     "notConnected": "Connect to a vehicle to see this section.",
+    "paramLoadProgress": "Downloading parameters... {{received}} / {{total}}",
     "sidebar": {
       "telemetry": "Telemetry",
       "parameters": "Parameters",
@@ -75,6 +76,7 @@
       "min": "Min",
       "trim": "Trim",
       "max": "Max",
+      "arrowKeyHint": "Use ↑/↓ to nudge by 1us (Shift for 10us) while editing",
       "test": "Test",
       "holdToTest": "Hold to test",
       "otherVehicleComingSoon": "Motor/servo setup for this vehicle type - coming in a future release.",
@@ -332,6 +334,12 @@
       "screenEnable": "Enable this screen",
       "screenChanMin": "Min PWM",
       "screenChanMax": "Max PWM",
+      "presetsHeading": "Presets:",
+      "presets": {
+        "minimal": "Minimal",
+        "racing": "Racing / FPV",
+        "fullTelemetry": "Full Telemetry"
+      },
       "elementsHeading": "Elements",
       "elementSearchPlaceholder": "Search elements...",
       "elementColumn": "Element",
@@ -340,7 +348,14 @@
       "yColumn": "Y",
       "noMatches": "No elements match your search.",
       "visualLayout": "Screen Layout",
-      "dragHint": "Drag an enabled element to reposition it, or click one (here or in the table below) to select it for quick positioning.",
+      "dragHint": "Drag an enabled element to reposition it, or click one (here or in the table below) to select it - once selected, use arrow keys to nudge it by 1 cell (Shift for 5), or the Quick Position buttons below.",
+      "previewBadgeAnalog": "SD · Analog (MAX7456)",
+      "previewBadgeDigital": "HD · Digital - exact resolution depends on your VTX/goggles",
+      "previewBadgeDigitalHd": "HD · Digital MSP DisplayPort (50×18, HD text res)",
+      "previewBadgeGeneric": "Preview",
+      "previewSafeAreaNtsc": "Guaranteed visible on both PAL and NTSC analog OSDs (30x13 characters).",
+      "previewSafeAreaPal": "Only visible on PAL analog OSDs (30x16 characters) - off-screen on NTSC.",
+      "previewSafeAreaDigitalHd": "This screen's real visible area with HD text resolution enabled (50x18 characters).",
       "quickPosition": "Quick Position",
       "selectElementHint": "Select an element to snap it to a preset position.",
       "elementNotLoaded": "This element's position hasn't been loaded yet.",
@@ -613,6 +628,128 @@
         "obstacleAvoidance": "Obstacle avoidance",
         "propulsion": "Propulsion",
         "unknown": "Unknown sensor ({{value}})"
+      },
+      "hints": {
+        "gyro": {
+          "cause": "Gyroscope reporting bad or inconsistent data - often vibration, or a genuine IMU hardware fault.",
+          "fix": "Keep the vehicle still and level, then reboot - ArduPilot calibrates gyros automatically on startup. If it persists, check for vibration or a faulty IMU."
+        },
+        "accel": {
+          "cause": "Accelerometer readings are missing, inconsistent between IMUs, or have never been calibrated.",
+          "fix": "Run Accelerometer Calibration (6-position) from the Accel Cal tab."
+        },
+        "mag": {
+          "cause": "Compass is uncalibrated, disconnected, or reporting inconsistent readings - often magnetic interference.",
+          "fix": "Run Compass Calibration, and mount the compass away from power wires/motors if interference persists."
+        },
+        "baro": {
+          "cause": "Barometer isn't responding or its readings are inconsistent - often a blocked port or a wiring fault.",
+          "fix": "Check the barometer's air port isn't covered or foam-blocked, and confirm it's properly connected."
+        },
+        "airspeed": {
+          "cause": "Airspeed sensor (pitot tube) is unplugged, blocked, or not calibrated - only relevant on Plane.",
+          "fix": "Check the pitot tube isn't blocked or covered, and run an airspeed calibration."
+        },
+        "gps": {
+          "cause": "No GPS fix, too few satellites, or the GPS module isn't wired or configured correctly.",
+          "fix": "Give the GPS a clear view of the sky and wait for a 3D fix; check wiring/SERIALx_PROTOCOL if it never gets one."
+        },
+        "opticalFlow": {
+          "cause": "Optical flow sensor isn't detecting motion reliably - usually poor lighting or a low-texture surface below.",
+          "fix": "Fly over a well-lit, textured surface, and confirm the sensor's height above ground is within its rated range."
+        },
+        "visionPosition": {
+          "cause": "An external vision positioning system (e.g. a companion computer running VIO/SLAM) isn't sending valid position data.",
+          "fix": "Check the companion computer/vision system is running and its MAVLink link to the flight controller is healthy."
+        },
+        "laserPosition": {
+          "cause": "A rangefinder-based positioning source isn't reporting valid data.",
+          "fix": "Check the rangefinder's wiring, and that it has a valid surface within range beneath it."
+        },
+        "externalGroundTruth": {
+          "cause": "An external ground-truth positioning reference (used for simulation/testing) isn't reporting.",
+          "fix": "Check the external ground-truth source is connected and sending data - this is rare outside of simulation."
+        },
+        "rateControl": {
+          "cause": "The rate controller can't reliably control roll/pitch/yaw rates - usually a downstream symptom of a gyro or motor/ESC problem.",
+          "fix": "Check gyro health first, then motor/ESC wiring - this bit tends to clear once the root sensor issue is fixed."
+        },
+        "attitudeStabilization": {
+          "cause": "Attitude control (self-leveling) isn't working reliably - usually a downstream symptom of accelerometer, gyro, or compass health.",
+          "fix": "Resolve any accel/gyro/compass health issues first - this bit is a summary, not an independent sensor fault."
+        },
+        "yawPosition": {
+          "cause": "The vehicle doesn't have a reliable heading reference - almost always an uncalibrated or interfered compass, or a compass/GPS yaw disagreement.",
+          "fix": "Run Compass Calibration; if it still fails, check for magnetic interference near the compass and confirm GPS has a good fix."
+        },
+        "altitudeControl": {
+          "cause": "Vertical position/altitude estimate isn't reliable - usually a barometer fault, a blocked baro port, or a rangefinder conflicting with the baro estimate.",
+          "fix": "Check the barometer isn't blocked or covered, and that any active rangefinder is reporting sane values."
+        },
+        "positionControl": {
+          "cause": "Horizontal position estimate isn't reliable - almost always no or poor GPS fix, but can also be estimator variance from a bad compass or vibration.",
+          "fix": "Wait for a good 3D GPS fix outdoors with a clear sky view; if GPS is fine, check compass health and vibration levels."
+        },
+        "motorOutputs": {
+          "cause": "A motor/servo output channel isn't configured, or a fault was detected on it.",
+          "fix": "Check SERVOx_FUNCTION assignments in Motors & Servos, and confirm every expected ESC/servo is wired and powered."
+        },
+        "rcReceiver": {
+          "cause": "No RC signal is being received - receiver unplugged, unbound, or in failsafe.",
+          "fix": "Check the receiver is powered, bound to the transmitter, and the transmitter is switched on."
+        },
+        "gyro2": {
+          "cause": "The secondary IMU's gyroscope is unhealthy - same causes as the primary gyro, but on the second IMU.",
+          "fix": "Same as Gyro: check for vibration, or a fault specific to the second IMU."
+        },
+        "accel2": {
+          "cause": "The secondary IMU's accelerometer is unhealthy or uncalibrated.",
+          "fix": "Re-run Accelerometer Calibration - it calibrates every detected IMU, including the second one."
+        },
+        "mag2": {
+          "cause": "The secondary compass is unhealthy, uncalibrated, or disagrees with the primary compass.",
+          "fix": "Re-run Compass Calibration - it calibrates every detected compass together."
+        },
+        "geofence": {
+          "cause": "The vehicle is currently outside its configured geofence, or the fence itself is misconfigured.",
+          "fix": "Check the fence boundary/radius against the vehicle's current position - this clears once back inside the fence."
+        },
+        "ahrs": {
+          "cause": "The attitude/position estimator isn't confident in its solution - usually caused by inconsistent GPS, compass, or accelerometer data, or the vehicle being moved during startup.",
+          "fix": "Keep the vehicle still while powering on, and resolve any GPS/compass/accel health issues - AHRS health is a summary of those."
+        },
+        "terrain": {
+          "cause": "Terrain elevation data needed for the current mode/mission isn't available.",
+          "fix": "Ensure TERRAIN_ENABLE is set and terrain data has been downloaded/cached for the operating area."
+        },
+        "reverseMotor": {
+          "cause": "ArduPilot detected a motor spinning the wrong direction for its position in the frame.",
+          "fix": "Check ESC/motor wiring against the expected frame layout in Motors & Servos, and correct the wiring or SERVOx_REVERSED."
+        },
+        "logging": {
+          "cause": "Onboard logging isn't working - usually a missing, full, or corrupted SD card.",
+          "fix": "Check the SD card is inserted, has free space, and is formatted correctly (FAT32)."
+        },
+        "battery": {
+          "cause": "The battery monitor isn't reporting valid readings - a wiring fault, wrong BATT_MONITOR setting, or voltage below the arming threshold.",
+          "fix": "Check the battery monitor wiring and BATT_MONITOR configuration in Battery Config, and confirm the battery is charged."
+        },
+        "proximity": {
+          "cause": "A proximity/obstacle sensor (e.g. a 360° lidar) isn't reporting valid data.",
+          "fix": "Check the proximity sensor's wiring, and that it isn't obstructed or facing a surface it can't range."
+        },
+        "satcom": {
+          "cause": "A satellite communication link isn't connected or isn't getting a signal.",
+          "fix": "Check the satcom modem's wiring/power and that it has a clear view of the sky."
+        },
+        "obstacleAvoidance": {
+          "cause": "The obstacle avoidance system is unhealthy - usually a downstream symptom of the proximity sensor(s) it depends on.",
+          "fix": "Resolve any proximity-sensor health issues first - this bit is a summary, not an independent fault."
+        },
+        "propulsion": {
+          "cause": "A non-standard propulsion system (e.g. an EFI engine) is reporting a fault.",
+          "fix": "Check the engine/EFI system's own status and wiring - this is specific to non-electric propulsion setups."
+        }
       }
     }
   },

@@ -9,6 +9,7 @@ import type { MavParamType, MavType } from "../../mavlink/registry/registry";
 import { fetchParamDocs, vehicleFolderForMavType, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
+import { ParamLoadProgress } from "./ParamLoadProgress";
 import {
   ALIGNMENT_ANCHORS,
   alignmentAnchorLabel,
@@ -18,13 +19,20 @@ import {
   clampOsdY,
   OSD_CHAN_FALLBACK_VALUES,
   OSD_ELEMENT_KEYS,
+  OSD_GRID_COLS,
+  OSD_GRID_ROWS,
   OSD_SCREEN_NUMBERS,
   OSD_TYPE_FALLBACK_VALUES,
   OSD_UNITS_FALLBACK_VALUES,
   osdElementLabel,
   osdElementParamName,
+  osdPresetLabel,
+  OSD_PRESETS,
   osdScreenControlParamNames,
+  osdVisibleSafeArea,
+  resolveOsdPreset,
   type OsdElementKey,
+  type OsdPreset,
   type OsdScreenNumber,
 } from "./osdSetupParams";
 import { OsdScreenLayout } from "./OsdScreenLayout";
@@ -39,7 +47,6 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
   const { t } = useTranslation();
   const params = useMavlinkParameterStore((s) => s.params);
   const [docs, setDocs] = useState<ParamDocsMap | null>(null);
-  const [requested, setRequested] = useState(false);
   const [pendingChanges, setPendingChanges] = useState<Record<string, number>>({});
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [activeScreen, setActiveScreen] = useState<OsdScreenNumber>(1);
@@ -62,11 +69,6 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
       cancelled = true;
     };
   }, [vehicleFolder]);
-
-  function handleLoadClick() {
-    setRequested(true);
-    onLoad();
-  }
 
   function shownValue(name: string): number | undefined {
     return pendingChanges[name] ?? params[name]?.value;
@@ -99,7 +101,6 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
   }
 
   const hasAnyLoaded = allOsdParamNames().some((name) => params[name] !== undefined);
-  const hasStarted = requested || hasAnyLoaded;
   const pendingEntries = Object.entries(pendingChanges);
   const hasPendingChanges = pendingEntries.length > 0;
 
@@ -179,11 +180,69 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
   const selectedYName = selectedElementKey ? osdElementParamName(activeScreen, selectedElementKey, "Y") : null;
   const canQuickPosition = !!selectedXName && !!selectedYName && !!params[selectedXName] && !!params[selectedYName];
 
+  // Shared by Quick Position and presets - both need to snap within the real visible area (see
+  // OsdScreenLayout's own safe-area overlay) rather than the full 60x22 parameter range, or
+  // "top right"/a preset's edge elements could land past what this OSD_TYPE/TXT_RES combination
+  // can actually display.
+  const activeScreenBounds = osdVisibleSafeArea(shownValue("OSD_TYPE"), shownValue(`OSD${activeScreen}_TXT_RES`)) ?? {
+    cols: OSD_GRID_COLS,
+    rows: OSD_GRID_ROWS,
+  };
+
   function handleQuickPosition(anchor: (typeof ALIGNMENT_ANCHORS)[number]) {
-    if (!selectedXName || !selectedYName) return;
-    const { x, y } = alignmentPosition(anchor);
+    if (!selectedXName || !selectedYName || !selectedElementKey) return;
+    const bounds = activeScreenBounds;
+    const { x, y: anchoredY } = alignmentPosition(anchor, bounds);
+    const y = findFreeStackedY(x, anchoredY, bounds);
     stageChange(selectedXName, clampOsdX(x));
     stageChange(selectedYName, clampOsdY(y));
+  }
+
+  // If another currently-enabled element on this screen already sits at the anchor's exact
+  // (x, y), stacks the new one below it instead of landing exactly on top and becoming
+  // unclickable on the canvas (a real report: two elements quick-positioned to the same corner
+  // made the one underneath impossible to drag). Tries downward first (reads top-to-bottom,
+  // matching how a stack of labels in the same corner naturally grows), then upward if the
+  // column's already full going down, then gives up and returns the original position (still
+  // reachable and editable via the table/keyboard even if visually overlapping).
+  function findFreeStackedY(x: number, y: number, bounds: { cols: number; rows: number }): number {
+    const occupied = new Set(
+      layoutElements.filter((el) => el.key !== selectedElementKey && el.x === x).map((el) => el.y),
+    );
+    if (!occupied.has(y)) return y;
+    for (let candidate = y + 1; candidate <= bounds.rows - 1; candidate++) {
+      if (!occupied.has(candidate)) return candidate;
+    }
+    for (let candidate = y - 1; candidate >= 0; candidate--) {
+      if (!occupied.has(candidate)) return candidate;
+    }
+    return y;
+  }
+
+  // Applying a preset replaces the active screen's whole layout, not just adds to it - every
+  // other element not in the preset gets disabled, so the result reads as "this is the layout"
+  // rather than a partial overlay on whatever was there before. Like every other edit in this
+  // section, this only stages changes (see pendingChanges/handleConfirmSaveAll) - nothing is
+  // actually sent to the vehicle until the user reviews and confirms Save All, so a preset can
+  // be tried and discarded via Reset with no risk.
+  function handleApplyPreset(preset: OsdPreset) {
+    const resolved = resolveOsdPreset(preset, activeScreenBounds);
+    const includedKeys = new Set(resolved.map((r) => r.key));
+    for (const key of OSD_ELEMENT_KEYS) {
+      if (includedKeys.has(key)) continue;
+      const enName = osdElementParamName(activeScreen, key, "EN");
+      if (!params[enName]) continue; // can't stage what hasn't loaded from the vehicle yet
+      if (shownValue(enName) !== 0) stageChange(enName, 0);
+    }
+    for (const { key, x, y } of resolved) {
+      const enName = osdElementParamName(activeScreen, key, "EN");
+      const xName = osdElementParamName(activeScreen, key, "X");
+      const yName = osdElementParamName(activeScreen, key, "Y");
+      if (!params[enName] || !params[xName] || !params[yName]) continue;
+      stageChange(enName, 1);
+      stageChange(xName, x);
+      stageChange(yName, y);
+    }
   }
 
   return (
@@ -191,7 +250,7 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.osdSetup.heading")}</h3>
         <div className="flex items-center gap-2">
-          <Button type="button" size="sm" onClick={handleLoadClick}>
+          <Button type="button" size="sm" variant="outline" onClick={onLoad}>
             {t("ardupilotSetup.osdSetup.load")}
           </Button>
           {hasPendingChanges && (
@@ -207,7 +266,9 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
         </div>
       </div>
 
-      {!hasStarted ? (
+      <ParamLoadProgress />
+
+      {!hasAnyLoaded ? (
         <p className="shrink-0 text-xs text-muted-foreground">{t("ardupilotSetup.osdSetup.notLoaded")}</p>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
@@ -263,6 +324,15 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
               <span className="text-muted-foreground">{t("ardupilotSetup.osdSetup.screenChanMax")}</span>
               {numberField(chanMaxParam)}
             </label>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-muted-foreground">{t("ardupilotSetup.osdSetup.presetsHeading")}</span>
+            {OSD_PRESETS.map((preset) => (
+              <Button key={preset.id} type="button" size="sm" variant="outline" onClick={() => handleApplyPreset(preset)}>
+                {osdPresetLabel(t, preset.id)}
+              </Button>
+            ))}
           </div>
 
           <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(280px,360px)_1fr]">
@@ -336,6 +406,8 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
                 selectedKey={selectedElementKey}
                 onSelect={setSelectedElementKey}
                 onMove={handleMoveElement}
+                osdType={shownValue("OSD_TYPE")}
+                txtRes={shownValue(`OSD${activeScreen}_TXT_RES`)}
               />
               <p className="shrink-0 text-xs text-muted-foreground">{t("ardupilotSetup.osdSetup.dragHint")}</p>
 

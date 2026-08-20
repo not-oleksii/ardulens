@@ -15,6 +15,7 @@ import { MavParamType } from "../../mavlink/registry/registry";
 import { fetchParamDocs, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
+import { ParamLoadProgress } from "./ParamLoadProgress";
 
 interface MotorsCopterSectionProps {
   servoOutputs: Record<number, number>;
@@ -235,10 +236,11 @@ export function MotorsCopterSection({
       <div className="flex h-full flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.motorsServos.heading")}</h3>
-          <Button type="button" size="sm" onClick={onLoadMotorSetup}>
+          <Button type="button" size="sm" variant="outline" onClick={onLoadMotorSetup}>
             {t("ardupilotSetup.motorsServos.loadMotorSetup")}
           </Button>
         </div>
+        <ParamLoadProgress />
         <p className="text-xs text-muted-foreground">{t("ardupilotSetup.motorsServos.frameNotLoaded")}</p>
       </div>
     );

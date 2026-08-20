@@ -10,6 +10,7 @@ import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mav
 import type { BatteryTelemetry } from "../../stores/mavlinkTelemetryStore/types";
 import { BATTERY_ENUM_PARAMS, BATTERY_PARAM_NAMES } from "./batteryParams";
 import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
+import { ParamLoadProgress } from "./ParamLoadProgress";
 
 interface BatteryConfigSectionProps {
   vehicleType: MavType;
@@ -22,7 +23,6 @@ export function BatteryConfigSection({ vehicleType, battery, onLoad, onSetParam 
   const { t } = useTranslation();
   const params = useMavlinkParameterStore((s) => s.params);
   const [docs, setDocs] = useState<ParamDocsMap | null>(null);
-  const [requested, setRequested] = useState(false);
   const [editingName, setEditingName] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
   const [pendingChanges, setPendingChanges] = useState<Record<string, number>>({});
@@ -43,11 +43,6 @@ export function BatteryConfigSection({ vehicleType, battery, onLoad, onSetParam 
       cancelled = true;
     };
   }, [vehicleFolder]);
-
-  function handleLoadClick() {
-    setRequested(true);
-    onLoad();
-  }
 
   function startEdit(name: string, currentValue: number) {
     setEditingName(name);
@@ -88,7 +83,6 @@ export function BatteryConfigSection({ vehicleType, battery, onLoad, onSetParam 
   }
 
   const hasAnyLoaded = BATTERY_PARAM_NAMES.some((name) => params[name] !== undefined);
-  const hasStarted = requested || hasAnyLoaded;
   const pendingEntries = Object.entries(pendingChanges);
   const hasPendingChanges = pendingEntries.length > 0;
 
@@ -154,7 +148,7 @@ export function BatteryConfigSection({ vehicleType, battery, onLoad, onSetParam 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.batteryConfig.heading")}</h3>
         <div className="flex items-center gap-2">
-          <Button type="button" size="sm" onClick={handleLoadClick}>
+          <Button type="button" size="sm" variant="outline" onClick={onLoad}>
             {t("ardupilotSetup.batteryConfig.load")}
           </Button>
           {hasPendingChanges && (
@@ -179,7 +173,9 @@ export function BatteryConfigSection({ vehicleType, battery, onLoad, onSetParam 
         <dd className="font-mono">{battery && battery.remainingPercent !== null ? `${battery.remainingPercent}%` : "-"}</dd>
       </dl>
 
-      {!hasStarted ? (
+      <ParamLoadProgress />
+
+      {!hasAnyLoaded ? (
         <p className="shrink-0 text-xs text-muted-foreground">{t("ardupilotSetup.batteryConfig.notLoaded")}</p>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto rounded-lg border border-border p-3">

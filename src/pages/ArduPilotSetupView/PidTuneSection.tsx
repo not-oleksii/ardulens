@@ -12,6 +12,7 @@ import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mav
 import { useUiStore } from "../../stores/uiStore/uiStore";
 import { ComingSoonSection } from "./ComingSoonSection";
 import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
+import { ParamLoadProgress } from "./ParamLoadProgress";
 import { pidConfigForVehicleFolder, type PidAxis } from "./pidGroups";
 
 interface PidTuneSectionProps {
@@ -36,7 +37,6 @@ export function PidTuneSection({ vehicleType, onLoad, onSetParam }: PidTuneSecti
   const setActiveTab = useUiStore((s) => s.setActiveTab);
   const setPendingPresetKey = useUiStore((s) => s.setPendingPresetKey);
   const params = useMavlinkParameterStore((s) => s.params);
-  const [requested, setRequested] = useState(false);
   const [editingName, setEditingName] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
   // Same stage-then-confirm pattern as ParametersPanel - a PID change takes effect immediately
@@ -72,11 +72,6 @@ export function PidTuneSection({ vehicleType, onLoad, onSetParam }: PidTuneSecti
       }
       return next;
     });
-  }
-
-  function handleLoadClick() {
-    setRequested(true);
-    onLoad();
   }
 
   function handleResetAll() {
@@ -115,7 +110,6 @@ export function PidTuneSection({ vehicleType, onLoad, onSetParam }: PidTuneSecti
   }
 
   const hasAnyResolved = config.axes.some((axis) => axis.terms.some((term) => resolveTerm(term.candidates) !== null));
-  const hasStarted = requested || hasAnyResolved;
   const pendingEntries = Object.entries(pendingChanges);
   const hasPendingChanges = pendingEntries.length > 0;
 
@@ -189,7 +183,7 @@ export function PidTuneSection({ vehicleType, onLoad, onSetParam }: PidTuneSecti
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.pidTune.heading")}</h3>
         <div className="flex items-center gap-2">
-          <Button type="button" size="sm" onClick={handleLoadClick}>
+          <Button type="button" size="sm" variant="outline" onClick={onLoad}>
             {t("ardupilotSetup.pidTune.load")}
           </Button>
           {hasPendingChanges && (
@@ -206,7 +200,9 @@ export function PidTuneSection({ vehicleType, onLoad, onSetParam }: PidTuneSecti
       </div>
       <p className="shrink-0 text-xs text-muted-foreground">{t("ardupilotSetup.pidTune.description")}</p>
 
-      {!hasStarted ? (
+      <ParamLoadProgress />
+
+      {!hasAnyResolved ? (
         <p className="shrink-0 text-xs text-muted-foreground">{t("ardupilotSetup.pidTune.notLoaded")}</p>
       ) : (
         <div className="flex min-h-0 flex-1 flex-wrap gap-4 overflow-y-auto">{config.axes.map((axis) => renderAxis(axis))}</div>

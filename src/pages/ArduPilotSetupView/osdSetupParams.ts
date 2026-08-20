@@ -71,6 +71,49 @@ export function clampOsdY(y: number): number {
   return Math.min(OSD_GRID_ROWS - 1, Math.max(0, Math.round(y)));
 }
 
+// Real MAX7456 hardware (analog OSD_TYPE=1) physically only has 30 character columns, and
+// either 16 rows (PAL) or 13 rows (NTSC) - fixed by the chip itself, confirmed against Maxim's
+// own MAX7456 datasheet, not assumed. ArduPilot's X/Y parameters still accept the full 0-59/0-21
+// range on an analog board (nothing stops you from *setting* OSD1_ALTITUDE_X=45), but an element
+// placed past column 29 or row 15/12 simply never appears on screen - so the visual preview
+// marks this real hardware limit rather than implying the full parameter range is always visible.
+export const ANALOG_SAFE_COLS = 30;
+export const ANALOG_SAFE_ROWS_NTSC = 13;
+export const ANALOG_SAFE_ROWS_PAL = 16;
+
+// A digital/MSP DisplayPort screen's real visible grid when OSD{n}_TXT_RES=1 ("HD" text
+// resolution) - confirmed against Mission Planner's own OSD layout editor, which draws this
+// exact 50x18 box (labelled "50x18" in its own UI) inside the full 60x22 parameter range for a
+// real vehicle's Screen 1 with OSD1_TXT_RES=1. TXT_RES=0 ("SD") isn't covered here - Mission
+// Planner's own editor wasn't checked against a real SD-digital screen, so that case is left as
+// the generic full-range preview rather than guessing a size.
+export const DIGITAL_HD_COLS = 50;
+export const DIGITAL_HD_ROWS = 18;
+
+export type OsdPreviewKind = "analog" | "digital" | "generic";
+
+// OSD_TYPE codes, per OSD_TYPE_FALLBACK_VALUES above: 1=MAX7456 is the one case with a
+// confidently-known physical character grid (real analog hardware). 3=MSP and 5=MSP_DISPLAYPORT
+// are digital/canvas systems (e.g. Walksnail, HDZero, DJI O3) whose actual resolution is
+// negotiated with the goggles/VTX at runtime over MSP. 0=None/2=SITL/4=TXONLY aren't real
+// physical displays this app can characterize, so they fall back to the generic full
+// parameter-range preview.
+export function osdPreviewKind(osdType: number | undefined): OsdPreviewKind {
+  if (osdType === 1) return "analog";
+  if (osdType === 3 || osdType === 5) return "digital";
+  return "generic";
+}
+
+// The real visible character grid to overlay inside the full 60x22 parameter range, or null when
+// there's no confidently-known size for this combination (in which case the preview shows the
+// full range with no overlay, rather than a fabricated box). See DIGITAL_HD_COLS/ROWS's own
+// comment for where the digital HD size comes from.
+export function osdVisibleSafeArea(osdType: number | undefined, txtRes: number | undefined): { cols: number; rows: number } | null {
+  if (osdType === 1) return { cols: ANALOG_SAFE_COLS, rows: ANALOG_SAFE_ROWS_PAL };
+  if ((osdType === 3 || osdType === 5) && txtRes === 1) return { cols: DIGITAL_HD_COLS, rows: DIGITAL_HD_ROWS };
+  return null;
+}
+
 // A Betaflight/INAV-style 3x3 "quick position" preset - snaps an element to one of the 9
 // obvious screen anchors instead of hand-typing X/Y. The margins are a fixed best-effort inset,
 // not an exact flush-right/flush-bottom fit: real element text width varies by value and by
@@ -92,12 +135,18 @@ export type AlignmentAnchor = (typeof ALIGNMENT_ANCHORS)[number];
 const ALIGNMENT_X_MARGIN = 2;
 const ALIGNMENT_Y_MARGIN = 1;
 
-export function alignmentPosition(anchor: AlignmentAnchor): { x: number; y: number } {
+// Snaps within `bounds` (the real visible area - see osdVisibleSafeArea) rather than always the
+// full 60x22 parameter range - "top right" on an analog or SD-visible screen used to land an
+// element up to column 59, real columns past ~30/50 an actual display never shows, defeating the
+// entire point of "snap to a corner". Defaults to the full grid only when no visible-area is
+// confidently known for the current OSD_TYPE/TXT_RES (see osdVisibleSafeArea's own null case).
+export function alignmentPosition(
+  anchor: AlignmentAnchor,
+  bounds: { cols: number; rows: number } = { cols: OSD_GRID_COLS, rows: OSD_GRID_ROWS },
+): { x: number; y: number } {
   const [vertical, horizontal] = anchor === "center" ? (["center", "center"] as const) : splitAnchor(anchor);
-  const x =
-    horizontal === "left" ? ALIGNMENT_X_MARGIN : horizontal === "right" ? OSD_GRID_COLS - 1 - ALIGNMENT_X_MARGIN : Math.round((OSD_GRID_COLS - 1) / 2);
-  const y =
-    vertical === "top" ? ALIGNMENT_Y_MARGIN : vertical === "bottom" ? OSD_GRID_ROWS - 1 - ALIGNMENT_Y_MARGIN : Math.round((OSD_GRID_ROWS - 1) / 2);
+  const x = horizontal === "left" ? ALIGNMENT_X_MARGIN : horizontal === "right" ? bounds.cols - 1 - ALIGNMENT_X_MARGIN : Math.round((bounds.cols - 1) / 2);
+  const y = vertical === "top" ? ALIGNMENT_Y_MARGIN : vertical === "bottom" ? bounds.rows - 1 - ALIGNMENT_Y_MARGIN : Math.round((bounds.rows - 1) / 2);
   return { x, y };
 }
 
@@ -275,4 +324,109 @@ export function allOsdParamNames(): string[] {
     ...OSD_GLOBAL_PARAM_NAMES,
     ...OSD_SCREEN_NUMBERS.flatMap((screen) => [...osdScreenControlParamNames(screen), ...osdScreenElementParamNames(screen)]),
   ];
+}
+
+interface OsdPresetElement {
+  key: OsdElementKey;
+  // Position as a 0-1 fraction of the real visible area (see osdVisibleSafeArea), not an
+  // absolute cell - so the same preset lays out sensibly whether it's applied on a tiny 30x13
+  // analog screen or a 60x22 generic one, rather than only looking right at one fixed size.
+  xFrac: number;
+  yFrac: number;
+}
+
+export interface OsdPreset {
+  id: string;
+  elements: readonly OsdPresetElement[];
+}
+
+// ArduLens-authored starting layouts, not a real ArduPilot/Betaflight/Mission Planner concept -
+// applying one replaces the active screen's whole layout (every other element gets disabled) so
+// it reads as "this is the layout" rather than a partial overlay. Positions are hand-placed to
+// avoid overlapping at typical bounds; resolveOsdPreset's own collision handling (same idea as
+// OsdSetupSection's Quick Position stacking) covers the rest for unusually small visible areas.
+const EDGE_X = 0.04;
+const EDGE_Y = 0.05;
+const ROW_GAP_Y = 0.08;
+
+export const OSD_PRESETS: readonly OsdPreset[] = [
+  {
+    id: "minimal",
+    elements: [
+      { key: "FLTMODE", xFrac: EDGE_X, yFrac: EDGE_Y },
+      { key: "BAT_VOLT", xFrac: 1 - EDGE_X, yFrac: EDGE_Y },
+      { key: "RSSI", xFrac: EDGE_X, yFrac: 1 - EDGE_Y },
+      { key: "ARMING", xFrac: 1 - EDGE_X, yFrac: 1 - EDGE_Y },
+    ],
+  },
+  {
+    id: "racing",
+    elements: [
+      { key: "FLTMODE", xFrac: EDGE_X, yFrac: EDGE_Y },
+      { key: "ARMING", xFrac: EDGE_X, yFrac: EDGE_Y + ROW_GAP_Y },
+      { key: "BAT_VOLT", xFrac: 1 - EDGE_X, yFrac: EDGE_Y },
+      { key: "CURRENT", xFrac: 1 - EDGE_X, yFrac: EDGE_Y + ROW_GAP_Y },
+      { key: "GSPEED", xFrac: EDGE_X, yFrac: 1 - EDGE_Y - ROW_GAP_Y },
+      { key: "RSSI", xFrac: EDGE_X, yFrac: 1 - EDGE_Y },
+      { key: "THROTTLE", xFrac: 1 - EDGE_X, yFrac: 1 - EDGE_Y - ROW_GAP_Y },
+      { key: "HORIZON", xFrac: 0.5, yFrac: 0.5 },
+    ],
+  },
+  {
+    id: "fullTelemetry",
+    elements: [
+      { key: "FLTMODE", xFrac: EDGE_X, yFrac: EDGE_Y },
+      { key: "ARMING", xFrac: EDGE_X, yFrac: EDGE_Y + ROW_GAP_Y },
+      { key: "MESSAGE", xFrac: 0.5, yFrac: EDGE_Y },
+      { key: "HEADING", xFrac: 0.5, yFrac: EDGE_Y + ROW_GAP_Y },
+      { key: "BAT_VOLT", xFrac: 1 - EDGE_X, yFrac: EDGE_Y },
+      { key: "CURRENT", xFrac: 1 - EDGE_X, yFrac: EDGE_Y + ROW_GAP_Y },
+      { key: "BATUSED", xFrac: 1 - EDGE_X, yFrac: EDGE_Y + 2 * ROW_GAP_Y },
+      { key: "SATS", xFrac: EDGE_X, yFrac: 1 - EDGE_Y },
+      { key: "GSPEED", xFrac: EDGE_X, yFrac: 1 - EDGE_Y - ROW_GAP_Y },
+      { key: "HOMEDIST", xFrac: 0.5, yFrac: 1 - EDGE_Y },
+      { key: "VSPEED", xFrac: 1 - EDGE_X, yFrac: 1 - EDGE_Y },
+      { key: "THROTTLE", xFrac: 1 - EDGE_X, yFrac: 1 - EDGE_Y - ROW_GAP_Y },
+      { key: "HORIZON", xFrac: 0.5, yFrac: 0.5 },
+    ],
+  },
+];
+
+/** Converts a preset's fractional positions into real (clamped) cell coordinates for the given
+ *  visible bounds, nudging any element that would otherwise land exactly on an earlier one in
+ *  the same preset - the same downward-then-upward stacking OsdSetupSection's Quick Position
+ *  uses, so two rounded fractions colliding at a small bounds size doesn't hide one under the
+ *  other before the user's even touched anything. */
+export function resolveOsdPreset(preset: OsdPreset, bounds: { cols: number; rows: number }): { key: OsdElementKey; x: number; y: number }[] {
+  const used = new Set<string>();
+  const resolved: { key: OsdElementKey; x: number; y: number }[] = [];
+  for (const el of preset.elements) {
+    const x = clampOsdX(Math.round(el.xFrac * (bounds.cols - 1)));
+    let y = clampOsdY(Math.round(el.yFrac * (bounds.rows - 1)));
+    if (used.has(`${x},${y}`)) {
+      let found = false;
+      for (let candidate = y + 1; candidate <= bounds.rows - 1; candidate++) {
+        if (!used.has(`${x},${candidate}`)) {
+          y = candidate;
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        for (let candidate = y - 1; candidate >= 0; candidate--) {
+          if (!used.has(`${x},${candidate}`)) {
+            y = candidate;
+            break;
+          }
+        }
+      }
+    }
+    used.add(`${x},${y}`);
+    resolved.push({ key: el.key, x, y });
+  }
+  return resolved;
+}
+
+export function osdPresetLabel(t: Translate, id: string): string {
+  return t(`ardupilotSetup.osdSetup.presets.${id}`);
 }

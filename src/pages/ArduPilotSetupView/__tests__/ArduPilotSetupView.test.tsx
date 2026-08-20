@@ -1018,8 +1018,8 @@ describe("ArduPilotSetupView", () => {
         await within(getStatusAlert()).findByText(/Підключено/);
         await clickParametersNav();
 
-        await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
-
+        // No manual Load click needed - the full parameter list downloads automatically
+        // once connected, and the simulator responds to it synchronously.
         expect(await screen.findByText("ARSPD_USE")).toBeInTheDocument();
         // SERVO3_TRIM is deliberately withheld from the initial dump by the simulator (see
         // mockVehicleSimulator.ts) to give "Request missing" something real to do.
@@ -1040,7 +1040,6 @@ describe("ArduPilotSetupView", () => {
         await within(getStatusAlert()).findByText(/Підключено/);
         await clickParametersNav();
 
-        await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
         await screen.findByText("ARSPD_USE");
 
         await user.click(screen.getByRole("button", { name: "Завантажити стандартні значення" }));
@@ -1065,7 +1064,6 @@ describe("ArduPilotSetupView", () => {
         await within(getStatusAlert()).findByText(/Підключено/);
         await clickParametersNav();
 
-        await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
         await screen.findByText("ARSPD_USE");
         await user.click(screen.getByRole("button", { name: "Завантажити стандартні значення" }));
 
@@ -1264,44 +1262,47 @@ describe("ArduPilotSetupView", () => {
       });
     }
 
-    function requestedParamNames(byNameRequests: ReturnType<typeof vi.fn>["mock"]["calls"]) {
-      return new Set(
-        byNameRequests.map(([, payload]) => {
-          const bytes = (payload as { bytes: number[] }).bytes;
-          // param_id: char[16] at payload offset 4 (after param_index:int16, target_system/
-          // target_component:uint8 - confirmed via ParamRequestRead.FIELDS, not assumed).
-          const nameBytes = bytes.slice(14, 14 + 16);
-          const nullIndex = nameBytes.indexOf(0);
-          return String.fromCharCode(...nameBytes.slice(0, nullIndex === -1 ? undefined : nullIndex));
-        }),
-      );
-    }
-
-    it("requests SERVOx_FUNCTION/MIN/MAX/TRIM/REVERSED by name for all 16 channels automatically once the tab opens", async () => {
+    it("downloads the full parameter list automatically once connected, before the tab is even opened", async () => {
       const invoked = vi.fn();
       mockBackend(invoked);
       await connectPlaneAndOpenMotors();
 
-      const byNameRequests = servoByNameRequests(invoked);
-      expect(byNameRequests.length).toBe(16 * 5);
-
-      const requestedNames = requestedParamNames(byNameRequests);
-      expect(requestedNames.has("SERVO1_FUNCTION")).toBe(true);
-      expect(requestedNames.has("SERVO16_TRIM")).toBe(true);
-      expect(requestedNames.has("SERVO1_REVERSED")).toBe(true);
+      const listRequests = invoked.mock.calls.filter(([cmd, payload]) => {
+        if (cmd !== "send_bytes") return false;
+        const bytes = (payload as { bytes: number[] }).bytes;
+        return bytes[7] === ParamRequestList.MSG_ID;
+      });
+      // Exactly one PARAM_REQUEST_LIST per connection (fullParamsRequestedRef guard), not a
+      // per-tab burst of hundreds of by-name PARAM_REQUEST_READ requests - the by-name burst
+      // approach is what caused OSD Setup to silently fail on real hardware (most of ~780
+      // individual requests got dropped over a real link with no flow control).
+      expect(listRequests.length).toBe(1);
+      expect(servoByNameRequests(invoked).length).toBe(0);
     });
 
-    it("the Load button re-sends the same by-name requests as an explicit reload", async () => {
+    it("populates the table from PARAM_VALUE packets without needing the Load button", async () => {
+      mockBackend();
+      await connectPlaneAndOpenMotors();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERVO1_FUNCTION", 4, MavParamType.INT16, 0, 1, 1) });
+
+      expect(await screen.findByRole("table")).toBeInTheDocument();
+    });
+
+    it("the Load button re-sends a fresh PARAM_REQUEST_LIST as an explicit reload", async () => {
       const invoked = vi.fn();
       mockBackend(invoked);
       const { user } = await connectPlaneAndOpenMotors();
-      invoked.mockClear(); // drop the auto-load-on-navigate batch, isolate the manual click
+      invoked.mockClear(); // drop the auto-load-on-connect request, isolate the manual click
 
       await user.click(screen.getByRole("button", { name: "Завантажити виходи серво" }));
 
-      const requestedNames = requestedParamNames(servoByNameRequests(invoked));
-      expect(requestedNames.has("SERVO1_FUNCTION")).toBe(true);
-      expect(requestedNames.has("SERVO1_REVERSED")).toBe(true);
+      const listRequests = invoked.mock.calls.filter(([cmd, payload]) => {
+        if (cmd !== "send_bytes") return false;
+        const bytes = (payload as { bytes: number[] }).bytes;
+        return bytes[7] === ParamRequestList.MSG_ID;
+      });
+      expect(listRequests.length).toBe(1);
     });
 
     it("lists an active channel's function label and live output once params and SERVO_OUTPUT_RAW arrive", async () => {
@@ -1400,6 +1401,35 @@ describe("ArduPilotSetupView", () => {
       const payload = new Uint8Array(bytes.slice(10));
       expect(paramWireBitsToValue(readParamValueBits(payload), MavParamType.INT16)).toBe(1100);
     });
+
+    it("ArrowUp/ArrowDown nudge a channel's Trim by 1us (10us with Shift) and commit immediately, for precise surface trimming without retyping", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectPlaneAndOpenMotors();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERVO1_FUNCTION", 4, MavParamType.INT16, 0, 1, 1) }); // Aileron
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERVO1_TRIM", 1500, MavParamType.INT16, 1, 1, 2) });
+      const trimButton = await screen.findByRole("button", { name: "1500" });
+
+      await user.click(trimButton);
+      const input = screen.getByRole("textbox");
+
+      function lastCommittedValue(): number {
+        const paramSetCalls = invoked.mock.calls.filter(
+          ([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamSet.MSG_ID,
+        );
+        const bytes = (paramSetCalls.at(-1)![1] as { bytes: number[] }).bytes;
+        return paramWireBitsToValue(readParamValueBits(new Uint8Array(bytes.slice(10))), MavParamType.INT16);
+      }
+
+      fireEvent.keyDown(input, { key: "ArrowUp" });
+      expect(input).toHaveValue("1501");
+      expect(lastCommittedValue()).toBe(1501);
+
+      fireEvent.keyDown(input, { key: "ArrowDown", shiftKey: true });
+      expect(input).toHaveValue("1491");
+      expect(lastCommittedValue()).toBe(1491);
+    });
   });
 
   describe("motors & servos (Copter)", () => {
@@ -1420,27 +1450,24 @@ describe("ArduPilotSetupView", () => {
       expect(screen.getByText("Клас і тип рами ще не завантажено.")).toBeInTheDocument();
     });
 
-    it("requests FRAME_CLASS/FRAME_TYPE and SERVOx_REVERSED by name when Load Motor Setup is clicked", async () => {
+    it("Load Motor Setup re-sends the full PARAM_REQUEST_LIST, and frame info populates from PARAM_VALUE without it", async () => {
       const invoked = vi.fn();
       mockBackend(invoked);
       const { user } = await connectCopterAndOpenMotors();
+      invoked.mockClear(); // drop the auto-load-on-connect request, isolate the manual click
 
       await user.click(screen.getByRole("button", { name: "Завантажити налаштування моторів" }));
 
-      const requestedNames = new Set(
-        invoked.mock.calls
-          .filter(([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamRequestRead.MSG_ID)
-          .map(([, payload]) => {
-            const bytes = (payload as { bytes: number[] }).bytes;
-            const nameBytes = bytes.slice(14, 14 + 16);
-            const nullIndex = nameBytes.indexOf(0);
-            return String.fromCharCode(...nameBytes.slice(0, nullIndex === -1 ? undefined : nullIndex));
-          }),
-      );
-      expect(requestedNames.has("FRAME_CLASS")).toBe(true);
-      expect(requestedNames.has("FRAME_TYPE")).toBe(true);
-      expect(requestedNames.has("SERVO1_REVERSED")).toBe(true);
-      expect(requestedNames.has("SERVO16_REVERSED")).toBe(true);
+      const listRequests = invoked.mock.calls.filter(([cmd, payload]) => {
+        if (cmd !== "send_bytes") return false;
+        const bytes = (payload as { bytes: number[] }).bytes;
+        return bytes[7] === ParamRequestList.MSG_ID;
+      });
+      expect(listRequests.length).toBe(1);
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_CLASS", 1, MavParamType.INT8, 0, 2, 1) }); // Quad
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_TYPE", 1, MavParamType.INT8, 1, 2, 2) }); // X
+      expect(await screen.findByRole<HTMLSelectElement>("combobox", { name: "Клас рами" })).toBeInTheDocument();
     });
 
     it("renders the verified Quad X diagram on the Test & Reverse tab, and press-and-hold sends DO_MOTOR_TEST", async () => {
@@ -1702,27 +1729,23 @@ describe("ArduPilotSetupView", () => {
       expect(screen.getByText("Параметри PID ще не завантажено.")).toBeInTheDocument();
     });
 
-    it("requests every ATC_RAT_*/ATC_ANG_* candidate by name when Load is clicked", async () => {
+    it("Load re-sends the full PARAM_REQUEST_LIST, and gains populate from PARAM_VALUE without it", async () => {
       const invoked = vi.fn();
       mockBackend(invoked);
       const { user } = await connectCopterAndOpenPidTune();
+      invoked.mockClear(); // drop the auto-load-on-connect request, isolate the manual click
 
       await user.click(screen.getByRole("button", { name: "Завантажити параметри PID" }));
 
-      const requestedNames = new Set(
-        invoked.mock.calls
-          .filter(([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamRequestRead.MSG_ID)
-          .map(([, payload]) => {
-            const bytes = (payload as { bytes: number[] }).bytes;
-            const nameBytes = bytes.slice(14, 14 + 16);
-            const nullIndex = nameBytes.indexOf(0);
-            return String.fromCharCode(...nameBytes.slice(0, nullIndex === -1 ? undefined : nullIndex));
-          }),
-      );
-      expect(requestedNames.has("ATC_RAT_RLL_P")).toBe(true);
-      expect(requestedNames.has("ATC_RAT_PIT_FF")).toBe(true);
-      expect(requestedNames.has("ATC_RAT_YAW_D")).toBe(true);
-      expect(requestedNames.has("ATC_ANG_YAW_P")).toBe(true);
+      const listRequests = invoked.mock.calls.filter(([cmd, payload]) => {
+        if (cmd !== "send_bytes") return false;
+        const bytes = (payload as { bytes: number[] }).bytes;
+        return bytes[7] === ParamRequestList.MSG_ID;
+      });
+      expect(listRequests.length).toBe(1);
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("ATC_RAT_RLL_P", 0.125, MavParamType.REAL32, 0, 1, 1) });
+      expect(await screen.findByText("0.125")).toBeInTheDocument();
     });
 
     it("shows gain values once they arrive, stages an edit, and Save all sends PARAM_SET with the new value", async () => {
@@ -1772,7 +1795,8 @@ describe("ArduPilotSetupView", () => {
       mockBackend();
       useFileStore.getState().setFile({ name: "sample.bin", buf: new ArrayBuffer(0) });
       const { user } = await connectCopterAndOpenPidTune();
-      await user.click(screen.getByRole("button", { name: "Завантажити параметри PID" }));
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("ATC_RAT_RLL_P", 0.125, MavParamType.REAL32, 0, 1, 1) });
+      await screen.findByText("0.125");
 
       const viewInGraphsButtons = screen.getAllByRole("button", { name: "Переглянути в Графіках" });
       expect(viewInGraphsButtons).toHaveLength(3); // roll, pitch, yaw
@@ -1980,26 +2004,23 @@ describe("ArduPilotSetupView", () => {
       expect(await screen.findByText("16.80 V")).toBeInTheDocument();
     });
 
-    it("requests every BATT_* param by name when Load is clicked", async () => {
+    it("Load re-sends the full PARAM_REQUEST_LIST, and fields populate from PARAM_VALUE without it", async () => {
       const invoked = vi.fn();
       mockBackend(invoked);
       const { user } = await connectAndOpenBatteryConfig();
+      invoked.mockClear(); // drop the auto-load-on-connect request, isolate the manual click
 
       await user.click(screen.getByRole("button", { name: "Завантажити налаштування батареї" }));
 
-      const requestedNames = new Set(
-        invoked.mock.calls
-          .filter(([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamRequestRead.MSG_ID)
-          .map(([, payload]) => {
-            const bytes = (payload as { bytes: number[] }).bytes;
-            const nameBytes = bytes.slice(14, 14 + 16);
-            const nullIndex = nameBytes.indexOf(0);
-            return String.fromCharCode(...nameBytes.slice(0, nullIndex === -1 ? undefined : nullIndex));
-          }),
-      );
-      expect(requestedNames.has("BATT_MONITOR")).toBe(true);
-      expect(requestedNames.has("BATT_CAPACITY")).toBe(true);
-      expect(requestedNames.has("BATT_FS_CRT_ACT")).toBe(true);
+      const listRequests = invoked.mock.calls.filter(([cmd, payload]) => {
+        if (cmd !== "send_bytes") return false;
+        const bytes = (payload as { bytes: number[] }).bytes;
+        return bytes[7] === ParamRequestList.MSG_ID;
+      });
+      expect(listRequests.length).toBe(1);
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("BATT_CAPACITY", 5000, MavParamType.INT32, 0, 1, 1) });
+      expect(await screen.findByText("5000")).toBeInTheDocument();
     });
 
     it("shows BATT_CAPACITY once it arrives, stages an edit, and Save all sends PARAM_SET with the new value", async () => {
@@ -2068,27 +2089,28 @@ describe("ArduPilotSetupView", () => {
       expect(screen.getByText("Налаштування OSD ще не завантажено.")).toBeInTheDocument();
     });
 
-    it("requests every OSD_* param by name when Load is clicked, covering globals and all 4 screens", async () => {
+    it("Load re-sends the full PARAM_REQUEST_LIST instead of a ~780-request by-name burst, and fields populate from PARAM_VALUE without it", async () => {
       const invoked = vi.fn();
       mockBackend(invoked);
       const { user } = await connectAndOpenOsdSetup();
+      invoked.mockClear(); // drop the auto-load-on-connect request, isolate the manual click
 
       await user.click(screen.getByRole("button", { name: "Завантажити налаштування OSD" }));
 
-      const requestedNames = new Set(
-        invoked.mock.calls
-          .filter(([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamRequestRead.MSG_ID)
-          .map(([, payload]) => {
-            const bytes = (payload as { bytes: number[] }).bytes;
-            const nameBytes = bytes.slice(14, 14 + 16);
-            const nullIndex = nameBytes.indexOf(0);
-            return String.fromCharCode(...nameBytes.slice(0, nullIndex === -1 ? undefined : nullIndex));
-          }),
-      );
-      expect(requestedNames.has("OSD_TYPE")).toBe(true);
-      expect(requestedNames.has("OSD1_ENABLE")).toBe(true);
-      expect(requestedNames.has("OSD1_ALTITUDE_EN")).toBe(true);
-      expect(requestedNames.has("OSD4_RC_LQ_Y")).toBe(true);
+      const listRequests = invoked.mock.calls.filter(([cmd, payload]) => {
+        if (cmd !== "send_bytes") return false;
+        const bytes = (payload as { bytes: number[] }).bytes;
+        return bytes[7] === ParamRequestList.MSG_ID;
+      });
+      expect(listRequests.length).toBe(1);
+      expect(
+        invoked.mock.calls.filter(
+          ([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamRequestRead.MSG_ID,
+        ),
+      ).toHaveLength(0);
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD_TYPE", 14, MavParamType.INT8, 0, 1, 1) });
+      expect(await screen.findByLabelText("Тип OSD")).toBeInTheDocument();
     });
 
     it("shows OSD_TYPE/OSD_UNITS/OSD_CHAN as dropdowns with real labels even without docs, and keeps an out-of-range value selectable", async () => {
@@ -2113,6 +2135,175 @@ describe("ArduPilotSetupView", () => {
       const chanSelect = screen.getByLabelText<HTMLSelectElement>("Канал перемикання екранів");
       expect(within(chanSelect).getByText("Disable")).toBeInTheDocument();
       expect(within(chanSelect).getByText("Chan16")).toBeInTheDocument();
+    });
+
+    it("labels the screen layout preview by real OSD_TYPE/OSD{n}_TXT_RES, not a generic fixed size", async () => {
+      // Regression test for a real-vehicle report: the layout preview used to be a blank box
+      // with no indication of what resolution it represented, and (before OSD{n}_TXT_RES was
+      // taken into account) digital OSDs got a vague "HD, resolution varies" badge even when the
+      // real 50x18 visible size was knowable from the vehicle's own OSD1_TXT_RES param -
+      // confirmed against Mission Planner's own OSD editor, which draws that exact box for a
+      // real vehicle with OSD1_TXT_RES=1.
+      mockBackend();
+      await connectAndOpenOsdSetup();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD_TYPE", 1, MavParamType.INT8, 0, 1, 1) }); // MAX7456
+      expect(await screen.findByText("SD · Аналоговий (MAX7456)")).toBeInTheDocument();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD_TYPE", 5, MavParamType.INT8, 0, 1, 2) }); // MSP_DISPLAYPORT
+      expect(await screen.findByText("HD · Цифровий - точна роздільність залежить від вашого VTX/окулярів")).toBeInTheDocument();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_TXT_RES", 1, MavParamType.INT8, 3, 4, 3) });
+      expect(await screen.findByText("HD · Цифровий MSP DisplayPort (50×18, HD текст. роздільність)")).toBeInTheDocument();
+    });
+
+    it("Quick Position snaps within the real visible area, not the full 60x22 parameter range", async () => {
+      // Regression test for a real-vehicle report: clicking "top right" on a digital HD screen
+      // (OSD1_TXT_RES=1, real visible area 50x18) used to snap to column 57 (2 in from the full
+      // 60-wide parameter range) - past what actually renders on a 50-wide HD display.
+      mockBackend();
+      const { user } = await connectAndOpenOsdSetup();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD_TYPE", 5, MavParamType.INT8, 0, 3, 1) }); // MSP_DISPLAYPORT
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_TXT_RES", 1, MavParamType.INT8, 1, 3, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ESCAMPS_X", 10, MavParamType.INT8, 2, 3, 3) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ESCAMPS_Y", 1, MavParamType.INT8, 3, 4, 4) });
+
+      const row = (await screen.findByText("Струм ESC")).closest("tr")!;
+      await user.click(row);
+      await user.click(screen.getByRole("button", { name: "Зверху праворуч" }));
+
+      const xInput = screen.getByLabelText("X") as HTMLInputElement;
+      const yInput = screen.getByLabelText("Y") as HTMLInputElement;
+      // Real visible area is 50x18 (cols 0-49) - margin-inset "top right" lands at col 47, not
+      // the full-grid 57 (60-wide range, cols 0-59).
+      expect(Number(xInput.value)).toBe(47);
+      expect(Number(yInput.value)).toBe(1);
+    });
+
+    it("Quick Position stacks a new element below one already at the same spot, instead of covering it", async () => {
+      // Regression test for a real-vehicle report: two elements quick-positioned to the same
+      // corner landed exactly on top of each other, making the one underneath permanently
+      // unclickable on the canvas (its whole hit area covered by the one on top).
+      mockBackend();
+      const { user } = await connectAndOpenOsdSetup();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD_TYPE", 5, MavParamType.INT8, 0, 8, 1) }); // MSP_DISPLAYPORT
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_TXT_RES", 1, MavParamType.INT8, 1, 8, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ESCAMPS_EN", 1, MavParamType.INT8, 2, 8, 3) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ESCAMPS_X", 47, MavParamType.INT8, 3, 8, 4) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ESCAMPS_Y", 1, MavParamType.INT8, 4, 8, 5) }); // already at "top right"
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_BAT_VOLT_EN", 1, MavParamType.INT8, 5, 8, 6) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_BAT_VOLT_X", 10, MavParamType.INT8, 6, 8, 7) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_BAT_VOLT_Y", 10, MavParamType.INT8, 7, 8, 8) });
+
+      // Both elements are already positioned/rendered as chips too, so scope to the table -
+      // otherwise "Напруга батареї" ambiguously matches both the table cell and the chip.
+      const table = await screen.findByRole("table");
+      const row = within(table).getByText("Напруга батареї").closest("tr")!;
+      await user.click(row);
+      await user.click(screen.getByRole("button", { name: "Зверху праворуч" }));
+
+      const xInput = screen.getByLabelText("X") as HTMLInputElement;
+      const yInput = screen.getByLabelText("Y") as HTMLInputElement;
+      expect(Number(xInput.value)).toBe(47);
+      expect(Number(yInput.value)).toBe(2); // stacked one row below ESCAMPS at (47, 1), not on top of it
+    });
+
+    it("selecting a chip on the canvas moves keyboard focus onto it, and arrow keys nudge its position (Shift for 5 cells)", async () => {
+      mockBackend();
+      await connectAndOpenOsdSetup();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ESCAMPS_EN", 1, MavParamType.INT8, 0, 3, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ESCAMPS_X", 10, MavParamType.INT8, 1, 3, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ESCAMPS_Y", 10, MavParamType.INT8, 2, 3, 3) });
+
+      const chip = await screen.findByTitle("Струм ESC (10, 10)");
+      // A plain press-release with no movement in between is a click, not a drag - see
+      // OsdScreenLayout's own pointer handlers, which is why this uses pointer events directly
+      // rather than fireEvent.click.
+      fireEvent.pointerDown(chip);
+      fireEvent.pointerUp(chip);
+      expect(chip).toHaveFocus();
+
+      fireEvent.keyDown(chip, { key: "ArrowDown" });
+      expect(await screen.findByTitle("Струм ESC (10, 11)")).toBeInTheDocument();
+
+      fireEvent.keyDown(screen.getByTitle("Струм ESC (10, 11)"), { key: "ArrowRight", shiftKey: true });
+      expect(await screen.findByTitle("Струм ESC (15, 11)")).toBeInTheDocument();
+
+      // The options list highlights whatever's currently selected, regardless of whether
+      // selection happened via a click on the canvas or the table row.
+      const table = screen.getByRole("table");
+      expect(within(table).getByText("Струм ESC").closest("tr")).toHaveClass("bg-accent");
+    });
+
+    it("selecting an element via its table row moves focus onto its canvas chip too, so a chip fully covered by another is still reachable and nudgeable", async () => {
+      // Regression test for the same real report as the stacking test above: an element
+      // completely covered by another one at the same (x, y) has no clickable area of its own
+      // on the canvas - selecting it via the table (which doesn't depend on canvas hit-testing)
+      // must still focus its chip so arrow-key nudging can move it out from underneath.
+      mockBackend();
+      const { user } = await connectAndOpenOsdSetup();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ESCAMPS_EN", 1, MavParamType.INT8, 0, 6, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ESCAMPS_X", 20, MavParamType.INT8, 1, 6, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ESCAMPS_Y", 5, MavParamType.INT8, 2, 6, 3) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_BAT_VOLT_EN", 1, MavParamType.INT8, 3, 6, 4) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_BAT_VOLT_X", 20, MavParamType.INT8, 4, 6, 5) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_BAT_VOLT_Y", 5, MavParamType.INT8, 5, 6, 6) }); // exactly covers ESCAMPS
+
+      const table = await screen.findByRole("table");
+      const row = within(table).getByText("Напруга батареї").closest("tr")!;
+      await user.click(row);
+
+      const chip = await screen.findByTitle("Напруга батареї (20, 5)");
+      expect(chip).toHaveFocus();
+
+      fireEvent.keyDown(chip, { key: "ArrowLeft" });
+      expect(await screen.findByTitle("Напруга батареї (19, 5)")).toBeInTheDocument();
+    });
+
+    it("applying a preset enables/positions its elements and disables every other element on the screen", async () => {
+      mockBackend();
+      const { user } = await connectAndOpenOsdSetup();
+
+      // The "minimal" preset covers FLTMODE/BAT_VOLT/RSSI/ARMING - none enabled yet.
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_FLTMODE_EN", 0, MavParamType.INT8, 0, 15, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_FLTMODE_X", 0, MavParamType.INT8, 1, 15, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_FLTMODE_Y", 0, MavParamType.INT8, 2, 15, 3) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_BAT_VOLT_EN", 0, MavParamType.INT8, 3, 15, 4) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_BAT_VOLT_X", 0, MavParamType.INT8, 4, 15, 5) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_BAT_VOLT_Y", 0, MavParamType.INT8, 5, 15, 6) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_RSSI_EN", 0, MavParamType.INT8, 6, 15, 7) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_RSSI_X", 0, MavParamType.INT8, 7, 15, 8) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_RSSI_Y", 0, MavParamType.INT8, 8, 15, 9) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ARMING_EN", 0, MavParamType.INT8, 9, 15, 10) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ARMING_X", 0, MavParamType.INT8, 10, 15, 11) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ARMING_Y", 0, MavParamType.INT8, 11, 15, 12) });
+      // HEADING isn't part of "minimal" and starts enabled - applying the preset should turn it
+      // off, since a preset replaces the whole screen's layout rather than adding to it.
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_HEADING_EN", 1, MavParamType.INT8, 12, 15, 13) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_HEADING_X", 30, MavParamType.INT8, 13, 15, 14) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_HEADING_Y", 10, MavParamType.INT8, 14, 15, 15) });
+
+      await user.click(await screen.findByRole("button", { name: "Мінімальний" }));
+
+      const saveAllButton = await screen.findByRole("button", { name: /Зберегти все/ });
+      await user.click(saveAllButton);
+      const dialog = screen.getByRole("dialog");
+
+      // Full 60x22 grid (no OSD_TYPE/TXT_RES loaded in this test) - see the fractional-to-cell
+      // math verified independently in osdSetupParams.ts's own resolveOsdPreset.
+      expect(within(dialog).getByText("OSD1_FLTMODE_EN")).toBeInTheDocument();
+      const fltmodeXRow = within(dialog).getByText("OSD1_FLTMODE_X").closest("tr")!;
+      expect(within(fltmodeXRow).getByText("2")).toBeInTheDocument();
+      const battVoltXRow = within(dialog).getByText("OSD1_BAT_VOLT_X").closest("tr")!;
+      expect(within(battVoltXRow).getByText("57")).toBeInTheDocument();
+
+      const headingEnRow = within(dialog).getByText("OSD1_HEADING_EN").closest("tr")!;
+      expect(within(headingEnRow).getByText("0")).toBeInTheDocument(); // disabled, not part of the preset
+      expect(within(dialog).queryByText("OSD1_HEADING_X")).not.toBeInTheDocument(); // untouched, X/Y left as-is
     });
 
     it("shows OSD_CHAN once it arrives, stages an edit, and Save all sends PARAM_SET with the new value", async () => {
@@ -2242,26 +2433,23 @@ describe("ArduPilotSetupView", () => {
       expect(screen.getByText("Налаштування VTX ще не завантажено.")).toBeInTheDocument();
     });
 
-    it("requests every VTX_* param by name when Load is clicked", async () => {
+    it("Load re-sends the full PARAM_REQUEST_LIST, and fields populate from PARAM_VALUE without it", async () => {
       const invoked = vi.fn();
       mockBackend(invoked);
       const { user } = await connectAndOpenVtxSetup();
+      invoked.mockClear(); // drop the auto-load-on-connect request, isolate the manual click
 
       await user.click(screen.getByRole("button", { name: "Завантажити налаштування VTX" }));
 
-      const requestedNames = new Set(
-        invoked.mock.calls
-          .filter(([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamRequestRead.MSG_ID)
-          .map(([, payload]) => {
-            const bytes = (payload as { bytes: number[] }).bytes;
-            const nameBytes = bytes.slice(14, 14 + 16);
-            const nullIndex = nameBytes.indexOf(0);
-            return String.fromCharCode(...nameBytes.slice(0, nullIndex === -1 ? undefined : nullIndex));
-          }),
-      );
-      expect(requestedNames.has("VTX_ENABLE")).toBe(true);
-      expect(requestedNames.has("VTX_BAND")).toBe(true);
-      expect(requestedNames.has("VTX_TYPES")).toBe(true);
+      const listRequests = invoked.mock.calls.filter(([cmd, payload]) => {
+        if (cmd !== "send_bytes") return false;
+        const bytes = (payload as { bytes: number[] }).bytes;
+        return bytes[7] === ParamRequestList.MSG_ID;
+      });
+      expect(listRequests.length).toBe(1);
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("VTX_BAND", 4, MavParamType.INT8, 0, 1, 1) });
+      expect(await screen.findByLabelText("Діапазон")).toBeInTheDocument();
     });
 
     it("shows VTX_BAND as a labeled dropdown and VTX_FREQ read-only once loaded", async () => {
@@ -2315,9 +2503,10 @@ describe("ArduPilotSetupView", () => {
       await clickDevModeCopter();
       await within(getStatusAlert()).findByText("Підключено: Dev mode (simulated vehicle)");
       await clickMotorsNav();
-      await user.click(screen.getByRole("button", { name: "Завантажити налаштування моторів" }));
 
-      // The Frame tab is the wizard's default landing step - visible with no navigation.
+      // No manual Load click needed - the full parameter list (including FRAME_CLASS/
+      // FRAME_TYPE) now downloads automatically once connected. The Frame tab is the
+      // wizard's default landing step - visible with no further navigation.
       const frameClassSelect = await screen.findByRole<HTMLSelectElement>("combobox", { name: "Клас рами" });
       const frameTypeSelect = screen.getByRole<HTMLSelectElement>("combobox", { name: "Тип рами" });
       expect(frameClassSelect.value).toBe("3"); // Octa
@@ -2517,6 +2706,38 @@ describe("ArduPilotSetupView", () => {
       }
       expect(screen.getByText(`Отримано ${names.length} / ${names.length}`)).toBeInTheDocument();
     });
+
+    it(
+      "stays responsive through an ~800-param burst (the real transfer size that used to freeze OSD Setup)",
+      async () => {
+        // Regression test for the real bug this connect-time full-list download replaced a
+        // by-name-burst architecture for: OSD Setup alone needed ~780 individual by-name
+        // requests (65 elements x 4 screens x 3 fields), and even once they all arrived, the
+        // one-store-update-per-packet path (fixed above by the batched flush) could make the UI
+        // lock up while ingesting them. This burst is sized to match that real scenario and
+        // proves both that every packet lands and that the UI stays interactive throughout -
+        // not just that the final count is correct.
+        mockBackend();
+        const { user } = await connectWithVehicle();
+        await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
+
+        const total = 800;
+        for (let i = 0; i < total; i++) {
+          await emit(DATA_EVENT, {
+            bytes: buildParamValueBytes(`PARAM_${i}`, i, MavParamType.INT32, i, total, i + 1),
+          });
+        }
+
+        expect(await screen.findByText(`Отримано ${total} / ${total}`)).toBeInTheDocument();
+
+        // Proves the UI is still interactive after the burst, not locked up by it - a plain
+        // filter keystroke should narrow the table immediately.
+        fireEvent.change(screen.getByPlaceholderText("Пошук параметрів..."), { target: { value: "PARAM_5" } });
+        expect(await screen.findByText("PARAM_5")).toBeInTheDocument();
+        expect(screen.queryByText("PARAM_6")).not.toBeInTheDocument();
+      },
+      30000,
+    );
 
     it("re-requests only the missing indices, not the whole list", async () => {
       const invoked = vi.fn();
@@ -3100,28 +3321,23 @@ describe("ArduPilotSetupView", () => {
       expect(screen.getByText("Налаштування RC-входів ще не завантажено.")).toBeInTheDocument();
     });
 
-    it("requests FLTMODE_CH, FLTMODE1-6, and RC1-16_OPTION by name when Load is clicked", async () => {
+    it("Load re-sends the full PARAM_REQUEST_LIST, and fields populate from PARAM_VALUE without it", async () => {
       const invoked = vi.fn();
       mockBackend(invoked);
       const { user } = await connectAndOpenRcSetup();
+      invoked.mockClear(); // drop the auto-load-on-connect request, isolate the manual click
 
       await user.click(screen.getByRole("button", { name: "Завантажити налаштування RC" }));
 
-      const requestedNames = new Set(
-        invoked.mock.calls
-          .filter(([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamRequestRead.MSG_ID)
-          .map(([, payload]) => {
-            const bytes = (payload as { bytes: number[] }).bytes;
-            const nameBytes = bytes.slice(14, 14 + 16);
-            const nullIndex = nameBytes.indexOf(0);
-            return String.fromCharCode(...nameBytes.slice(0, nullIndex === -1 ? undefined : nullIndex));
-          }),
-      );
-      expect(requestedNames.has("FLTMODE_CH")).toBe(true);
-      expect(requestedNames.has("FLTMODE1")).toBe(true);
-      expect(requestedNames.has("FLTMODE6")).toBe(true);
-      expect(requestedNames.has("RC1_OPTION")).toBe(true);
-      expect(requestedNames.has("RC16_OPTION")).toBe(true);
+      const listRequests = invoked.mock.calls.filter(([cmd, payload]) => {
+        if (cmd !== "send_bytes") return false;
+        const bytes = (payload as { bytes: number[] }).bytes;
+        return bytes[7] === ParamRequestList.MSG_ID;
+      });
+      expect(listRequests.length).toBe(1);
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FLTMODE_CH", 5, MavParamType.INT8, 0, 7, 1) });
+      expect(await screen.findByRole("button", { name: "Канал режиму польоту" })).toBeInTheDocument();
     });
 
     it("changing the flight-mode channel stages an edit, and Save All sends PARAM_SET", async () => {

@@ -9,6 +9,7 @@ import type { MavParamType, MavType } from "../../mavlink/registry/registry";
 import { fetchParamDocs, vehicleFolderForMavType, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
+import { ParamLoadProgress } from "./ParamLoadProgress";
 import { VTX_BAND_FALLBACK_VALUES, VTX_ENABLE_FALLBACK_VALUES, VTX_OPTIONS_BITS, VTX_PARAM_NAMES, VTX_TYPES_BITS } from "./vtxSetupParams";
 
 interface VtxSetupSectionProps {
@@ -21,7 +22,6 @@ export function VtxSetupSection({ vehicleType, onLoad, onSetParam }: VtxSetupSec
   const { t } = useTranslation();
   const params = useMavlinkParameterStore((s) => s.params);
   const [docs, setDocs] = useState<ParamDocsMap | null>(null);
-  const [requested, setRequested] = useState(false);
   const [pendingChanges, setPendingChanges] = useState<Record<string, number>>({});
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -41,11 +41,6 @@ export function VtxSetupSection({ vehicleType, onLoad, onSetParam }: VtxSetupSec
       cancelled = true;
     };
   }, [vehicleFolder]);
-
-  function handleLoadClick() {
-    setRequested(true);
-    onLoad();
-  }
 
   function shownValue(name: string): number | undefined {
     return pendingChanges[name] ?? params[name]?.value;
@@ -78,7 +73,6 @@ export function VtxSetupSection({ vehicleType, onLoad, onSetParam }: VtxSetupSec
   }
 
   const hasAnyLoaded = VTX_PARAM_NAMES.some((name) => params[name] !== undefined);
-  const hasStarted = requested || hasAnyLoaded;
   const pendingEntries = Object.entries(pendingChanges);
   const hasPendingChanges = pendingEntries.length > 0;
 
@@ -158,7 +152,7 @@ export function VtxSetupSection({ vehicleType, onLoad, onSetParam }: VtxSetupSec
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.vtxSetup.heading")}</h3>
         <div className="flex items-center gap-2">
-          <Button type="button" size="sm" onClick={handleLoadClick}>
+          <Button type="button" size="sm" variant="outline" onClick={onLoad}>
             {t("ardupilotSetup.vtxSetup.load")}
           </Button>
           {hasPendingChanges && (
@@ -174,7 +168,9 @@ export function VtxSetupSection({ vehicleType, onLoad, onSetParam }: VtxSetupSec
         </div>
       </div>
 
-      {!hasStarted ? (
+      <ParamLoadProgress />
+
+      {!hasAnyLoaded ? (
         <p className="shrink-0 text-xs text-muted-foreground">{t("ardupilotSetup.vtxSetup.notLoaded")}</p>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
