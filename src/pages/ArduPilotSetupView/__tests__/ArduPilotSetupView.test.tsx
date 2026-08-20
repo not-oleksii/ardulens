@@ -2181,6 +2181,131 @@ describe("ArduPilotSetupView", () => {
       expect(Number(yInput.value)).toBe(1);
     });
 
+    it("Quick Position stacks a new element below one already at the same spot, instead of covering it", async () => {
+      // Regression test for a real-vehicle report: two elements quick-positioned to the same
+      // corner landed exactly on top of each other, making the one underneath permanently
+      // unclickable on the canvas (its whole hit area covered by the one on top).
+      mockBackend();
+      const { user } = await connectAndOpenOsdSetup();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD_TYPE", 5, MavParamType.INT8, 0, 8, 1) }); // MSP_DISPLAYPORT
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_TXT_RES", 1, MavParamType.INT8, 1, 8, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ESCAMPS_EN", 1, MavParamType.INT8, 2, 8, 3) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ESCAMPS_X", 47, MavParamType.INT8, 3, 8, 4) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ESCAMPS_Y", 1, MavParamType.INT8, 4, 8, 5) }); // already at "top right"
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_BAT_VOLT_EN", 1, MavParamType.INT8, 5, 8, 6) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_BAT_VOLT_X", 10, MavParamType.INT8, 6, 8, 7) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_BAT_VOLT_Y", 10, MavParamType.INT8, 7, 8, 8) });
+
+      // Both elements are already positioned/rendered as chips too, so scope to the table -
+      // otherwise "Напруга батареї" ambiguously matches both the table cell and the chip.
+      const table = await screen.findByRole("table");
+      const row = within(table).getByText("Напруга батареї").closest("tr")!;
+      await user.click(row);
+      await user.click(screen.getByRole("button", { name: "Зверху праворуч" }));
+
+      const xInput = screen.getByLabelText("X") as HTMLInputElement;
+      const yInput = screen.getByLabelText("Y") as HTMLInputElement;
+      expect(Number(xInput.value)).toBe(47);
+      expect(Number(yInput.value)).toBe(2); // stacked one row below ESCAMPS at (47, 1), not on top of it
+    });
+
+    it("selecting a chip on the canvas moves keyboard focus onto it, and arrow keys nudge its position (Shift for 5 cells)", async () => {
+      mockBackend();
+      await connectAndOpenOsdSetup();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ESCAMPS_EN", 1, MavParamType.INT8, 0, 3, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ESCAMPS_X", 10, MavParamType.INT8, 1, 3, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ESCAMPS_Y", 10, MavParamType.INT8, 2, 3, 3) });
+
+      const chip = await screen.findByTitle("Струм ESC (10, 10)");
+      // A plain press-release with no movement in between is a click, not a drag - see
+      // OsdScreenLayout's own pointer handlers, which is why this uses pointer events directly
+      // rather than fireEvent.click.
+      fireEvent.pointerDown(chip);
+      fireEvent.pointerUp(chip);
+      expect(chip).toHaveFocus();
+
+      fireEvent.keyDown(chip, { key: "ArrowDown" });
+      expect(await screen.findByTitle("Струм ESC (10, 11)")).toBeInTheDocument();
+
+      fireEvent.keyDown(screen.getByTitle("Струм ESC (10, 11)"), { key: "ArrowRight", shiftKey: true });
+      expect(await screen.findByTitle("Струм ESC (15, 11)")).toBeInTheDocument();
+
+      // The options list highlights whatever's currently selected, regardless of whether
+      // selection happened via a click on the canvas or the table row.
+      const table = screen.getByRole("table");
+      expect(within(table).getByText("Струм ESC").closest("tr")).toHaveClass("bg-accent");
+    });
+
+    it("selecting an element via its table row moves focus onto its canvas chip too, so a chip fully covered by another is still reachable and nudgeable", async () => {
+      // Regression test for the same real report as the stacking test above: an element
+      // completely covered by another one at the same (x, y) has no clickable area of its own
+      // on the canvas - selecting it via the table (which doesn't depend on canvas hit-testing)
+      // must still focus its chip so arrow-key nudging can move it out from underneath.
+      mockBackend();
+      const { user } = await connectAndOpenOsdSetup();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ESCAMPS_EN", 1, MavParamType.INT8, 0, 6, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ESCAMPS_X", 20, MavParamType.INT8, 1, 6, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ESCAMPS_Y", 5, MavParamType.INT8, 2, 6, 3) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_BAT_VOLT_EN", 1, MavParamType.INT8, 3, 6, 4) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_BAT_VOLT_X", 20, MavParamType.INT8, 4, 6, 5) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_BAT_VOLT_Y", 5, MavParamType.INT8, 5, 6, 6) }); // exactly covers ESCAMPS
+
+      const table = await screen.findByRole("table");
+      const row = within(table).getByText("Напруга батареї").closest("tr")!;
+      await user.click(row);
+
+      const chip = await screen.findByTitle("Напруга батареї (20, 5)");
+      expect(chip).toHaveFocus();
+
+      fireEvent.keyDown(chip, { key: "ArrowLeft" });
+      expect(await screen.findByTitle("Напруга батареї (19, 5)")).toBeInTheDocument();
+    });
+
+    it("applying a preset enables/positions its elements and disables every other element on the screen", async () => {
+      mockBackend();
+      const { user } = await connectAndOpenOsdSetup();
+
+      // The "minimal" preset covers FLTMODE/BAT_VOLT/RSSI/ARMING - none enabled yet.
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_FLTMODE_EN", 0, MavParamType.INT8, 0, 15, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_FLTMODE_X", 0, MavParamType.INT8, 1, 15, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_FLTMODE_Y", 0, MavParamType.INT8, 2, 15, 3) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_BAT_VOLT_EN", 0, MavParamType.INT8, 3, 15, 4) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_BAT_VOLT_X", 0, MavParamType.INT8, 4, 15, 5) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_BAT_VOLT_Y", 0, MavParamType.INT8, 5, 15, 6) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_RSSI_EN", 0, MavParamType.INT8, 6, 15, 7) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_RSSI_X", 0, MavParamType.INT8, 7, 15, 8) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_RSSI_Y", 0, MavParamType.INT8, 8, 15, 9) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ARMING_EN", 0, MavParamType.INT8, 9, 15, 10) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ARMING_X", 0, MavParamType.INT8, 10, 15, 11) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ARMING_Y", 0, MavParamType.INT8, 11, 15, 12) });
+      // HEADING isn't part of "minimal" and starts enabled - applying the preset should turn it
+      // off, since a preset replaces the whole screen's layout rather than adding to it.
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_HEADING_EN", 1, MavParamType.INT8, 12, 15, 13) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_HEADING_X", 30, MavParamType.INT8, 13, 15, 14) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_HEADING_Y", 10, MavParamType.INT8, 14, 15, 15) });
+
+      await user.click(await screen.findByRole("button", { name: "Мінімальний" }));
+
+      const saveAllButton = await screen.findByRole("button", { name: /Зберегти все/ });
+      await user.click(saveAllButton);
+      const dialog = screen.getByRole("dialog");
+
+      // Full 60x22 grid (no OSD_TYPE/TXT_RES loaded in this test) - see the fractional-to-cell
+      // math verified independently in osdSetupParams.ts's own resolveOsdPreset.
+      expect(within(dialog).getByText("OSD1_FLTMODE_EN")).toBeInTheDocument();
+      const fltmodeXRow = within(dialog).getByText("OSD1_FLTMODE_X").closest("tr")!;
+      expect(within(fltmodeXRow).getByText("2")).toBeInTheDocument();
+      const battVoltXRow = within(dialog).getByText("OSD1_BAT_VOLT_X").closest("tr")!;
+      expect(within(battVoltXRow).getByText("57")).toBeInTheDocument();
+
+      const headingEnRow = within(dialog).getByText("OSD1_HEADING_EN").closest("tr")!;
+      expect(within(headingEnRow).getByText("0")).toBeInTheDocument(); // disabled, not part of the preset
+      expect(within(dialog).queryByText("OSD1_HEADING_X")).not.toBeInTheDocument(); // untouched, X/Y left as-is
+    });
+
     it("shows OSD_CHAN once it arrives, stages an edit, and Save all sends PARAM_SET with the new value", async () => {
       const invoked = vi.fn();
       mockBackend(invoked);

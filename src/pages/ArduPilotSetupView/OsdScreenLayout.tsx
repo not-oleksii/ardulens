@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import {
@@ -51,14 +51,45 @@ const CHIP_VERTICAL_INSET_PX = 10;
  *  screen's 50x18 HD canvas (OSD{n}_TXT_RES=1) - since the parameter range itself (60x22) is
  *  wider than either actually displays. Chips anchor from whichever horizontal edge they're
  *  closer to (left half grows rightward, right half grows leftward) so a chip near column 59
- *  never has to render past the container's right border. */
+ *  never has to render past the container's right border.
+ *
+ *  Selecting an element - by clicking its chip, clicking its row in OsdSetupSection's table, or
+ *  Tab-ing to it - always moves real DOM focus onto its chip (see the selectedKey effect below),
+ *  not just visual state. That's what makes arrow-key nudging and "select via the table instead"
+ *  both work uniformly, including for a chip another one is fully stacked on top of and can't be
+ *  clicked directly - the table's row click still reaches it and pulls it to the front (z-10) and
+ *  into keyboard focus without ever needing a working click target on the canvas itself. */
 export function OsdScreenLayout({ elements, selectedKey, onSelect, onMove, osdType, txtRes }: OsdScreenLayoutProps) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
+  const chipRefs = useRef(new Map<OsdElementKey, HTMLButtonElement>());
   // Tracks the in-progress drag across pointer events - a ref (not state) since pointermove
   // fires far too often to route through a re-render just to remember "which chip, did it move
   // yet" between events.
   const draggingRef = useRef<{ key: OsdElementKey; moved: boolean } | null>(null);
+
+  useEffect(() => {
+    if (!selectedKey) return;
+    const chip = chipRefs.current.get(selectedKey);
+    // Only steal focus if it isn't already elsewhere on the chip itself (e.g. mid-drag) - a
+    // table-row click (which doesn't move DOM focus on its own) is exactly the case this exists
+    // to cover.
+    if (chip && document.activeElement !== chip) chip.focus({ preventScroll: true });
+  }, [selectedKey]);
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLButtonElement>, key: OsdElementKey, x: number, y: number) {
+    const deltas: Partial<Record<string, [number, number]>> = {
+      ArrowUp: [0, -1],
+      ArrowDown: [0, 1],
+      ArrowLeft: [-1, 0],
+      ArrowRight: [1, 0],
+    };
+    const delta = deltas[e.key];
+    if (!delta) return;
+    e.preventDefault();
+    const step = e.shiftKey ? 5 : 1;
+    onMove(key, clampOsdX(x + delta[0] * step), clampOsdY(y + delta[1] * step));
+  }
 
   function handlePointerDown(e: React.PointerEvent<HTMLButtonElement>, key: OsdElementKey) {
     e.currentTarget.setPointerCapture?.(e.pointerId);
@@ -161,17 +192,23 @@ export function OsdScreenLayout({ elements, selectedKey, onSelect, onMove, osdTy
           return (
             <button
               key={key}
+              ref={(el) => {
+                if (el) chipRefs.current.set(key, el);
+                else chipRefs.current.delete(key);
+              }}
               type="button"
               onPointerDown={(e) => handlePointerDown(e, key)}
               onPointerMove={handlePointerMove}
               onPointerUp={(e) => handlePointerUp(e, key)}
+              onKeyDown={(e) => handleKeyDown(e, key, x, y)}
+              onFocus={() => onSelect(key)}
               title={`${osdElementLabel(t, key)} (${x}, ${y})`}
               className={cn(
                 // font-osd (Share Tech Mono) instead of the app's normal UI font - real OSD
                 // hardware (MAX7456, Betaflight/INAV canvas, Walksnail/HD digital) all render a
                 // bold, blocky, high-contrast monospace, not a regular UI typeface, so matching
                 // grid/resolution alone would still look wrong.
-                "absolute max-w-[calc(100%-4px)] -translate-y-1/2 cursor-grab touch-none rounded-sm border px-1 py-0 font-osd text-xs leading-4 overflow-hidden text-ellipsis whitespace-nowrap text-lime-300 uppercase select-none active:cursor-grabbing",
+                "absolute max-w-[calc(100%-4px)] -translate-y-1/2 cursor-grab touch-none rounded-sm border px-1 py-0 font-osd text-xs leading-4 overflow-hidden text-ellipsis whitespace-nowrap text-lime-300 uppercase select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing",
                 selectedKey === key ? "border-primary bg-primary/30 z-10" : "border-lime-400/40 bg-black/70 hover:border-lime-300",
               )}
               style={{ ...positionStyle, top: `${(y / (OSD_GRID_ROWS - 1)) * 100}%` }}

@@ -325,3 +325,108 @@ export function allOsdParamNames(): string[] {
     ...OSD_SCREEN_NUMBERS.flatMap((screen) => [...osdScreenControlParamNames(screen), ...osdScreenElementParamNames(screen)]),
   ];
 }
+
+interface OsdPresetElement {
+  key: OsdElementKey;
+  // Position as a 0-1 fraction of the real visible area (see osdVisibleSafeArea), not an
+  // absolute cell - so the same preset lays out sensibly whether it's applied on a tiny 30x13
+  // analog screen or a 60x22 generic one, rather than only looking right at one fixed size.
+  xFrac: number;
+  yFrac: number;
+}
+
+export interface OsdPreset {
+  id: string;
+  elements: readonly OsdPresetElement[];
+}
+
+// ArduLens-authored starting layouts, not a real ArduPilot/Betaflight/Mission Planner concept -
+// applying one replaces the active screen's whole layout (every other element gets disabled) so
+// it reads as "this is the layout" rather than a partial overlay. Positions are hand-placed to
+// avoid overlapping at typical bounds; resolveOsdPreset's own collision handling (same idea as
+// OsdSetupSection's Quick Position stacking) covers the rest for unusually small visible areas.
+const EDGE_X = 0.04;
+const EDGE_Y = 0.05;
+const ROW_GAP_Y = 0.08;
+
+export const OSD_PRESETS: readonly OsdPreset[] = [
+  {
+    id: "minimal",
+    elements: [
+      { key: "FLTMODE", xFrac: EDGE_X, yFrac: EDGE_Y },
+      { key: "BAT_VOLT", xFrac: 1 - EDGE_X, yFrac: EDGE_Y },
+      { key: "RSSI", xFrac: EDGE_X, yFrac: 1 - EDGE_Y },
+      { key: "ARMING", xFrac: 1 - EDGE_X, yFrac: 1 - EDGE_Y },
+    ],
+  },
+  {
+    id: "racing",
+    elements: [
+      { key: "FLTMODE", xFrac: EDGE_X, yFrac: EDGE_Y },
+      { key: "ARMING", xFrac: EDGE_X, yFrac: EDGE_Y + ROW_GAP_Y },
+      { key: "BAT_VOLT", xFrac: 1 - EDGE_X, yFrac: EDGE_Y },
+      { key: "CURRENT", xFrac: 1 - EDGE_X, yFrac: EDGE_Y + ROW_GAP_Y },
+      { key: "GSPEED", xFrac: EDGE_X, yFrac: 1 - EDGE_Y - ROW_GAP_Y },
+      { key: "RSSI", xFrac: EDGE_X, yFrac: 1 - EDGE_Y },
+      { key: "THROTTLE", xFrac: 1 - EDGE_X, yFrac: 1 - EDGE_Y - ROW_GAP_Y },
+      { key: "HORIZON", xFrac: 0.5, yFrac: 0.5 },
+    ],
+  },
+  {
+    id: "fullTelemetry",
+    elements: [
+      { key: "FLTMODE", xFrac: EDGE_X, yFrac: EDGE_Y },
+      { key: "ARMING", xFrac: EDGE_X, yFrac: EDGE_Y + ROW_GAP_Y },
+      { key: "MESSAGE", xFrac: 0.5, yFrac: EDGE_Y },
+      { key: "HEADING", xFrac: 0.5, yFrac: EDGE_Y + ROW_GAP_Y },
+      { key: "BAT_VOLT", xFrac: 1 - EDGE_X, yFrac: EDGE_Y },
+      { key: "CURRENT", xFrac: 1 - EDGE_X, yFrac: EDGE_Y + ROW_GAP_Y },
+      { key: "BATUSED", xFrac: 1 - EDGE_X, yFrac: EDGE_Y + 2 * ROW_GAP_Y },
+      { key: "SATS", xFrac: EDGE_X, yFrac: 1 - EDGE_Y },
+      { key: "GSPEED", xFrac: EDGE_X, yFrac: 1 - EDGE_Y - ROW_GAP_Y },
+      { key: "HOMEDIST", xFrac: 0.5, yFrac: 1 - EDGE_Y },
+      { key: "VSPEED", xFrac: 1 - EDGE_X, yFrac: 1 - EDGE_Y },
+      { key: "THROTTLE", xFrac: 1 - EDGE_X, yFrac: 1 - EDGE_Y - ROW_GAP_Y },
+      { key: "HORIZON", xFrac: 0.5, yFrac: 0.5 },
+    ],
+  },
+];
+
+/** Converts a preset's fractional positions into real (clamped) cell coordinates for the given
+ *  visible bounds, nudging any element that would otherwise land exactly on an earlier one in
+ *  the same preset - the same downward-then-upward stacking OsdSetupSection's Quick Position
+ *  uses, so two rounded fractions colliding at a small bounds size doesn't hide one under the
+ *  other before the user's even touched anything. */
+export function resolveOsdPreset(preset: OsdPreset, bounds: { cols: number; rows: number }): { key: OsdElementKey; x: number; y: number }[] {
+  const used = new Set<string>();
+  const resolved: { key: OsdElementKey; x: number; y: number }[] = [];
+  for (const el of preset.elements) {
+    const x = clampOsdX(Math.round(el.xFrac * (bounds.cols - 1)));
+    let y = clampOsdY(Math.round(el.yFrac * (bounds.rows - 1)));
+    if (used.has(`${x},${y}`)) {
+      let found = false;
+      for (let candidate = y + 1; candidate <= bounds.rows - 1; candidate++) {
+        if (!used.has(`${x},${candidate}`)) {
+          y = candidate;
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        for (let candidate = y - 1; candidate >= 0; candidate--) {
+          if (!used.has(`${x},${candidate}`)) {
+            y = candidate;
+            break;
+          }
+        }
+      }
+    }
+    used.add(`${x},${y}`);
+    resolved.push({ key: el.key, x, y });
+  }
+  return resolved;
+}
+
+export function osdPresetLabel(t: Translate, id: string): string {
+  return t(`ardupilotSetup.osdSetup.presets.${id}`);
+}

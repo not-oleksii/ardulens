@@ -334,6 +334,12 @@
       "screenEnable": "Enable this screen",
       "screenChanMin": "Min PWM",
       "screenChanMax": "Max PWM",
+      "presetsHeading": "Presets:",
+      "presets": {
+        "minimal": "Minimal",
+        "racing": "Racing / FPV",
+        "fullTelemetry": "Full Telemetry"
+      },
       "elementsHeading": "Elements",
       "elementSearchPlaceholder": "Search elements...",
       "elementColumn": "Element",
@@ -342,7 +348,7 @@
       "yColumn": "Y",
       "noMatches": "No elements match your search.",
       "visualLayout": "Screen Layout",
-      "dragHint": "Drag an enabled element to reposition it, or click one (here or in the table below) to select it for quick positioning.",
+      "dragHint": "Drag an enabled element to reposition it, or click one (here or in the table below) to select it - once selected, use arrow keys to nudge it by 1 cell (Shift for 5), or the Quick Position buttons below.",
       "previewBadgeAnalog": "SD · Analog (MAX7456)",
       "previewBadgeDigital": "HD · Digital - exact resolution depends on your VTX/goggles",
       "previewBadgeDigitalHd": "HD · Digital MSP DisplayPort (50×18, HD text res)",
