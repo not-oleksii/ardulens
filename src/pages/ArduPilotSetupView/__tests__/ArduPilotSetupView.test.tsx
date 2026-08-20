@@ -2185,8 +2185,11 @@ describe("ArduPilotSetupView", () => {
       await user.click(screen.getByRole("button", { name: "Зверху ліворуч" }));
 
       expect(await screen.findByRole("button", { name: "Зберегти все (2)" })).toBeInTheDocument();
-      expect(within(row).getByDisplayValue("2")).toBeInTheDocument();
-      expect(within(row).getByDisplayValue("1")).toBeInTheDocument();
+      // X/Y now live in the Quick Position panel (not the element list, which is a flat
+      // Element/Enabled checkbox list only - see the OSD UX pass that removed X/Y columns
+      // there to eliminate a horizontal scrollbar).
+      expect(screen.getByDisplayValue("2")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("1")).toBeInTheDocument();
     });
 
     it("dragging an enabled element's chip in the visual layout restages its X/Y", async () => {
@@ -2215,9 +2218,9 @@ describe("ArduPilotSetupView", () => {
       fireEvent.pointerMove(chip, { pointerId: 1, clientX: 300, clientY: 110 });
       fireEvent.pointerUp(chip, { pointerId: 1 });
 
-      const row = screen.getByRole("cell", { name: "Висота (AGL)" }).closest("tr")!;
-      expect(within(row).getByDisplayValue("30")).toBeInTheDocument();
-      expect(within(row).getByDisplayValue("11")).toBeInTheDocument();
+      // Restaged X/Y is verified via the chip's own title (X/Y no longer live in the element
+      // list, which is a flat checkbox list only) - "(30, 11)" reflects the dragged-to position.
+      expect(await screen.findByTitle("Висота (AGL) (30, 11)")).toBeInTheDocument();
     });
   });
 

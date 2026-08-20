@@ -277,28 +277,28 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
                 className="h-7 shrink-0 text-xs"
               />
 
+              {/* Just Element + Enabled (no X/Y columns) - a Betaflight-style flat checkbox
+                  list, narrow enough to never need a horizontal scrollbar in this column's
+                  fixed 280-360px width. Position is set by dragging on the canvas or via the
+                  Quick Position panel to the right, not by typing coordinates in this list. */}
               <div className="min-h-0 flex-1 overflow-y-auto rounded-md border border-border">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>{t("ardupilotSetup.osdSetup.elementColumn")}</TableHead>
                       <TableHead>{t("ardupilotSetup.osdSetup.enabledColumn")}</TableHead>
-                      <TableHead>{t("ardupilotSetup.osdSetup.xColumn")}</TableHead>
-                      <TableHead>{t("ardupilotSetup.osdSetup.yColumn")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredElements.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={4} className="text-center text-xs text-muted-foreground">
+                        <TableCell colSpan={2} className="text-center text-xs text-muted-foreground">
                           {t("ardupilotSetup.osdSetup.noMatches")}
                         </TableCell>
                       </TableRow>
                     ) : (
                       filteredElements.map((key) => {
                         const enName = osdElementParamName(activeScreen, key, "EN");
-                        const xName = osdElementParamName(activeScreen, key, "X");
-                        const yName = osdElementParamName(activeScreen, key, "Y");
                         const enEntry = params[enName];
                         return (
                           <TableRow
@@ -318,8 +318,6 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
                                 {enEntry && <ModifiedFromDefaultDot name={enName} value={shownValue(enName)!} />}
                               </span>
                             </TableCell>
-                            <TableCell>{numberField(xName)}</TableCell>
-                            <TableCell>{numberField(yName)}</TableCell>
                           </TableRow>
                         );
                       })
@@ -366,9 +364,20 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
                         </button>
                       ))}
                     </div>
-                    <div className="flex flex-col gap-0.5">
+                    <div className="flex flex-col gap-1">
                       <p className="text-xs font-semibold">{osdElementLabel(t, selectedElementKey)}</p>
-                      {!canQuickPosition && (
+                      {canQuickPosition ? (
+                        <div className="flex items-center gap-3">
+                          <label className="flex items-center gap-1 text-xs text-muted-foreground">
+                            {t("ardupilotSetup.osdSetup.xColumn")}
+                            {numberField(selectedXName)}
+                          </label>
+                          <label className="flex items-center gap-1 text-xs text-muted-foreground">
+                            {t("ardupilotSetup.osdSetup.yColumn")}
+                            {numberField(selectedYName)}
+                          </label>
+                        </div>
+                      ) : (
                         <p className="text-xs text-muted-foreground">{t("ardupilotSetup.osdSetup.elementNotLoaded")}</p>
                       )}
                     </div>
