@@ -1,4 +1,5 @@
 import { Check } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,66 @@ const ALL_POSITIONS = [
   AccelcalVehiclePos.BACK,
 ];
 
+// How long the countdown ring gives the user to hold the vehicle still before auto-confirming
+// the current position - long enough to finish repositioning a real vehicle by hand, short
+// enough that stepping through all 6 positions doesn't feel slower than the old click-per-
+// position flow. Ticks at 10Hz, smooth enough for the ring to read as continuous motion rather
+// than visibly stepping.
+const AUTO_CONFIRM_DURATION_MS = 5000;
+const AUTO_CONFIRM_TICK_MS = 100;
+const RING_RADIUS = 28;
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+
+/** The countdown ring + auto-confirm timer for one requested position. Rendered with
+ *  `key={requestedPosition}` by the parent so a fresh position gets a fresh mount - the
+ *  idiomatic React way to "reset state when a prop changes", used here instead of a
+ *  setState-in-effect that would otherwise fire mid-render on every position change. Clicking
+ *  the ring confirms immediately, for a user who doesn't want to wait out the countdown. */
+function AccelCalCountdown({ onComplete, confirmLabel }: { onComplete: () => void; confirmLabel: string }) {
+  const [remainingMs, setRemainingMs] = useState(AUTO_CONFIRM_DURATION_MS);
+
+  useEffect(() => {
+    const startedAt = Date.now();
+    const interval = window.setInterval(() => {
+      const remaining = AUTO_CONFIRM_DURATION_MS - (Date.now() - startedAt);
+      if (remaining <= 0) {
+        window.clearInterval(interval);
+        setRemainingMs(0);
+        onComplete();
+        return;
+      }
+      setRemainingMs(remaining);
+    }, AUTO_CONFIRM_TICK_MS);
+    return () => window.clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onComplete intentionally excluded: this component remounts fresh (via the parent's `key={requestedPosition}`) for every new position, so the timer only ever needs to start once per mount, not react to onComplete's identity changing across parent re-renders
+  }, []);
+
+  const progress = Math.max(0, Math.min(1, remainingMs / AUTO_CONFIRM_DURATION_MS));
+  return (
+    <button
+      type="button"
+      onClick={onComplete}
+      className="relative flex h-16 w-16 items-center justify-center rounded-full text-xs font-semibold text-muted-foreground hover:text-foreground"
+      title={confirmLabel}
+    >
+      <svg viewBox="0 0 64 64" className="absolute inset-0 -rotate-90">
+        <circle cx="32" cy="32" r={RING_RADIUS} className="fill-none stroke-border" strokeWidth="4" />
+        <circle
+          cx="32"
+          cy="32"
+          r={RING_RADIUS}
+          className="fill-none stroke-primary transition-[stroke-dashoffset]"
+          strokeWidth="4"
+          strokeLinecap="round"
+          strokeDasharray={RING_CIRCUMFERENCE}
+          strokeDashoffset={RING_CIRCUMFERENCE * (1 - progress)}
+        />
+      </svg>
+      <span data-testid="accel-cal-countdown-seconds">{Math.ceil(remainingMs / 1000)}</span>
+    </button>
+  );
+}
+
 export function AccelCalSection({
   activeCalType,
   requestedPosition,
@@ -49,6 +110,10 @@ export function AccelCalSection({
   const isActive = activeCalType === "full" ? result === null : activeCalType === "level" ? !levelCalDone : false;
   const commandRejected = lastCommandAck !== null && lastCommandAck.result !== MavResult.ACCEPTED;
 
+  // Defaults on, matching the user's own request - "user can switch to manual button click if
+  // this default timer they don't like" is the escape hatch, not the default.
+  const [autoConfirm, setAutoConfirm] = useState(true);
+
   return (
     <div className="flex h-full flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -65,9 +130,15 @@ export function AccelCalSection({
             </>
           ) : (
             activeCalType === "full" && (
-              <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
-                {t("ardupilotSetup.accelCal.cancel")}
-              </Button>
+              <>
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <input type="checkbox" checked={autoConfirm} onChange={(e) => setAutoConfirm(e.target.checked)} />
+                  {t("ardupilotSetup.accelCal.autoConfirmToggle", { seconds: AUTO_CONFIRM_DURATION_MS / 1000 })}
+                </label>
+                <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
+                  {t("ardupilotSetup.accelCal.cancel")}
+                </Button>
+              </>
             )
           )}
         </div>
@@ -116,9 +187,17 @@ export function AccelCalSection({
                 <p className="text-2xl font-bold" data-testid="accel-cal-position-prompt">
                   {accelcalVehiclePosLabel(t, requestedPosition)}
                 </p>
-                <Button type="button" onClick={() => onConfirmPosition(requestedPosition)}>
-                  {t("ardupilotSetup.accelCal.confirmPosition")}
-                </Button>
+                {autoConfirm ? (
+                  <AccelCalCountdown
+                    key={requestedPosition}
+                    onComplete={() => onConfirmPosition(requestedPosition)}
+                    confirmLabel={t("ardupilotSetup.accelCal.confirmPosition")}
+                  />
+                ) : (
+                  <Button type="button" onClick={() => onConfirmPosition(requestedPosition)}>
+                    {t("ardupilotSetup.accelCal.confirmPosition")}
+                  </Button>
+                )}
               </div>
             )
           )}

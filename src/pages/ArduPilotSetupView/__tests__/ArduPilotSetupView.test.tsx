@@ -2173,8 +2173,8 @@ describe("ArduPilotSetupView", () => {
       await user.click(row);
       await user.click(screen.getByRole("button", { name: "Зверху праворуч" }));
 
-      const xInput = screen.getByLabelText("X") as HTMLInputElement;
-      const yInput = screen.getByLabelText("Y") as HTMLInputElement;
+      const xInput = screen.getByLabelText<HTMLInputElement>("X");
+      const yInput = screen.getByLabelText<HTMLInputElement>("Y");
       // Real visible area is 50x18 (cols 0-49) - margin-inset "top right" lands at col 47, not
       // the full-grid 57 (60-wide range, cols 0-59).
       expect(Number(xInput.value)).toBe(47);
@@ -2204,8 +2204,8 @@ describe("ArduPilotSetupView", () => {
       await user.click(row);
       await user.click(screen.getByRole("button", { name: "Зверху праворуч" }));
 
-      const xInput = screen.getByLabelText("X") as HTMLInputElement;
-      const yInput = screen.getByLabelText("Y") as HTMLInputElement;
+      const xInput = screen.getByLabelText<HTMLInputElement>("X");
+      const yInput = screen.getByLabelText<HTMLInputElement>("Y");
       expect(Number(xInput.value)).toBe(47);
       expect(Number(yInput.value)).toBe(2); // stacked one row below ESCAMPS at (47, 1), not on top of it
     });
@@ -3139,6 +3139,10 @@ describe("ArduPilotSetupView", () => {
         expect(findCommandLongSend(invoked, MavCmd.PREFLIGHT_CALIBRATION)).toBeDefined();
       });
 
+      // Auto-confirm defaults on (see AccelCalSection.tsx) - switch it off first so this test
+      // can drive each position with an explicit click, same as before that default existed.
+      await user.click(screen.getByLabelText("Автопідтвердження через 5 с"));
+
       // Vehicle asks the user to move to LEVEL first. The position label also appears in the
       // checklist below, hence the testid - see AccelCalSection.tsx.
       await emit(DATA_EVENT, { bytes: buildAccelcalVehiclePosBytes(AccelcalVehiclePos.LEVEL, 1) });
@@ -3164,6 +3168,54 @@ describe("ArduPilotSetupView", () => {
       await emit(DATA_EVENT, { bytes: buildAccelcalVehiclePosBytes(AccelcalVehiclePos.SUCCESS, 3) });
       expect(await screen.findByText("Калібрування успішне.")).toBeInTheDocument();
     });
+
+    it("clicking the countdown ring confirms the position immediately, without waiting out the timer", async () => {
+      // Auto-confirm defaults on - this proves the ring itself is still a real confirm control
+      // for a user who doesn't want to wait, not just a passive progress display.
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenAccelCal();
+
+      await user.click(screen.getByRole("button", { name: "Повне калібрування" }));
+      await emit(DATA_EVENT, { bytes: buildAccelcalVehiclePosBytes(AccelcalVehiclePos.LEVEL, 1) });
+      expect(await screen.findByTestId("accel-cal-position-prompt")).toHaveTextContent("Рівно");
+
+      invoked.mockClear();
+      await user.click(screen.getByTestId("accel-cal-countdown-seconds"));
+      await vi.waitFor(() => {
+        const call = findCommandLongSend(invoked, MavCmd.ACCELCAL_VEHICLE_POS);
+        expect(call).toBeDefined();
+        const bytes = (call![1] as { bytes: number[] }).bytes;
+        expect(new DataView(new Uint8Array(bytes).buffer).getFloat32(10, true)).toBe(AccelcalVehiclePos.LEVEL);
+      });
+    });
+
+    it(
+      "auto-confirms the requested position once the countdown reaches zero, with no click at all",
+      async () => {
+        const invoked = vi.fn();
+        mockBackend(invoked);
+        const { user } = await connectAndOpenAccelCal();
+
+        await user.click(screen.getByRole("button", { name: "Повне калібрування" }));
+        await emit(DATA_EVENT, { bytes: buildAccelcalVehiclePosBytes(AccelcalVehiclePos.LEVEL, 1) });
+        expect(await screen.findByTestId("accel-cal-position-prompt")).toHaveTextContent("Рівно");
+
+        invoked.mockClear();
+        // Real ~5s timer (see AccelCalSection's AUTO_CONFIRM_DURATION_MS) - same real-timer,
+        // generous-timeout pattern this file already uses for the auto-connect baud-rate scan.
+        await vi.waitFor(
+          () => {
+            const call = findCommandLongSend(invoked, MavCmd.ACCELCAL_VEHICLE_POS);
+            expect(call).toBeDefined();
+            const bytes = (call![1] as { bytes: number[] }).bytes;
+            expect(new DataView(new Uint8Array(bytes).buffer).getFloat32(10, true)).toBe(AccelcalVehiclePos.LEVEL);
+          },
+          { timeout: 7000 },
+        );
+      },
+      10000,
+    );
 
     it("shows a rejection alert when the vehicle NACKs PREFLIGHT_CALIBRATION", async () => {
       mockBackend();
