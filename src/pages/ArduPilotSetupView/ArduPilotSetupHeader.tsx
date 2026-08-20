@@ -22,6 +22,8 @@ export interface ArduPilotSetupHeaderProps {
   baudRates: readonly number[];
   udpPort: number;
   setUdpPort: (port: number) => void;
+  udpHost: string;
+  setUdpHost: (host: string) => void;
   status: "idle" | "connecting" | "connected" | "error";
   detail: string | null;
   errorMessage: string | null;
@@ -51,6 +53,8 @@ export function ArduPilotSetupHeader({
   baudRates,
   udpPort,
   setUdpPort,
+  udpHost,
+  setUdpHost,
   status,
   detail,
   errorMessage,
@@ -162,6 +166,16 @@ export function ArduPilotSetupHeader({
               </div>
             ) : (
               <div className="flex shrink-0 items-center gap-2">
+                <Input
+                  aria-label={t("ardupilotSetup.connect.udpHostLabel")}
+                  type="text"
+                  placeholder={t("ardupilotSetup.connect.udpHostPlaceholder")}
+                  title={t("ardupilotSetup.connect.udpHostHint")}
+                  className="h-8 w-32 text-xs"
+                  value={udpHost}
+                  disabled={isBusy}
+                  onChange={(e) => setUdpHost(e.target.value)}
+                />
                 <Input
                   aria-label={t("ardupilotSetup.connect.udpPortLabel")}
                   type="number"

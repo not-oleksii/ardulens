@@ -252,6 +252,7 @@ export function ArduPilotSetupView() {
   const [selectedPort, setSelectedPort] = useState("");
   const [baudRate, setBaudRate] = useState(BAUD_RATES[2]!);
   const [udpPort, setUdpPort] = useState(DEFAULT_UDP_PORT);
+  const [udpHost, setUdpHost] = useState("");
   const [scanningPort, setScanningPort] = useState<string | null>(null);
   const [scanningBaud, setScanningBaud] = useState<number | null>(null);
   const [devFramePresetKey, setDevFramePresetKey] = useState(VERIFIED_FRAME_PRESETS[1]!.key); // Quad X
@@ -803,7 +804,7 @@ export function ArduPilotSetupView() {
       if (mode === "serial") {
         await connectSerial(selectedPort, baudRate);
       } else {
-        await connectUdp(udpPort);
+        await connectUdp(udpPort, udpHost);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -1282,6 +1283,8 @@ export function ArduPilotSetupView() {
         baudRates={BAUD_RATES}
         udpPort={udpPort}
         setUdpPort={setUdpPort}
+        udpHost={udpHost}
+        setUdpHost={setUdpHost}
         status={status}
         detail={detail}
         errorMessage={errorMessage}

@@ -191,15 +191,22 @@ pub struct UdpBridge {
 }
 
 impl UdpBridge {
+    /// `remote`, when given, is a specific peer to target instead of the default listen-only
+    /// behavior (wait for whichever sender speaks first). Some setups are the other way around,
+    /// with a companion computer or bridge that itself only listens (e.g. on 127.0.0.1), so the
+    /// GCS has to dial out to it first. Pre-seeding `peer` here means `send()` (and this app's
+    /// own periodic GCS heartbeat, sent immediately on connect) reaches it right away instead of
+    /// erroring with "no sender seen yet".
     pub fn start(
         bind_port: u16,
+        remote: Option<SocketAddr>,
         on_data: impl Fn(Vec<u8>, SocketAddr) + Send + 'static,
         on_error: impl Fn(String) + Send + 'static,
     ) -> io::Result<Self> {
         let socket = UdpSocket::bind(("0.0.0.0", bind_port))?;
         socket.set_read_timeout(Some(READ_TIMEOUT))?;
         let socket = Arc::new(socket);
-        let peer: Arc<Mutex<Option<SocketAddr>>> = Arc::new(Mutex::new(None));
+        let peer: Arc<Mutex<Option<SocketAddr>>> = Arc::new(Mutex::new(remote));
 
         let stop = Arc::new(AtomicBool::new(false));
         let stop_reader = stop.clone();
@@ -307,13 +314,28 @@ pub fn connect_serial(
 }
 
 #[tauri::command]
-pub fn connect_udp(app: AppHandle, state: State<TransportState>, bind_port: u16) -> Result<(), String> {
+pub fn connect_udp(
+    app: AppHandle,
+    state: State<TransportState>,
+    bind_port: u16,
+    remote_host: Option<String>,
+) -> Result<(), String> {
     close_existing(&state);
+
+    // A blank/whitespace-only host from the UI means "no manual IP" - same as None, not a
+    // parse error.
+    let remote_host = remote_host.filter(|h| !h.trim().is_empty());
+    let remote = remote_host
+        .as_deref()
+        .map(|host| format!("{host}:{bind_port}").parse::<SocketAddr>())
+        .transpose()
+        .map_err(|e| format!("Invalid IP address: {e}"))?;
 
     let data_app = app.clone();
     let error_app = app.clone();
     let bridge = UdpBridge::start(
         bind_port,
+        remote,
         move |bytes, _from| {
             let _ = data_app.emit(DATA_EVENT, DataPayload { bytes });
         },
@@ -324,7 +346,11 @@ pub fn connect_udp(app: AppHandle, state: State<TransportState>, bind_port: u16)
     .map_err(|e| e.to_string())?;
 
     *state.0.lock().unwrap() = Some(ActiveBridge::Udp(bridge));
-    let _ = app.emit(STATUS_EVENT, StatusPayload::Connected { detail: format!("udp:0.0.0.0:{bind_port}") });
+    let detail = match &remote_host {
+        Some(host) => format!("udp:{host}:{bind_port}"),
+        None => format!("udp:0.0.0.0:{bind_port}"),
+    };
+    let _ = app.emit(STATUS_EVENT, StatusPayload::Connected { detail });
     Ok(())
 }
 
@@ -395,6 +421,7 @@ mod tests {
         let (tx, rx) = mpsc::channel::<(Vec<u8>, SocketAddr)>();
         let bridge = UdpBridge::start(
             0,
+            None,
             move |bytes, from| {
                 let _ = tx.send((bytes, from));
             },
@@ -422,8 +449,27 @@ mod tests {
 
     #[test]
     fn udp_bridge_send_before_any_peer_seen_errors() {
-        let bridge = UdpBridge::start(0, |_, _| {}, |_| {}).expect("bridge should bind");
+        let bridge = UdpBridge::start(0, None, |_, _| {}, |_| {}).expect("bridge should bind");
         let err = bridge.send(b"nobody-to-send-to").unwrap_err();
         assert!(err.to_string().contains("no sender"));
+    }
+
+    /// Proves the "dial out to a manually-entered IP" path: giving `remote` lets `send()`
+    /// succeed immediately, with no incoming packet needed first - the scenario this exists
+    /// for (a companion computer/bridge that itself only listens, so the GCS has to speak
+    /// first).
+    #[test]
+    fn udp_bridge_with_remote_can_send_before_any_peer_seen() {
+        let target = UdpSocket::bind(("127.0.0.1", 0)).expect("target socket should bind");
+        target.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let target_addr = target.local_addr().unwrap();
+
+        let bridge = UdpBridge::start(0, Some(target_addr), |_, _| {}, |message| panic!("unexpected UdpBridge error: {message}"))
+            .expect("bridge should bind");
+        bridge.send(b"hello-target").expect("bridge should be able to send to the pre-seeded remote");
+
+        let mut buf = [0u8; 64];
+        let (n, _) = target.recv_from(&mut buf).expect("target should receive the bridge's send");
+        assert_eq!(&buf[..n], b"hello-target");
     }
 }
