@@ -681,13 +681,28 @@ describe("ArduPilotSetupView", () => {
     await clickUdpMode();
     await clickConnect();
 
-    expect(invoked).toHaveBeenCalledWith("connect_udp", { bindPort: 14550 });
+    expect(invoked).toHaveBeenCalledWith("connect_udp", { bindPort: 14550, remoteHost: null });
     expect(within(getStatusAlert()).getByText("Підключення...")).toBeInTheDocument();
 
     await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
 
     expect(await within(getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550")).toBeInTheDocument();
     expect(getDisconnectButton()).toBeInTheDocument();
+  });
+
+  it("connects over UDP to a manually-entered vehicle IP, passed through as remoteHost", async () => {
+    const invoked = vi.fn();
+    mockBackend(invoked);
+    const { clickUdpMode, clickConnect, getStatusAlert, user } = getView();
+
+    await clickUdpMode();
+    await user.type(screen.getByLabelText("IP апарата (необов'язково)"), "127.0.0.1");
+    await clickConnect();
+
+    expect(invoked).toHaveBeenCalledWith("connect_udp", { bindPort: 14550, remoteHost: "127.0.0.1" });
+
+    await emit(STATUS_EVENT, { kind: "connected", detail: "udp:127.0.0.1:14550" });
+    expect(await within(getStatusAlert()).findByText("Підключено: udp:127.0.0.1:14550")).toBeInTheDocument();
   });
 
   it("connects over Serial with the selected port and baud rate", async () => {

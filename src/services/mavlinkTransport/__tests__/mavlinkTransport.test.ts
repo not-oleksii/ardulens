@@ -44,7 +44,7 @@ describe("mavlinkTransport", () => {
     expect(invoked).toHaveBeenCalledWith("connect_serial", { portName: "COM3", baudRate: 57600 });
   });
 
-  it("connectUdp invokes connect_udp with the bind port", async () => {
+  it("connectUdp invokes connect_udp with the bind port and no remote host by default", async () => {
     const invoked = vi.fn();
     mockIPC((cmd, payload) => {
       invoked(cmd, payload);
@@ -52,7 +52,18 @@ describe("mavlinkTransport", () => {
 
     await connectUdp(14550);
 
-    expect(invoked).toHaveBeenCalledWith("connect_udp", { bindPort: 14550 });
+    expect(invoked).toHaveBeenCalledWith("connect_udp", { bindPort: 14550, remoteHost: null });
+  });
+
+  it("connectUdp passes a manually-entered remote host through to connect_udp", async () => {
+    const invoked = vi.fn();
+    mockIPC((cmd, payload) => {
+      invoked(cmd, payload);
+    });
+
+    await connectUdp(14550, "127.0.0.1");
+
+    expect(invoked).toHaveBeenCalledWith("connect_udp", { bindPort: 14550, remoteHost: "127.0.0.1" });
   });
 
   it("disconnect invokes disconnect", async () => {

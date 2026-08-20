@@ -49,9 +49,18 @@ export function connectSerial(portName: string, baudRate: number): Promise<void>
   return invoke("connect_serial", { portName, baudRate });
 }
 
-export function connectUdp(bindPort: number): Promise<void> {
+/**
+ * `remoteHost`, when given, is a specific vehicle/bridge IP to target instead of the default
+ * listen-only behavior (bind locally and wait for whichever sender speaks first - how ArduPilot
+ * SITL and most WiFi telemetry bridges proactively reach the GCS). Some setups are the other way
+ * around (a companion computer or bridge that itself only listens, e.g. on 127.0.0.1) - the app
+ * has to dial out to it first. See transport.rs's `connect_udp`: giving a host pre-seeds the UDP
+ * "reply to" target before anything's been received, so the GCS heartbeat this app already sends
+ * immediately on connect reaches it right away instead of erroring with "no sender seen yet".
+ */
+export function connectUdp(bindPort: number, remoteHost?: string): Promise<void> {
   stopMock();
-  return invoke("connect_udp", { bindPort });
+  return invoke("connect_udp", { bindPort, remoteHost: remoteHost || null });
 }
 
 /**
