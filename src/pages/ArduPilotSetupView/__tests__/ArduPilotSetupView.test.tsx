@@ -705,6 +705,25 @@ describe("ArduPilotSetupView", () => {
     expect(await within(getStatusAlert()).findByText("Підключено: udp:127.0.0.1:14550")).toBeInTheDocument();
   });
 
+  it("shows a top-bar Reboot button once connected, sending PREFLIGHT_REBOOT_SHUTDOWN when clicked", async () => {
+    const invoked = vi.fn();
+    mockBackend(invoked);
+    const { clickConnect, getStatusAlert, user } = getView();
+
+    expect(screen.queryByRole("button", { name: "Перезавантажити" })).not.toBeInTheDocument();
+
+    await clickConnect();
+    await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
+    await within(getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+    await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
+
+    await user.click(screen.getByRole("button", { name: "Перезавантажити" }));
+
+    await vi.waitFor(() => {
+      expect(findCommandLongSend(invoked, MavCmd.PREFLIGHT_REBOOT_SHUTDOWN)).toBeDefined();
+    });
+  });
+
   it("connects over Serial with the selected port and baud rate", async () => {
     const invoked = vi.fn();
     mockBackend(invoked);
@@ -2638,6 +2657,28 @@ describe("ArduPilotSetupView", () => {
         expect(findCommandLongSend(invoked, MavCmd.DO_ACCEPT_MAG_CAL)).toBeDefined();
       });
       expect(await screen.findByText("Калібрування прийнято - зміщення збережено на апараті.")).toBeInTheDocument();
+    });
+
+    it("shows a Reboot button once accepted, sending PREFLIGHT_REBOOT_SHUTDOWN when clicked", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenCompassCal();
+      await user.click(screen.getByRole("button", { name: "Почати калібрування" }));
+      await emit(DATA_EVENT, {
+        bytes: buildMagCalReportBytes(0, MagCalStatus.SUCCESS, 12.3, 1),
+      });
+      await screen.findByText("Компас 0");
+      await user.click(screen.getByRole("button", { name: "Прийняти й зберегти" }));
+      await screen.findByText("Калібрування прийнято - зміщення збережено на апараті.");
+
+      await user.click(screen.getByRole("button", { name: "Перезавантажити зараз" }));
+
+      await vi.waitFor(() => {
+        expect(findCommandLongSend(invoked, MavCmd.PREFLIGHT_REBOOT_SHUTDOWN)).toBeDefined();
+      });
+      expect(
+        await screen.findByText("Команду перезавантаження надіслано - зачекайте кілька секунд, поки апарат перезапуститься та перепідключиться."),
+      ).toBeInTheDocument();
     });
 
     it("sends DO_CANCEL_MAG_CAL when Cancel is clicked mid-calibration", async () => {

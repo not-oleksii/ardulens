@@ -14,16 +14,23 @@ interface CompassCalSectionProps {
   onStart: () => void;
   onAccept: () => void;
   onCancel: () => void;
+  onReboot: () => void;
 }
 
 const FULLY_COVERED_MASK = new Array(10).fill(0xff);
 
-export function CompassCalSection({ progress, reports, lastCommandAck, onStart, onAccept, onCancel }: CompassCalSectionProps) {
+export function CompassCalSection({ progress, reports, lastCommandAck, onStart, onAccept, onCancel, onReboot }: CompassCalSectionProps) {
   const { t } = useTranslation();
   // Optimistic - DO_ACCEPT_MAG_CAL doesn't reliably produce a distinct "now saved" message of
   // its own, so once the user confirms, we just trust the command was sent (its COMMAND_ACK is
   // still surfaced above if it was rejected) rather than waiting on a signal that may not come.
   const [accepted, setAccepted] = useState(false);
+  // Rebooting isn't required for compass offsets themselves to take effect (DO_ACCEPT_MAG_CAL
+  // writes them immediately, same as any other AP_Float param) - offered as an optional
+  // follow-up anyway, matching the "Reboot Now" affordance MotorsCopterSection already shows
+  // after a RebootRequired param change, since a full reboot is still the most reliable way to
+  // confirm the new offsets are actually the ones in effect before flying.
+  const [rebootSent, setRebootSent] = useState(false);
 
   const compassIds = Array.from(new Set([...Object.keys(progress), ...Object.keys(reports)].map(Number))).sort((a, b) => a - b);
   const hasAnyData = compassIds.length > 0;
@@ -35,17 +42,24 @@ export function CompassCalSection({ progress, reports, lastCommandAck, onStart, 
   // than reactively watching hasAnyData in an effect) avoids a setState-in-effect cascade.
   function handleStart() {
     setAccepted(false);
+    setRebootSent(false);
     onStart();
   }
 
   function handleCancel() {
     setAccepted(false);
+    setRebootSent(false);
     onCancel();
   }
 
   function handleAccept() {
     onAccept();
     setAccepted(true);
+  }
+
+  function handleReboot() {
+    onReboot();
+    setRebootSent(true);
   }
 
   return (
@@ -77,9 +91,20 @@ export function CompassCalSection({ progress, reports, lastCommandAck, onStart, 
       <p className="text-xs text-muted-foreground">{t("ardupilotSetup.compassCal.description")}</p>
 
       {accepted ? (
-        <Alert variant="info">
-          <AlertDescription>{t("ardupilotSetup.compassCal.saved")}</AlertDescription>
-        </Alert>
+        <div className="flex flex-col gap-2">
+          <Alert variant="info">
+            <AlertDescription>{t("ardupilotSetup.compassCal.saved")}</AlertDescription>
+          </Alert>
+          {!rebootSent ? (
+            <Button type="button" size="sm" variant="outline" className="w-fit" onClick={handleReboot}>
+              {t("ardupilotSetup.compassCal.reboot")}
+            </Button>
+          ) : (
+            <Alert variant="info">
+              <AlertDescription>{t("ardupilotSetup.compassCal.rebootSent")}</AlertDescription>
+            </Alert>
+          )}
+        </div>
       ) : (
         lastCommandAck &&
         lastCommandAck.result !== MavResult.ACCEPTED && (

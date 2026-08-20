@@ -1296,6 +1296,7 @@ export function ArduPilotSetupView() {
         onAutoConnect={() => void handleAutoConnect()}
         onConnect={() => void handleConnect()}
         onDisconnect={() => void handleDisconnect()}
+        onReboot={handleReboot}
         onDevMode={() => void handleConnectMock()}
         onDevModeCopter={() => void handleConnectMockCopter()}
         devFramePresetKey={devFramePresetKey}
@@ -1350,6 +1351,7 @@ export function ArduPilotSetupView() {
               onStart={handleStartCompassCal}
               onAccept={handleAcceptCompassCal}
               onCancel={handleCancelCompassCal}
+              onReboot={handleReboot}
             />
           ) : activeSection === "accelCal" ? (
             <AccelCalSection
