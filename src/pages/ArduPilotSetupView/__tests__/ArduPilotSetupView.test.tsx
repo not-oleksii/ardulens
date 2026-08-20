@@ -724,6 +724,30 @@ describe("ArduPilotSetupView", () => {
     });
   });
 
+  it("shows the reboot COMMAND_ACK result next to the top-bar Reboot button, not just silence on a rejection", async () => {
+    // Regression test for a real report: clicking Reboot appeared to do nothing at all. It was
+    // sending the command correctly, but a rejected reboot (e.g. DENIED while armed) had no
+    // feedback anywhere in the UI - this makes a real rejection visible instead of looking like
+    // a broken button, and confirms an accepted one shows something too.
+    mockBackend();
+    const { clickConnect, getStatusAlert, user } = getView();
+    await clickConnect();
+    await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
+    await within(getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+    await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
+
+    await user.click(screen.getByRole("button", { name: "Перезавантажити" }));
+    await emit(DATA_EVENT, { bytes: buildCommandAckBytes(MavCmd.PREFLIGHT_REBOOT_SHUTDOWN, MavResult.DENIED, 1) });
+    expect(await screen.findByText(/Перезавантаження відхилено/)).toBeInTheDocument();
+
+    // Clicking again (a real retry) clears the old rejection rather than leaving stale text up
+    // once a fresh attempt is in flight, and an ACCEPTED ack shows its own confirmation.
+    await user.click(screen.getByRole("button", { name: "Перезавантажити" }));
+    expect(screen.queryByText(/Перезавантаження відхилено/)).not.toBeInTheDocument();
+    await emit(DATA_EVENT, { bytes: buildCommandAckBytes(MavCmd.PREFLIGHT_REBOOT_SHUTDOWN, MavResult.ACCEPTED, 2) });
+    expect(await screen.findByText(/Команду перезавантаження надіслано/)).toBeInTheDocument();
+  });
+
   it("connects over Serial with the selected port and baud rate", async () => {
     const invoked = vi.fn();
     mockBackend(invoked);

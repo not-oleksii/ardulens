@@ -51,6 +51,7 @@ import {
   MavFtpOpcode,
   MavModeFlag,
   MavParamType,
+  MavResult,
   MavState,
   MavType,
   MotorTestThrottleType,
@@ -249,6 +250,10 @@ export function ArduPilotSetupView() {
   const [scanningBaud, setScanningBaud] = useState<number | null>(null);
   const [devFramePresetKey, setDevFramePresetKey] = useState(VERIFIED_FRAME_PRESETS[1]!.key); // Quad X
   const [activeSection, setActiveSection] = useState<ArduPilotSetupSection>("telemetry");
+  // Surfaces the header's Reboot button's own COMMAND_ACK - without this, a rejected reboot
+  // (e.g. DENIED while armed) looked exactly like a silently-broken button, since nothing else
+  // in the UI ever changes on a NACK (the connection doesn't drop, no further message arrives).
+  const [rebootLastCommandAck, setRebootLastCommandAck] = useState<MavResult | null>(null);
 
   const framerRef = useRef(new MavlinkFramer());
   const outgoingSeqRef = useRef(0);
@@ -522,6 +527,8 @@ export function ArduPilotSetupView() {
               // feature is meant to be followed by) - this ack is the minimum viable feedback
               // ("it didn't work") until that lands.
               setArmCommandAck({ result: msg.result });
+            } else if (command === MavCmd.PREFLIGHT_REBOOT_SHUTDOWN) {
+              setRebootLastCommandAck(msg.result);
             }
             break;
           }
@@ -628,6 +635,7 @@ export function ArduPilotSetupView() {
         ftpSessionRef.current = null;
         streamsRequestedRef.current = false;
         fullParamsRequestedRef.current = false;
+        setRebootLastCommandAck(null);
       } else {
         setError(s.message);
         resetVehicle();
@@ -643,6 +651,7 @@ export function ArduPilotSetupView() {
         ftpSessionRef.current = null;
         streamsRequestedRef.current = false;
         fullParamsRequestedRef.current = false;
+        setRebootLastCommandAck(null);
       }
     }).then((unlisten) => {
       if (cancelled) unlisten();
@@ -662,6 +671,7 @@ export function ArduPilotSetupView() {
     setError,
     setVehicle,
     setArmCommandAck,
+    setRebootLastCommandAck,
     resetVehicle,
     setAttitude,
     setVfrHud,
@@ -1107,6 +1117,7 @@ export function ArduPilotSetupView() {
   // vehicle's persistent storage immediately, so there's no separate "save" step, only this.
   function handleReboot() {
     if (!vehicle) return;
+    setRebootLastCommandAck(null);
     const cmd = new PreflightRebootShutdownCommand(vehicle.sysid, vehicle.compid);
     cmd.autopilot = RebootShutdownAction.REBOOT;
     sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
@@ -1209,6 +1220,7 @@ export function ArduPilotSetupView() {
         onConnect={() => void handleConnect()}
         onDisconnect={() => void handleDisconnect()}
         onReboot={handleReboot}
+        rebootLastCommandAck={rebootLastCommandAck}
         onDevMode={() => void handleConnectMock()}
         onDevModeCopter={() => void handleConnectMockCopter()}
         devFramePresetKey={devFramePresetKey}
