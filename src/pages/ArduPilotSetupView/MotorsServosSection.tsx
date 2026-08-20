@@ -2,13 +2,15 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { MavParamType, MavType } from "../../mavlink/registry/registry";
+import { MavParamType, type MavType } from "../../mavlink/registry/registry";
 import { fetchParamDocs, vehicleFolderForMavType, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import { ComingSoonSection } from "./ComingSoonSection";
 import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
 import { MotorsCopterSection } from "./MotorsCopterSection";
+import { colorForRcChannel } from "./rcChannelColors";
 
 interface MotorsServosSectionProps {
   vehicleType: MavType;
@@ -33,15 +35,26 @@ function computeTestPwm(min: number, max: number, trim: number): number {
   return Math.round(Math.min(max, Math.max(min, target)));
 }
 
+// 900-2100us comfortably covers real PWM including typical overshoot past 1000-2000 - same
+// reference scale RcCalSection/RcSetupSection's live bars use, so a channel's live position
+// looks the same everywhere it's shown in this app.
+const SCALE_MIN = 900;
+const SCALE_MAX = 2100;
+function scalePct(value: number): number {
+  return Math.min(100, Math.max(0, ((value - SCALE_MIN) / (SCALE_MAX - SCALE_MIN)) * 100));
+}
+
 interface ServoChannel {
   channel: number;
   functionCode: number;
-  functionLabel: string;
   min: number;
   max: number;
   trim: number;
+  reversed: number;
   testPwm: number;
 }
+
+type EditableField = "MIN" | "TRIM" | "MAX";
 
 export function MotorsServosSection({
   vehicleType,
@@ -56,6 +69,8 @@ export function MotorsServosSection({
   const { t } = useTranslation();
   const params = useMavlinkParameterStore((s) => s.params);
   const [docs, setDocs] = useState<ParamDocsMap | null>(null);
+  const [editingCell, setEditingCell] = useState<{ channel: number; field: EditableField } | null>(null);
+  const [editingValue, setEditingValue] = useState("");
   const vehicleFolder = vehicleFolderForMavType(vehicleType);
   const isPlane = vehicleFolder === "ArduPlane";
   const isCopter = vehicleFolder === "ArduCopter";
@@ -98,24 +113,73 @@ export function MotorsServosSection({
 
   const hasLoaded = Object.keys(params).some((name) => /^SERVO\d+_FUNCTION$/.test(name));
 
+  // Every channel, not just the ones with a non-Disabled function - matches Mission Planner's
+  // own "Servo Output" screen, which always lists all 16 rows (Disabled channels included) so
+  // Min/Trim/Max/Reverse stay reachable even before a function is assigned.
   const channels: ServoChannel[] = [];
   if (hasLoaded) {
     for (let channel = 1; channel <= SERVO_CHANNEL_COUNT; channel++) {
       const functionEntry = params[`SERVO${channel}_FUNCTION`];
-      if (!functionEntry || functionEntry.value === 0) continue; // 0 = Disabled
+      if (!functionEntry) continue;
       const min = params[`SERVO${channel}_MIN`]?.value ?? 1000;
       const max = params[`SERVO${channel}_MAX`]?.value ?? 2000;
       const trim = params[`SERVO${channel}_TRIM`]?.value ?? (min + max) / 2;
       channels.push({
         channel,
         functionCode: functionEntry.value,
-        functionLabel: docs?.[`SERVO${channel}_FUNCTION`]?.values?.[functionEntry.value] ?? String(functionEntry.value),
         min,
         max,
         trim,
+        reversed: params[`SERVO${channel}_REVERSED`]?.value ?? 0,
         testPwm: computeTestPwm(min, max, trim),
       });
     }
+  }
+
+  const functionValues = docs?.SERVO1_FUNCTION?.values;
+
+  function startEdit(channel: number, field: EditableField, currentValue: number) {
+    setEditingCell({ channel, field });
+    setEditingValue(String(currentValue));
+  }
+
+  function commitEdit() {
+    if (!editingCell) return;
+    const { channel, field } = editingCell;
+    setEditingCell(null);
+    const parsed = Number(editingValue);
+    if (!Number.isFinite(parsed)) return;
+    const name = `SERVO${channel}_${field}`;
+    const type = params[name]?.type ?? MavParamType.INT16;
+    onSetFrameParam(name, parsed, type);
+  }
+
+  function editableNumberCell(channel: number, field: EditableField, value: number) {
+    const isEditing = editingCell?.channel === channel && editingCell.field === field;
+    const name = `SERVO${channel}_${field}`;
+    if (isEditing) {
+      return (
+        <Input
+          autoFocus
+          value={editingValue}
+          onChange={(e) => setEditingValue(e.target.value)}
+          onBlur={commitEdit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commitEdit();
+            if (e.key === "Escape") setEditingCell(null);
+          }}
+          className="h-7 w-20 font-mono text-xs"
+        />
+      );
+    }
+    return (
+      <span className="flex items-center gap-1.5">
+        <button type="button" className="font-mono text-xs hover:underline" onClick={() => startEdit(channel, field, value)}>
+          {value}
+        </button>
+        <ModifiedFromDefaultDot name={name} value={value} />
+      </span>
+    );
   }
 
   return (
@@ -143,24 +207,77 @@ export function MotorsServosSection({
             <TableHeader className="sticky top-0 bg-card">
               <TableRow>
                 <TableHead>{t("ardupilotSetup.motorsServos.channel")}</TableHead>
-                <TableHead>{t("ardupilotSetup.motorsServos.function")}</TableHead>
                 <TableHead>{t("ardupilotSetup.motorsServos.output")}</TableHead>
+                <TableHead>{t("ardupilotSetup.motorsServos.reverse")}</TableHead>
+                <TableHead>{t("ardupilotSetup.motorsServos.function")}</TableHead>
+                <TableHead>{t("ardupilotSetup.motorsServos.min")}</TableHead>
+                <TableHead>{t("ardupilotSetup.motorsServos.trim")}</TableHead>
+                <TableHead>{t("ardupilotSetup.motorsServos.max")}</TableHead>
                 <TableHead>{t("ardupilotSetup.motorsServos.test")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {channels.map(({ channel, functionCode, functionLabel, trim, testPwm }) => {
+              {channels.map(({ channel, functionCode, min, max, trim, reversed, testPwm }) => {
                 const liveOutput = servoOutputs[channel];
+                const color = colorForRcChannel(channel);
+                const functionName = `SERVO${channel}_FUNCTION`;
+                const reversedName = `SERVO${channel}_REVERSED`;
                 return (
                   <TableRow key={channel}>
-                    <TableCell className="font-mono">{channel}</TableCell>
+                    <TableCell className="font-mono" style={{ color }}>
+                      {channel}
+                    </TableCell>
                     <TableCell>
-                      <span className="flex items-center gap-1.5">
-                        {functionLabel}
-                        <ModifiedFromDefaultDot name={`SERVO${channel}_FUNCTION`} value={functionCode} />
+                      <span className="flex items-center gap-2">
+                        <div className="relative h-3 w-16 rounded-full bg-muted">
+                          {liveOutput !== undefined && (
+                            <div
+                              className="absolute top-1/2 h-2.5 w-2.5 -translate-y-1/2 -translate-x-1/2 rounded-full border border-background"
+                              style={{ left: `${scalePct(liveOutput)}%`, background: color }}
+                            />
+                          )}
+                        </div>
+                        <span className="w-14 shrink-0 font-mono text-xs text-muted-foreground">
+                          {liveOutput !== undefined ? `${liveOutput} us` : "-"}
+                        </span>
                       </span>
                     </TableCell>
-                    <TableCell className="font-mono">{liveOutput !== undefined ? `${liveOutput} us` : "-"}</TableCell>
+                    <TableCell>
+                      <span className="flex items-center gap-1.5">
+                        <input
+                          type="checkbox"
+                          checked={reversed !== 0}
+                          onChange={(e) => onSetFrameParam(reversedName, e.target.checked ? 1 : 0, params[reversedName]?.type ?? MavParamType.INT8)}
+                        />
+                        <ModifiedFromDefaultDot name={reversedName} value={reversed} />
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <span className="flex items-center gap-1.5">
+                        {functionValues ? (
+                          <select
+                            className="rounded-md border border-border bg-background px-2 py-1 text-xs"
+                            value={functionCode}
+                            onChange={(e) =>
+                              onSetFrameParam(functionName, Number(e.target.value), params[functionName]?.type ?? MavParamType.INT16)
+                            }
+                          >
+                            {!(functionCode in functionValues) && <option value={functionCode}>{functionCode}</option>}
+                            {Object.entries(functionValues).map(([code, label]) => (
+                              <option key={code} value={code}>
+                                {label}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="font-mono text-xs">{functionCode}</span>
+                        )}
+                        <ModifiedFromDefaultDot name={functionName} value={functionCode} />
+                      </span>
+                    </TableCell>
+                    <TableCell>{editableNumberCell(channel, "MIN", min)}</TableCell>
+                    <TableCell>{editableNumberCell(channel, "TRIM", trim)}</TableCell>
+                    <TableCell>{editableNumberCell(channel, "MAX", max)}</TableCell>
                     <TableCell>
                       <Button
                         type="button"
