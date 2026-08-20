@@ -132,14 +132,17 @@ const FAKE_PARAM_SEED: ReadonlyArray<readonly [string, number, MavParamType]> = 
   ["SERVO1_MIN", 1000, MavParamType.INT16],
   ["SERVO1_MAX", 2000, MavParamType.INT16],
   ["SERVO1_TRIM", 1500, MavParamType.INT16],
+  ["SERVO1_REVERSED", 0, MavParamType.INT8],
   ["SERVO2_FUNCTION", 110, MavParamType.INT16],
   ["SERVO2_MIN", 1000, MavParamType.INT16],
   ["SERVO2_MAX", 2000, MavParamType.INT16],
   ["SERVO2_TRIM", 1500, MavParamType.INT16],
+  ["SERVO2_REVERSED", 0, MavParamType.INT8],
   ["SERVO3_FUNCTION", 138, MavParamType.INT16],
   ["SERVO3_MIN", 1000, MavParamType.INT16],
   ["SERVO3_MAX", 2000, MavParamType.INT16],
   ["SERVO3_TRIM", 1500, MavParamType.INT16],
+  ["SERVO3_REVERSED", 0, MavParamType.INT8],
   ["SERVO4_FUNCTION", 0, MavParamType.INT16],
   // ESC Cal + Battery Config tabs - generic params both Copter and Plane share, real names
   // confirmed against ArduPilot's own esc_calibration.cpp/AP_BattMonitor_Params.cpp source.
