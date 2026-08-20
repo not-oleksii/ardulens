@@ -168,6 +168,10 @@ export function VtxSetupSection({ vehicleType, onLoad, onSetParam }: VtxSetupSec
         </div>
       </div>
 
+      <Alert variant="warning" className="shrink-0">
+        <AlertDescription>{t("ardupilotSetup.vtxSetup.supportDisclaimer")}</AlertDescription>
+      </Alert>
+
       <ParamLoadProgress />
 
       {!hasAnyLoaded ? (

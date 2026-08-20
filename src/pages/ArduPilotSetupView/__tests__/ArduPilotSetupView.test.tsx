@@ -2495,6 +2495,15 @@ describe("ArduPilotSetupView", () => {
       expect(screen.getByText("Налаштування VTX ще не завантажено.")).toBeInTheDocument();
     });
 
+    it("shows a disclaimer that these settings only work if the VTX has a real control link to the flight controller", async () => {
+      // Digital HD systems (Walksnail/HDZero/DJI) commonly only speak MSP DisplayPort for the
+      // OSD overlay, not MSP VTX control - a real user question this exists to answer up front,
+      // before they wonder why changing VTX_POWER did nothing on their own vehicle.
+      mockBackend();
+      await connectAndOpenVtxSetup();
+      expect(screen.getByText(/канал керування з польотним контролером/)).toBeInTheDocument();
+    });
+
     it("Load re-sends the full PARAM_REQUEST_LIST, and fields populate from PARAM_VALUE without it", async () => {
       const invoked = vi.fn();
       mockBackend(invoked);
