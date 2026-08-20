@@ -82,7 +82,7 @@ export function VtxSetupSection({ vehicleType, onLoad, onSetParam }: VtxSetupSec
   const pendingEntries = Object.entries(pendingChanges);
   const hasPendingChanges = pendingEntries.length > 0;
 
-  function numberField(name: string) {
+  function numberField(name: string, unit?: string) {
     const entry = params[name];
     if (!entry) return <span className="font-mono text-xs text-muted-foreground">-</span>;
     const value = shownValue(name)!;
@@ -97,6 +97,7 @@ export function VtxSetupSection({ vehicleType, onLoad, onSetParam }: VtxSetupSec
           }}
           className="h-7 w-24 text-xs"
         />
+        {unit && <span className="text-xs text-muted-foreground">{unit}</span>}
         <ModifiedFromDefaultDot name={name} value={value} />
       </span>
     );
@@ -198,11 +199,11 @@ export function VtxSetupSection({ vehicleType, onLoad, onSetParam }: VtxSetupSec
             </label>
             <label className="flex items-center gap-1.5 text-xs">
               <span className="text-muted-foreground">{t("ardupilotSetup.vtxSetup.power")}</span>
-              {numberField("VTX_POWER")}
+              {numberField("VTX_POWER", "mW")}
             </label>
             <label className="flex items-center gap-1.5 text-xs">
               <span className="text-muted-foreground">{t("ardupilotSetup.vtxSetup.maxPower")}</span>
-              {numberField("VTX_MAX_POWER")}
+              {numberField("VTX_MAX_POWER", "mW")}
             </label>
             <label className="flex items-center gap-1.5 text-xs">
               <span className="text-muted-foreground" title={t("ardupilotSetup.vtxSetup.freqHint")}>
