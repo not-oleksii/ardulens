@@ -114,14 +114,15 @@ const GCS_COMPID = 190;
 // health), position, attitude (EXTRA1), and VFR HUD-style speed/altitude/throttle (EXTRA2).
 // ArduPilot still honors this deprecated-but-universal message; the modern per-message
 // SET_MESSAGE_INTERVAL alternative would need one request per message id instead of per group.
-const REQUESTED_DATA_STREAMS = [
-  MavDataStream.EXTENDED_STATUS,
-  MavDataStream.POSITION,
-  MavDataStream.EXTRA1,
-  MavDataStream.EXTRA2,
-  MavDataStream.RC_CHANNELS,
-];
+// RC_CHANNELS is requested separately, at its own higher rate (see RC_CHANNELS_STREAM_RATE_HZ) -
+// it used to share this same slow rate, which is fine for battery/attitude/GPS but reads as
+// laggy/stuttery for RC Setup's live channel bars and RC Cal, where the whole point is watching
+// a stick move smoothly in real time.
+const REQUESTED_DATA_STREAMS = [MavDataStream.EXTENDED_STATUS, MavDataStream.POSITION, MavDataStream.EXTRA1, MavDataStream.EXTRA2];
 const DATA_STREAM_RATE_HZ = 4;
+// Mission Planner's own default rate for this stream - RC_CHANNELS is one small, fixed-size
+// message, so 10Hz is comfortably light even over a slow serial/telemetry link.
+const RC_CHANNELS_STREAM_RATE_HZ = 10;
 // The firmware's own auto-stop safety net (see DoMotorTestCommand.timeout) - independent of,
 // and in addition to, the explicit throttle=0 command this app sends on release, in case that
 // release command is ever lost.
@@ -747,12 +748,12 @@ export function ArduPilotSetupView() {
     if (status !== "connected" || !vehicle || streamsRequestedRef.current) return;
     streamsRequestedRef.current = true;
 
-    for (const streamId of REQUESTED_DATA_STREAMS) {
+    function requestStream(streamId: MavDataStream, rateHz: number) {
       const req = new RequestDataStream();
-      req.targetSystem = vehicle.sysid;
-      req.targetComponent = vehicle.compid;
+      req.targetSystem = vehicle!.sysid;
+      req.targetComponent = vehicle!.compid;
       req.reqStreamId = streamId;
-      req.reqMessageRate = DATA_STREAM_RATE_HZ;
+      req.reqMessageRate = rateHz;
       req.startStop = 1;
 
       const seq = outgoingSeqRef.current;
@@ -764,6 +765,9 @@ export function ArduPilotSetupView() {
           // Best-effort - if this is lost, the vehicle simply won't stream that group.
         });
     }
+
+    for (const streamId of REQUESTED_DATA_STREAMS) requestStream(streamId, DATA_STREAM_RATE_HZ);
+    requestStream(MavDataStream.RC_CHANNELS, RC_CHANNELS_STREAM_RATE_HZ);
   }, [status, vehicle, addBytesSent]);
 
   useEffect(() => {

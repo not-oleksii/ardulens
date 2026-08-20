@@ -21,6 +21,7 @@ import {
   MagCalStatus,
   MavAutopilot,
   MavCmd,
+  MavDataStream,
   MavModeFlag,
   MavParamType,
   MavResult,
@@ -977,6 +978,43 @@ describe("ArduPilotSetupView", () => {
         return bytes[7] === RequestDataStream.MSG_ID;
       });
       expect(requestStreamCalls.length).toBe(5);
+    });
+  });
+
+  it("requests RC_CHANNELS at a higher rate than the other telemetry streams, for a smooth (not laggy) live RC display", async () => {
+    // Regression test for a real report: RC Setup/RC Cal's live channel bars felt laggy - they
+    // used to share the same slow 4Hz rate as battery/attitude/GPS, which is fine for those but
+    // very noticeable (250ms between updates) when watching a stick move in real time.
+    const invoked = vi.fn();
+    mockBackend(invoked);
+    const { clickConnect, getStatusAlert } = getView();
+    await clickConnect();
+    await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
+    await within(getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+
+    invoked.mockClear();
+    await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
+
+    await vi.waitFor(() => {
+      const requestStreamCalls = invoked.mock.calls.filter(([cmd, payload]) => {
+        if (cmd !== "send_bytes") return false;
+        const bytes = (payload as { bytes: number[] }).bytes;
+        return bytes[7] === RequestDataStream.MSG_ID;
+      });
+      expect(requestStreamCalls.length).toBe(5);
+
+      // req_message_rate is a uint16 LE at payload offset 0 (header is 10 bytes), req_stream_id
+      // is a uint8 at payload offset 4 - see RequestDataStream.FIELDS, not assumed.
+      const ratesByStream = new Map<number, number>();
+      for (const [, payload] of requestStreamCalls) {
+        const bytes = (payload as { bytes: number[] }).bytes;
+        const rate = bytes[10]! | (bytes[11]! << 8);
+        const streamId = bytes[14]!;
+        ratesByStream.set(streamId, rate);
+      }
+      expect(ratesByStream.get(MavDataStream.RC_CHANNELS)).toBe(10);
+      expect(ratesByStream.get(MavDataStream.EXTENDED_STATUS)).toBe(4);
+      expect(ratesByStream.get(MavDataStream.EXTRA1)).toBe(4);
     });
   });
 
