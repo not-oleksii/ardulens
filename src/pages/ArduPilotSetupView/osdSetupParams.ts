@@ -11,10 +11,100 @@ export const OSD_SCREEN_NUMBERS = [1, 2, 3, 4] as const;
 export type OsdScreenNumber = (typeof OSD_SCREEN_NUMBERS)[number];
 
 export const OSD_GLOBAL_PARAM_NAMES = ["OSD_TYPE", "OSD_UNITS", "OSD_CHAN"] as const;
-export const OSD_ENUM_PARAMS = new Set<string>(["OSD_TYPE", "OSD_UNITS"]);
+export const OSD_ENUM_PARAMS = new Set<string>(["OSD_TYPE", "OSD_UNITS", "OSD_CHAN"]);
+
+// Hardcoded fallback enum labels for the 3 global params, confirmed against ArduCopter's own
+// apm.pdef.xml - used whenever fetchParamDocs hasn't returned yet (or failed, e.g. offline)
+// so these never render as an unbounded, context-free number spinner. docs (when available)
+// still take priority, since a differently-versioned firmware could define more values than
+// this fixed reference copy knows about - see OsdSetupSection's enumField.
+export const OSD_TYPE_FALLBACK_VALUES: Record<number, string> = {
+  0: "None",
+  1: "MAX7456",
+  2: "SITL",
+  3: "MSP",
+  4: "TXONLY",
+  5: "MSP_DISPLAYPORT",
+};
+
+export const OSD_UNITS_FALLBACK_VALUES: Record<number, string> = {
+  0: "Metric",
+  1: "Imperial",
+  2: "SI",
+  3: "Aviation",
+};
+
+// 1-4 are deliberately absent - real ArduPilot reserves those for the primary flight-control
+// channels (roll/pitch/throttle/yaw), never assignable to an aux function like this one.
+export const OSD_CHAN_FALLBACK_VALUES: Record<number, string> = {
+  0: "Disable",
+  5: "Chan5",
+  6: "Chan6",
+  7: "Chan7",
+  8: "Chan8",
+  9: "Chan9",
+  10: "Chan10",
+  11: "Chan11",
+  12: "Chan12",
+  13: "Chan13",
+  14: "Chan14",
+  15: "Chan15",
+  16: "Chan16",
+};
 
 export function osdScreenControlParamNames(screen: OsdScreenNumber): readonly [string, string, string] {
   return [`OSD${screen}_ENABLE`, `OSD${screen}_CHAN_MIN`, `OSD${screen}_CHAN_MAX`];
+}
+
+// The on-screen character grid every element's X/Y is positioned within - matches the real
+// OSD1_ALTITUDE_X/_Y <field name="Range"> values from apm.pdef.xml (0-59, 0-21), i.e. a 60x22
+// character grid. Used both to size the visual drag-and-drop layout panel and to clamp
+// drag/quick-position writes to values the vehicle will actually accept.
+export const OSD_GRID_COLS = 60;
+export const OSD_GRID_ROWS = 22;
+
+export function clampOsdX(x: number): number {
+  return Math.min(OSD_GRID_COLS - 1, Math.max(0, Math.round(x)));
+}
+
+export function clampOsdY(y: number): number {
+  return Math.min(OSD_GRID_ROWS - 1, Math.max(0, Math.round(y)));
+}
+
+// A Betaflight/INAV-style 3x3 "quick position" preset - snaps an element to one of the 9
+// obvious screen anchors instead of hand-typing X/Y. The margins are a fixed best-effort inset,
+// not an exact flush-right/flush-bottom fit: real element text width varies by value and by
+// OSD_UNITS (imperial vs metric changes digit count), so there's no single X that's truly
+// "flush right" for every element.
+export const ALIGNMENT_ANCHORS = [
+  "topLeft",
+  "topCenter",
+  "topRight",
+  "centerLeft",
+  "center",
+  "centerRight",
+  "bottomLeft",
+  "bottomCenter",
+  "bottomRight",
+] as const;
+export type AlignmentAnchor = (typeof ALIGNMENT_ANCHORS)[number];
+
+const ALIGNMENT_X_MARGIN = 2;
+const ALIGNMENT_Y_MARGIN = 1;
+
+export function alignmentPosition(anchor: AlignmentAnchor): { x: number; y: number } {
+  const [vertical, horizontal] = anchor === "center" ? (["center", "center"] as const) : splitAnchor(anchor);
+  const x =
+    horizontal === "left" ? ALIGNMENT_X_MARGIN : horizontal === "right" ? OSD_GRID_COLS - 1 - ALIGNMENT_X_MARGIN : Math.round((OSD_GRID_COLS - 1) / 2);
+  const y =
+    vertical === "top" ? ALIGNMENT_Y_MARGIN : vertical === "bottom" ? OSD_GRID_ROWS - 1 - ALIGNMENT_Y_MARGIN : Math.round((OSD_GRID_ROWS - 1) / 2);
+  return { x, y };
+}
+
+function splitAnchor(anchor: Exclude<AlignmentAnchor, "center">): readonly ["top" | "center" | "bottom", "left" | "center" | "right"] {
+  const vertical = anchor.startsWith("top") ? "top" : anchor.startsWith("bottom") ? "bottom" : "center";
+  const horizontal = anchor.endsWith("Left") ? "left" : anchor.endsWith("Right") ? "right" : "center";
+  return [vertical, horizontal];
 }
 
 // Every element key ArduPilot exposes as an OSD{screen}_<KEY>_EN / _X / _Y triplet - identical
@@ -174,6 +264,10 @@ type Translate = (key: string, options?: Record<string, unknown>) => string;
 
 export function osdElementLabel(t: Translate, key: OsdElementKey): string {
   return t(`ardupilotSetup.osdSetup.elements.${ELEMENT_I18N_KEYS[key]}`);
+}
+
+export function alignmentAnchorLabel(t: Translate, anchor: AlignmentAnchor): string {
+  return t(`ardupilotSetup.osdSetup.anchor.${anchor}`);
 }
 
 export function allOsdParamNames(): string[] {

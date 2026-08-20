@@ -2004,15 +2004,38 @@ describe("ArduPilotSetupView", () => {
       expect(requestedNames.has("OSD4_RC_LQ_Y")).toBe(true);
     });
 
+    it("shows OSD_TYPE/OSD_UNITS/OSD_CHAN as dropdowns with real labels even without docs, and keeps an out-of-range value selectable", async () => {
+      mockBackend();
+      await connectAndOpenOsdSetup();
+
+      // A real vehicle can report a firmware-specific OSD_TYPE code beyond this app's own
+      // reference enum (0-5) - the dropdown must still show it, not silently coerce to a wrong
+      // option or fail to render.
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD_TYPE", 14, MavParamType.INT8, 0, 1, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD_UNITS", 3, MavParamType.INT8, 1, 1, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD_CHAN", 0, MavParamType.INT8, 2, 1, 3) });
+
+      const typeSelect = await screen.findByLabelText<HTMLSelectElement>("Тип OSD");
+      expect(typeSelect.value).toBe("14");
+      expect(within(typeSelect).getByText("MAX7456")).toBeInTheDocument();
+
+      const unitsSelect = screen.getByLabelText<HTMLSelectElement>("Одиниці виміру");
+      expect(unitsSelect.value).toBe("3");
+      expect(within(unitsSelect).getByText("Aviation")).toBeInTheDocument();
+
+      const chanSelect = screen.getByLabelText<HTMLSelectElement>("Канал перемикання екранів");
+      expect(within(chanSelect).getByText("Disable")).toBeInTheDocument();
+      expect(within(chanSelect).getByText("Chan16")).toBeInTheDocument();
+    });
+
     it("shows OSD_CHAN once it arrives, stages an edit, and Save all sends PARAM_SET with the new value", async () => {
       const invoked = vi.fn();
       mockBackend(invoked);
       const { user } = await connectAndOpenOsdSetup();
 
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD_CHAN", 0, MavParamType.INT8, 0, 1, 1) });
-      const chanInput = await screen.findByDisplayValue("0");
-      await user.clear(chanInput);
-      await user.type(chanInput, "8");
+      const chanSelect = await screen.findByLabelText("Канал перемикання екранів");
+      await user.selectOptions(chanSelect, "8");
 
       const saveAllButton = await screen.findByRole("button", { name: "Зберегти все (1)" });
       await user.click(saveAllButton);
@@ -2058,6 +2081,56 @@ describe("ArduPilotSetupView", () => {
 
       expect(screen.getByText("Висота (AGL)")).toBeInTheDocument();
       expect(screen.queryByText("Напруга батареї")).not.toBeInTheDocument();
+    });
+
+    it("selects an element by clicking its table row, then snaps its X/Y via a quick-position button", async () => {
+      mockBackend();
+      const { user } = await connectAndOpenOsdSetup();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ALTITUDE_EN", 1, MavParamType.INT8, 0, 1, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ALTITUDE_X", 23, MavParamType.INT8, 1, 1, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ALTITUDE_Y", 8, MavParamType.INT8, 2, 1, 3) });
+      const row = (await screen.findByRole("cell", { name: "Висота (AGL)" })).closest("tr")!;
+
+      expect(screen.getByText("Виберіть елемент, щоб прив'язати його до готової позиції.")).toBeInTheDocument();
+      await user.click(row);
+
+      await user.click(screen.getByRole("button", { name: "Зверху ліворуч" }));
+
+      expect(await screen.findByRole("button", { name: "Зберегти все (2)" })).toBeInTheDocument();
+      expect(within(row).getByDisplayValue("2")).toBeInTheDocument();
+      expect(within(row).getByDisplayValue("1")).toBeInTheDocument();
+    });
+
+    it("dragging an enabled element's chip in the visual layout restages its X/Y", async () => {
+      mockBackend();
+      await connectAndOpenOsdSetup();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ALTITUDE_EN", 1, MavParamType.INT8, 0, 1, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ALTITUDE_X", 23, MavParamType.INT8, 1, 1, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ALTITUDE_Y", 8, MavParamType.INT8, 2, 1, 3) });
+
+      const chip = await screen.findByTitle(/Висота \(AGL\)/);
+      const container = chip.parentElement!;
+      vi.spyOn(container, "getBoundingClientRect").mockReturnValue({
+        left: 0,
+        top: 0,
+        width: 600,
+        height: 220,
+        right: 600,
+        bottom: 220,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      });
+
+      fireEvent.pointerDown(chip, { pointerId: 1 });
+      fireEvent.pointerMove(chip, { pointerId: 1, clientX: 300, clientY: 110 });
+      fireEvent.pointerUp(chip, { pointerId: 1 });
+
+      const row = screen.getByRole("cell", { name: "Висота (AGL)" }).closest("tr")!;
+      expect(within(row).getByDisplayValue("30")).toBeInTheDocument();
+      expect(within(row).getByDisplayValue("11")).toBeInTheDocument();
     });
   });
 
