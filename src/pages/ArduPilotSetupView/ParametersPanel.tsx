@@ -38,8 +38,8 @@ interface ParametersPanelProps {
 const ROW_HEIGHT_PX = 36;
 // Every row is a single, non-wrapping line, so a fixed row height is always accurate and
 // there's no need for react-virtual's dynamic measureElement.
-// Column order matches Mission Planner's own Full Parameter List: Name, Value, Default, Units,
-// Options, Description - a CSS grid-template-columns value.
+// Column order: Name, Value, Default, Units, Options, Description - a CSS grid-template-columns
+// value.
 const COLUMN_WIDTHS = "16% 9% 9% 6% 13% 47%";
 
 /** Formats a param.pck default the same way the raw Value column already displays a live
@@ -54,10 +54,10 @@ function formatBytes(bytes: number): string {
   return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
 }
 
-// Mission Planner's own "Full Parameter List" tree groups by the same simple heuristic: the
-// param name's segment before its first underscore (ACRO_BAL_PITCH/ACRO_RP_RATE -> "ACRO",
-// SERVO1_FUNCTION -> "SERVO1"). No metadata needed - ArduPilot's own naming convention already
-// encodes which library/subsystem a param belongs to this way.
+// Groups by a simple heuristic: the param name's segment before its first underscore
+// (ACRO_BAL_PITCH/ACRO_RP_RATE -> "ACRO", SERVO1_FUNCTION -> "SERVO1"). No metadata needed -
+// ArduPilot's own naming convention already encodes which library/subsystem a param belongs to
+// this way.
 function categoryPrefix(name: string): string {
   const idx = name.indexOf("_");
   return idx === -1 ? name : name.slice(0, idx);
@@ -76,8 +76,8 @@ type CategorySelection = { kind: "all" } | { kind: "group"; prefix: string } | {
 // row and every body row keeps them aligned with no special-casing.
 const CELL_STYLE: CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 };
 
-// The Options column mirrors Mission Planner's own (enum code:label pairs, or a min-max range
-// for bounded non-enum params) - condensed to one line since every row here has a fixed height
+// The Options column shows enum code:label pairs, or a min-max range for bounded non-enum
+// params - condensed to one line since every row here has a fixed height
 // (see ROW_HEIGHT_PX above), with the untruncated text still reachable via the cell's title
 // tooltip, same pattern the Description column already uses for its full documentation text.
 function optionsSummary(doc: ParamDoc | undefined): string {
@@ -118,8 +118,8 @@ export function ParametersPanel({
   const [categorySelection, setCategorySelection] = useState<CategorySelection>({ kind: "all" });
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [categoriesCollapsed, setCategoriesCollapsed] = useState(false);
-  // Betaflight/Mission Planner both let a user isolate just the params that have actually been
-  // tuned away from firmware defaults - only meaningful once real default values are in
+  // Lets a user isolate just the params that have actually been tuned away from firmware
+  // defaults - only meaningful once real default values are in
   // (defaults !== null), so the toggle itself only appears at that point (see the search row
   // below) rather than existing in a permanently-disabled state before that.
   const [onlyModified, setOnlyModified] = useState(false);
@@ -152,8 +152,8 @@ export function ParametersPanel({
   const entries = useMemo(() => Object.values(params).sort((a, b) => a.name.localeCompare(b.name)), [params]);
 
   // A group with only one member is shown as a plain leaf (its full name), not a one-item
-  // folder - matches Mission Planner's own tree (e.g. a lone BATT2_MONITOR sits at the top
-  // level, not nested under an otherwise-empty "BATT2" folder).
+  // folder (e.g. a lone BATT2_MONITOR sits at the top level, not nested under an otherwise-
+  // empty "BATT2" folder).
   const categories = useMemo(() => {
     const map = new Map<string, string[]>();
     for (const p of entries) {
@@ -244,9 +244,9 @@ export function ParametersPanel({
     setConfirmOpen(false);
   }
 
-  // Exports every currently-loaded parameter as a plain NAME,VALUE file (the same convention
-  // Mission Planner and other GCS's use) - a local backup of the vehicle's exact configuration
-  // at this moment, independent of the vehicle's own persistent storage.
+  // Exports every currently-loaded parameter as a plain NAME,VALUE file (the common .param
+  // convention) - a local backup of the vehicle's exact configuration at this moment,
+  // independent of the vehicle's own persistent storage.
   function handleSaveToFile() {
     const lines = entries.map((p) => `${p.name},${p.value}`).join("\n");
     const blob = new Blob([lines], { type: "text/plain" });

@@ -1,8 +1,8 @@
 // Real ArduPilot on-board video transmitter (VTX) parameter names, confirmed against
 // ArduCopter's own apm.pdef.xml (AP_VideoTX / the "VTX_" parameter group) - this is ArduPilot's
 // native VTX control (SmartAudio/Tramp/CRSF/MSP all handled by the firmware itself, exposed as
-// plain parameters over MAVLink), the same mechanism Mission Planner and QGroundControl use.
-// Not to be confused with a standalone microcontroller wired directly to a VTX (e.g. an Arduino
+// plain parameters over MAVLink), the same mechanism every real GCS uses. Not to be confused
+// with a standalone microcontroller wired directly to a VTX (e.g. an Arduino
 // running its own SmartAudio/Tramp client) - that's a different architecture with no MAVLink
 // involvement at all, out of scope for a GCS like this app.
 export const VTX_PARAM_NAMES = [

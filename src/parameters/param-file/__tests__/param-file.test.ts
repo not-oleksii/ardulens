@@ -6,7 +6,7 @@ function toBuf(text: string): ArrayBuffer {
 }
 
 describe("parseParamFile", () => {
-  it("parses comma-separated Mission Planner style dumps", () => {
+  it("parses comma-separated dumps", () => {
     const text = ["# full parameter list", "FORMAT_VERSION,120", "SYSID_THISMAV,1"].join("\n");
     expect(parseParamFile(toBuf(text))).toEqual([
       { name: "FORMAT_VERSION", value: 120 },
@@ -14,7 +14,7 @@ describe("parseParamFile", () => {
     ]);
   });
 
-  it("parses whitespace-separated MAVProxy style dumps", () => {
+  it("parses whitespace-separated dumps", () => {
     const text = "ARSPD_USE 1\nBATT_CAPACITY\t5000";
     expect(parseParamFile(toBuf(text))).toEqual([
       { name: "ARSPD_USE", value: 1 },

@@ -106,12 +106,12 @@ const PARAM_FLUSH_INTERVAL_MS = 200;
 // ArduPilot sends its own heartbeat at ~1Hz, so 2s is enough margin to see at least one on
 // the right port/baud rate combination without making a wrong port take too long to skip.
 const AUTO_CONNECT_TIMEOUT_MS = 2000;
-// Our own identity as a "ground station" system on the link, following the same convention
-// Mission Planner/QGC use - ArduPilot doesn't care what these are, but a GCS-failsafe setup
-// on the vehicle does need *some* heartbeat arriving periodically from a non-vehicle system.
+// Our own identity as a "ground station" system on the link, following the standard MAVLink
+// GCS convention - ArduPilot doesn't care what these are, but a GCS-failsafe setup on the
+// vehicle does need *some* heartbeat arriving periodically from a non-vehicle system.
 const GCS_SYSID = 255;
 const GCS_COMPID = 190;
-// The stream groups Mission Planner requests on connect: extended status (battery, sensor
+// The stream groups a GCS typically requests on connect: extended status (battery, sensor
 // health), position, attitude (EXTRA1), and VFR HUD-style speed/altitude/throttle (EXTRA2).
 // ArduPilot still honors this deprecated-but-universal message; the modern per-message
 // SET_MESSAGE_INTERVAL alternative would need one request per message id instead of per group.
@@ -121,8 +121,8 @@ const GCS_COMPID = 190;
 // a stick move smoothly in real time.
 const REQUESTED_DATA_STREAMS = [MavDataStream.EXTENDED_STATUS, MavDataStream.POSITION, MavDataStream.EXTRA1, MavDataStream.EXTRA2];
 const DATA_STREAM_RATE_HZ = 4;
-// Mission Planner's own default rate for this stream - RC_CHANNELS is one small, fixed-size
-// message, so 10Hz is comfortably light even over a slow serial/telemetry link.
+// A common GCS default rate for this stream - RC_CHANNELS is one small, fixed-size message, so
+// 10Hz is comfortably light even over a slow serial/telemetry link.
 const RC_CHANNELS_STREAM_RATE_HZ = 10;
 // The firmware's own auto-stop safety net (see DoMotorTestCommand.timeout) - independent of,
 // and in addition to, the explicit throttle=0 command this app sends on release, in case that
@@ -1175,9 +1175,9 @@ export function ArduPilotSetupView() {
 
   const isConnected = status === "connected";
 
-  // Downloads the FULL parameter list once per connection (not per tab/section) - matches
-  // Mission Planner's own behavior of fetching every parameter immediately on connect, and is
-  // the only approach that's actually reliable over a real vehicle's link. Every setup section
+  // Downloads the FULL parameter list once per connection (not per tab/section) - fetching
+  // every parameter immediately on connect is the only approach that's actually reliable over
+  // a real vehicle's link. Every setup section
   // used to send its own burst of individual by-name PARAM_REQUEST_READ packets instead - fine
   // against Dev Mode's lossless simulated replies, but OSD Setup alone is ~780 individual
   // requests (65 elements x 4 screens x 3 fields each) - a real serial/telemetry link can't

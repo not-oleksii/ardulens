@@ -1387,7 +1387,7 @@ describe("ArduPilotSetupView", () => {
       const table = await screen.findByRole("table");
       // Header + one row per channel with a known SERVO_FUNCTION - both 1 (Aileron) and 2
       // (Disabled) got one, since this app now lists every loaded channel, not just active ones
-      // (matches Mission Planner's own "Servo Output" screen, which always shows all 16 rows).
+      // (always shows all 16 rows).
       // Every channel's function dropdown lists the same option set, so "Aileron" appears once
       // per row (not page-wide) - assertions below are scoped to channel 1's own row.
       const rows = screen.getAllByRole("row");
@@ -2204,7 +2204,7 @@ describe("ArduPilotSetupView", () => {
       // with no indication of what resolution it represented, and (before OSD{n}_TXT_RES was
       // taken into account) digital OSDs got a vague "HD, resolution varies" badge even when the
       // real 50x18 visible size was knowable from the vehicle's own OSD1_TXT_RES param -
-      // confirmed against Mission Planner's own OSD editor, which draws that exact box for a
+      // confirmed against a real vehicle's own OSD editor, which draws that exact box for a
       // real vehicle with OSD1_TXT_RES=1.
       mockBackend();
       await connectAndOpenOsdSetup();

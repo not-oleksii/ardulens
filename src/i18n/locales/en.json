@@ -212,7 +212,7 @@
       "notLoaded": "RC input settings haven't been loaded yet.",
       "reset": "Reset",
       "saveAll": "Save All ({{count}})",
-      "assignIntro": "Select a function on the left, then click the channel you want it assigned to on the right - like BetaFlight's receiver tab.",
+      "assignIntro": "Select a function on the left, then click the channel you want it assigned to on the right.",
       "functionsHeading": "Functions",
       "functionSearch": "Search functions...",
       "fltmodeChannelLong": "Flight Mode Channel",

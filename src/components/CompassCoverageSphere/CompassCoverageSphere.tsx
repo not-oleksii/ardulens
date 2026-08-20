@@ -11,9 +11,8 @@ const RADIUS_RATIO = 0.42;
 const DEFAULT_SIZE = 220;
 
 /**
- * A drag-to-rotate globe showing MAG_CAL_PROGRESS's 80-section coverage mask, mirroring the
- * coverage sphere Mission Planner shows during compass calibration - lets the user see which
- * orientations still need to be sampled by rotating the vehicle further, instead of only
+ * A drag-to-rotate globe showing MAG_CAL_PROGRESS's 80-section coverage mask - lets the user see
+ * which orientations still need to be sampled by rotating the vehicle further, instead of only
  * knowing an overall percentage. No 3D library involved: an orthographic projection of
  * ArduPilot's own geodesic grid (see geodesicGrid.ts), same hand-rolled-SVG approach as
  * PrimaryFlightDisplay.

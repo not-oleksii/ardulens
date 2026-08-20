@@ -11,10 +11,9 @@ interface OnboardingNudgeProps {
 }
 
 // A suggested order, not a gate - every section stays reachable via the sidebar at any time
-// regardless of what's been done here. Mirrors the order most GCS setup wizards (Mission
-// Planner's own "Mandatory Hardware" flow, Betaflight's tab order) use for a fresh vehicle:
-// level/orient the accelerometer and compass first since later steps (RC/motor direction,
-// PID behavior) are only meaningful once the vehicle knows which way is up.
+// regardless of what's been done here. Mirrors the order most GCS setup wizards use for a
+// fresh vehicle: level/orient the accelerometer and compass first since later steps (RC/motor
+// direction, PID behavior) are only meaningful once the vehicle knows which way is up.
 const STEPS: { section: ArduPilotSetupSection; icon: typeof Compass }[] = [
   { section: "accelCal", icon: MoveDiagonal },
   { section: "compassCal", icon: Compass },

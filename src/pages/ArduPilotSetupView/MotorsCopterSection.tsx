@@ -26,9 +26,8 @@ interface MotorsCopterSectionProps {
 }
 
 // Visible enough to confirm which motor spins without meaningfully lifting a propeller-on
-// motor - matches Mission Planner's own default motor-test throttle. Adjustable in the UI
-// (see testThrottlePercent state below, matching Betaflight's own Motors-tab throttle slider)
-// rather than fixed, but this is the starting value and the floor/ceiling of that control.
+// motor. Adjustable in the UI (see testThrottlePercent state below) rather than fixed, but
+// this is the starting value and the floor/ceiling of that control.
 const DEFAULT_TEST_THROTTLE_PERCENT = 10;
 const MIN_TEST_THROTTLE_PERCENT = 5;
 const MAX_TEST_THROTTLE_PERCENT = 40;
@@ -88,8 +87,8 @@ export function MotorsCopterSection({
     };
   }, []);
 
-  // BetaFlight-style guided identification: the app drives each output one at a time instead
-  // of the user picking which to spin - the user's job is just to watch the real propeller and
+  // Guided identification: the app drives each output one at a time instead of the user
+  // picking which to spin - the user's job is just to watch the real propeller and
   // click the diagram position (or fallback button) where they see it actually spinning. A
   // mismatch (clicked position != the output that was actually driven) is a real wiring/frame
   // problem worth flagging, not just a missed click - see confirmIdentifyClick below.
@@ -200,10 +199,10 @@ export function MotorsCopterSection({
     onTestMotor(next.motor, testThrottlePercent);
   }
 
-  // A single, always-reachable kill switch for the whole Test & Reverse step - matches
-  // Betaflight's Motors-tab safety pattern of one obvious "stop everything now" control,
-  // rather than relying only on releasing a held button (which a mismatched pointerup/leave
-  // could miss) or waiting for guided identification's own per-step stop.
+  // A single, always-reachable kill switch for the whole Test & Reverse step - one obvious
+  // "stop everything now" control, rather than relying only on releasing a held button (which
+  // a mismatched pointerup/leave could miss) or waiting for guided identification's own
+  // per-step stop.
   function stopAllMotors() {
     if (activeMotor !== null) onTestMotor(activeMotor, 0);
     setActiveMotor(null);
@@ -355,7 +354,7 @@ export function MotorsCopterSection({
               </label>
               {/* A single, always-reachable kill switch - see stopAllMotors's own comment for
                   why this exists alongside per-motor hold-to-release and identification's own
-                  stop button, matching Betaflight's Motors-tab safety pattern. */}
+                  stop button. */}
               <Button
                 type="button"
                 size="sm"

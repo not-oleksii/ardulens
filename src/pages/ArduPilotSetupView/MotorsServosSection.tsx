@@ -114,9 +114,9 @@ export function MotorsServosSection({
 
   const hasLoaded = Object.keys(params).some((name) => /^SERVO\d+_FUNCTION$/.test(name));
 
-  // Every channel, not just the ones with a non-Disabled function - matches Mission Planner's
-  // own "Servo Output" screen, which always lists all 16 rows (Disabled channels included) so
-  // Min/Trim/Max/Reverse stay reachable even before a function is assigned.
+  // Every channel, not just the ones with a non-Disabled function - always lists all 16 rows
+  // (Disabled channels included) so Min/Trim/Max/Reverse stay reachable even before a function
+  // is assigned.
   const channels: ServoChannel[] = [];
   if (hasLoaded) {
     for (let channel = 1; channel <= SERVO_CHANNEL_COUNT; channel++) {

@@ -32,9 +32,9 @@ const LOW_BATTERY_PERCENT = 20;
  * calibrating RC, etc. (see the UX audit that prompted this: neither is otherwise visible once
  * you navigate away from Telemetry, which is exactly the moment it matters most).
  *
- * The armed badge and mode label double as controls - real GCS's (Mission Planner, QGC) keep
- * arm/mode always reachable from a persistent toolbar rather than burying them in a tab, and
- * this bar is already that persistent surface. Arming requires an explicit confirmation (motors
+ * The armed badge and mode label double as controls - real GCS tools keep arm/mode always
+ * reachable from a persistent toolbar rather than burying them in a tab, and this bar is
+ * already that persistent surface. Arming requires an explicit confirmation (motors
  * can spin immediately); disarming and mode changes don't - disarm is the safe direction when
  * landed (this app has no reliable "is it actually flying" signal to gate on), and a mode
  * change alone never starts a motor.

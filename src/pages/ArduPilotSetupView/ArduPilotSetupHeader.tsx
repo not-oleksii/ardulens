@@ -94,8 +94,7 @@ export function ArduPilotSetupHeader({
 
       {/* Once connected, none of this (mode toggle, port/baud/UDP inputs, the web-only notice)
           is still actionable - it used to just sit there disabled, cluttering the bar with
-          controls for a step that's already done. Mission Planner/Betaflight both drop their
-          own connection-setup controls the same way once a session is live. */}
+          controls for a step that's already done. */}
       {!isConnected && (
         <>
           {liveAvailable && (

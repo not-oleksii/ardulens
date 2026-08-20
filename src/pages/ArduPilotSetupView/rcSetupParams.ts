@@ -28,9 +28,9 @@ export const RC_SETUP_PARAM_NAMES = [
 
 export const RC_SETUP_ENUM_PARAMS = new Set<string>([...FLIGHT_MODE_SLOT_NAMES, ...RC_OPTION_PARAM_NAMES, "FS_THR_ENABLE"]);
 
-/** A channel-assignable "function" the BetaFlight-style left-hand list offers - either a
- *  special slot (flight-mode channel, or a primary-axis RCMAP) or a specific RCx_OPTION aux
- *  function code. Selecting one, then clicking a channel's live bar, assigns it there. */
+/** A channel-assignable "function" the left-hand list offers - either a special slot
+ *  (flight-mode channel, or a primary-axis RCMAP) or a specific RCx_OPTION aux function code.
+ *  Selecting one, then clicking a channel's live bar, assigns it there. */
 export type AssignableFunction =
   | { kind: "fltmodeChannel" }
   | { kind: "rcmap"; param: (typeof RCMAP_PARAM_NAMES)[number]; axisLabel: string }
