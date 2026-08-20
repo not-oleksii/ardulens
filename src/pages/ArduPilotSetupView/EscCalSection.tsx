@@ -7,8 +7,8 @@ interface EscCalSectionProps {
   onStart: () => void;
 }
 
-// ESC_CALIBRATION=3 ("Auto") is the value both ArduPilot's own docs and QGroundControl's GCS
-// implementation use for a software-triggered calibration - confirmed against ArduPilot's own
+// ESC_CALIBRATION=3 ("Auto") is the value ArduPilot's own docs specify for a software-triggered
+// calibration - confirmed against ArduPilot's own
 // ArduCopter/esc_calibration.cpp: this mode drives max throttle for 5s then zero throttle to
 // every output entirely from firmware after the next reboot, no further stick/throttle input
 // needed from the pilot, and esc_calibrate resets itself back to 0 once done. The same

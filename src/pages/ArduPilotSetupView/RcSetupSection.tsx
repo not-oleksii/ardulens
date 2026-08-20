@@ -54,8 +54,8 @@ export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetu
   const [editingValue, setEditingValue] = useState("");
   const [pendingChanges, setPendingChanges] = useState<Record<string, number>>({});
   const [confirmOpen, setConfirmOpen] = useState(false);
-  // BetaFlight-style assignment flow: pick a function on the left, then click the channel bar
-  // it should apply to on the right (see rcSetupParams.ts's AssignableFunction).
+  // Assignment flow: pick a function on the left, then click the channel bar it should apply
+  // to on the right (see rcSetupParams.ts's AssignableFunction).
   const [selectedFunction, setSelectedFunction] = useState<AssignableFunction | null>(null);
   const [functionFilter, setFunctionFilter] = useState("");
   const [customCodeInput, setCustomCodeInput] = useState("");

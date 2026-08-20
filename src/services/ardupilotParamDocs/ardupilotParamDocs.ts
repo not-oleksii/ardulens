@@ -19,8 +19,8 @@ export interface ParamDoc {
 export type ParamDocsMap = Record<string, ParamDoc>;
 
 // Confirmed reachable and CORS-open (Access-Control-Allow-Origin: *) - this is the same
-// machine-readable metadata Mission Planner/MAVProxy ship with, auto-generated from
-// ArduPilot's own source comments. "Rover" 302-redirects to the legacy "APMrover2" path
+// machine-readable metadata every real GCS ships with, auto-generated from ArduPilot's own
+// source comments. "Rover" 302-redirects to the legacy "APMrover2" path
 // server-side; fetch() follows redirects by default so this doesn't need to be hardcoded.
 const PDEF_XML_URL = (folder: ArduPilotVehicleFolder) => `https://autotest.ardupilot.org/Parameters/${folder}/apm.pdef.xml`;
 

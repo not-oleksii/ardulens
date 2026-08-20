@@ -4,8 +4,7 @@ import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mav
 /** Shared "downloading parameters..." progress bar, shown by every setup section while the
  *  connect-time full parameter list download (see ArduPilotSetupView's fullParamsRequestedRef
  *  effect) is still in progress - renders nothing once it's done, or before a vehicle has
- *  reported anything yet, matching Mission Planner's own progress bar shown right after
- *  connecting rather than a per-section "Load" gate. */
+ *  reported anything yet, shown right after connecting rather than a per-section "Load" gate. */
 export function ParamLoadProgress() {
   const { t } = useTranslation();
   const params = useMavlinkParameterStore((s) => s.params);

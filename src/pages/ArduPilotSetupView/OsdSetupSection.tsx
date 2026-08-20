@@ -347,8 +347,8 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
                 className="h-7 shrink-0 text-xs"
               />
 
-              {/* Just Element + Enabled (no X/Y columns) - a Betaflight-style flat checkbox
-                  list, narrow enough to never need a horizontal scrollbar in this column's
+              {/* Just Element + Enabled (no X/Y columns) - a flat checkbox list, narrow
+                  enough to never need a horizontal scrollbar in this column's
                   fixed 280-360px width. Position is set by dragging on the canvas or via the
                   Quick Position panel to the right, not by typing coordinates in this list. */}
               <div className="min-h-0 flex-1 overflow-y-auto rounded-md border border-border">

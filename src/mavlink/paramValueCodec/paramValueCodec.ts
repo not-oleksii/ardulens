@@ -15,8 +15,8 @@ const PARAM_VALUE_FIELD_OFFSET = 0;
  * against a real vehicle: ArduLens previously assumed the byte-wise convention (a real, but
  * different, ambiguity that exists elsewhere in the wider MAVLink ecosystem), which decoded a
  * real OSD1_CHAN_MAX of 2100 as 16384, OSD1_CHAN_MIN of 900 as 0, and RC1_MIN of 1100 as -32768 -
- * each exactly the low bytes of that value's real float32 encoding misread as a raw integer,
- * while Mission Planner (which decodes correctly) showed the real numbers for the same vehicle.
+ * each exactly the low bytes of that value's real float32 encoding misread as a raw integer -
+ * a correctly-decoding GCS showed the real numbers for the same vehicle.
  *
  * Integer types are recovered by rounding the float back to the nearest integer - lossless for
  * every value ArduPilot's own parameter types realistically hold, since float32 represents every

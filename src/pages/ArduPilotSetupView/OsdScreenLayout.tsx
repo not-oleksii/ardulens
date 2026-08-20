@@ -39,7 +39,7 @@ interface OsdScreenLayoutProps {
 // positioned wrapper does.
 const CHIP_VERTICAL_INSET_PX = 10;
 
-/** A Betaflight/INAV-style visual preview of the active OSD screen - a character grid (see
+/** A visual preview of the active OSD screen - a character grid (see
  *  osdSetupParams.ts's OSD_GRID_COLS/ROWS, the real 0-59/0-21 range every X/Y param accepts) with
  *  one draggable chip per currently-enabled element, positioned at its real X/Y. Dragging a chip
  *  restages that element's X/Y live; a plain click (no movement) selects it instead, for use with
@@ -167,7 +167,7 @@ export function OsdScreenLayout({ elements, selectedKey, onSelect, onMove, osdTy
 
       {previewKind === "digital" && safeArea && (
         // A single boundary (unlike analog's NTSC/PAL pair) - digital HD text res has one real
-        // size, confirmed against Mission Planner's own editor (see osdVisibleSafeArea).
+        // size (see osdVisibleSafeArea).
         <div
           className="pointer-events-none absolute inset-x-0 top-0 border border-dashed border-amber-400/40"
           style={{ width: `${(safeArea.cols / OSD_GRID_COLS) * 100}%`, height: `${(safeArea.rows / OSD_GRID_ROWS) * 100}%` }}
@@ -205,7 +205,7 @@ export function OsdScreenLayout({ elements, selectedKey, onSelect, onMove, osdTy
               title={`${osdElementLabel(t, key)} (${x}, ${y})`}
               className={cn(
                 // font-osd (Share Tech Mono) instead of the app's normal UI font - real OSD
-                // hardware (MAX7456, Betaflight/INAV canvas, Walksnail/HD digital) all render a
+                // hardware (MAX7456, digital canvas systems, Walksnail/HD digital) all render a
                 // bold, blocky, high-contrast monospace, not a regular UI typeface, so matching
                 // grid/resolution alone would still look wrong.
                 "absolute max-w-[calc(100%-4px)] -translate-y-1/2 cursor-grab touch-none rounded-sm border px-1 py-0 font-osd text-xs leading-4 overflow-hidden text-ellipsis whitespace-nowrap text-lime-300 uppercase select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing",

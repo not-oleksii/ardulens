@@ -82,11 +82,11 @@ export const ANALOG_SAFE_ROWS_NTSC = 13;
 export const ANALOG_SAFE_ROWS_PAL = 16;
 
 // A digital/MSP DisplayPort screen's real visible grid when OSD{n}_TXT_RES=1 ("HD" text
-// resolution) - confirmed against Mission Planner's own OSD layout editor, which draws this
-// exact 50x18 box (labelled "50x18" in its own UI) inside the full 60x22 parameter range for a
-// real vehicle's Screen 1 with OSD1_TXT_RES=1. TXT_RES=0 ("SD") isn't covered here - Mission
-// Planner's own editor wasn't checked against a real SD-digital screen, so that case is left as
-// the generic full-range preview rather than guessing a size.
+// resolution) - confirmed against a real vehicle's own OSD layout editor, which draws this
+// exact 50x18 box inside the full 60x22 parameter range for a real vehicle's Screen 1 with
+// OSD1_TXT_RES=1. TXT_RES=0 ("SD") isn't covered here - that combination wasn't checked
+// against a real SD-digital screen, so that case is left as the generic full-range preview
+// rather than guessing a size.
 export const DIGITAL_HD_COLS = 50;
 export const DIGITAL_HD_ROWS = 18;
 
@@ -114,7 +114,7 @@ export function osdVisibleSafeArea(osdType: number | undefined, txtRes: number |
   return null;
 }
 
-// A Betaflight/INAV-style 3x3 "quick position" preset - snaps an element to one of the 9
+// A 3x3 "quick position" preset - snaps an element to one of the 9
 // obvious screen anchors instead of hand-typing X/Y. The margins are a fixed best-effort inset,
 // not an exact flush-right/flush-bottom fit: real element text width varies by value and by
 // OSD_UNITS (imperial vs metric changes digit count), so there's no single X that's truly
@@ -340,8 +340,8 @@ export interface OsdPreset {
   elements: readonly OsdPresetElement[];
 }
 
-// ArduLens-authored starting layouts, not a real ArduPilot/Betaflight/Mission Planner concept -
-// applying one replaces the active screen's whole layout (every other element gets disabled) so
+// ArduLens-authored starting layouts, not a real ArduPilot concept - applying one replaces the
+// active screen's whole layout (every other element gets disabled) so
 // it reads as "this is the layout" rather than a partial overlay. Positions are hand-placed to
 // avoid overlapping at typical bounds; resolveOsdPreset's own collision handling (same idea as
 // OsdSetupSection's Quick Position stacking) covers the rest for unusually small visible areas.

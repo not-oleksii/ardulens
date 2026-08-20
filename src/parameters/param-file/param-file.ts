@@ -1,8 +1,8 @@
 import type { ParameterEntry } from "../types";
 
 /**
- * Parses standalone .param files (Mission Planner "NAME,VALUE" or MAVProxy
- * "NAME VALUE" whitespace-separated dumps). Comment lines start with "#".
+ * Parses standalone .param files (comma-separated "NAME,VALUE" or whitespace-separated
+ * "NAME VALUE" dumps). Comment lines start with "#".
  */
 export function parseParamFile(buf: ArrayBuffer): ParameterEntry[] {
   const text = new TextDecoder("utf-8").decode(buf);
