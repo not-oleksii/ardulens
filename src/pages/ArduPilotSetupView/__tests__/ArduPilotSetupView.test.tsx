@@ -2157,6 +2157,30 @@ describe("ArduPilotSetupView", () => {
       expect(await screen.findByText("HD · Цифровий MSP DisplayPort (50×18, HD текст. роздільність)")).toBeInTheDocument();
     });
 
+    it("Quick Position snaps within the real visible area, not the full 60x22 parameter range", async () => {
+      // Regression test for a real-vehicle report: clicking "top right" on a digital HD screen
+      // (OSD1_TXT_RES=1, real visible area 50x18) used to snap to column 57 (2 in from the full
+      // 60-wide parameter range) - past what actually renders on a 50-wide HD display.
+      mockBackend();
+      const { user } = await connectAndOpenOsdSetup();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD_TYPE", 5, MavParamType.INT8, 0, 3, 1) }); // MSP_DISPLAYPORT
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_TXT_RES", 1, MavParamType.INT8, 1, 3, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ESCAMPS_X", 10, MavParamType.INT8, 2, 3, 3) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("OSD1_ESCAMPS_Y", 1, MavParamType.INT8, 3, 4, 4) });
+
+      const row = (await screen.findByText("Струм ESC")).closest("tr")!;
+      await user.click(row);
+      await user.click(screen.getByRole("button", { name: "Зверху праворуч" }));
+
+      const xInput = screen.getByLabelText("X") as HTMLInputElement;
+      const yInput = screen.getByLabelText("Y") as HTMLInputElement;
+      // Real visible area is 50x18 (cols 0-49) - margin-inset "top right" lands at col 47, not
+      // the full-grid 57 (60-wide range, cols 0-59).
+      expect(Number(xInput.value)).toBe(47);
+      expect(Number(yInput.value)).toBe(1);
+    });
+
     it("shows OSD_CHAN once it arrives, stages an edit, and Save all sends PARAM_SET with the new value", async () => {
       const invoked = vi.fn();
       mockBackend(invoked);

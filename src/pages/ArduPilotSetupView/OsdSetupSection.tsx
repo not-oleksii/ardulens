@@ -25,6 +25,7 @@ import {
   osdElementLabel,
   osdElementParamName,
   osdScreenControlParamNames,
+  osdVisibleSafeArea,
   type OsdElementKey,
   type OsdScreenNumber,
 } from "./osdSetupParams";
@@ -175,7 +176,11 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
 
   function handleQuickPosition(anchor: (typeof ALIGNMENT_ANCHORS)[number]) {
     if (!selectedXName || !selectedYName) return;
-    const { x, y } = alignmentPosition(anchor);
+    // Snap within the real visible area (see OsdScreenLayout's own safe-area overlay) rather
+    // than the full 60x22 parameter range - otherwise "top right" etc. could land an element
+    // past what this OSD_TYPE/TXT_RES combination can actually display.
+    const safeArea = osdVisibleSafeArea(shownValue("OSD_TYPE"), shownValue(`OSD${activeScreen}_TXT_RES`));
+    const { x, y } = alignmentPosition(anchor, safeArea ?? undefined);
     stageChange(selectedXName, clampOsdX(x));
     stageChange(selectedYName, clampOsdY(y));
   }

@@ -135,12 +135,18 @@ export type AlignmentAnchor = (typeof ALIGNMENT_ANCHORS)[number];
 const ALIGNMENT_X_MARGIN = 2;
 const ALIGNMENT_Y_MARGIN = 1;
 
-export function alignmentPosition(anchor: AlignmentAnchor): { x: number; y: number } {
+// Snaps within `bounds` (the real visible area - see osdVisibleSafeArea) rather than always the
+// full 60x22 parameter range - "top right" on an analog or SD-visible screen used to land an
+// element up to column 59, real columns past ~30/50 an actual display never shows, defeating the
+// entire point of "snap to a corner". Defaults to the full grid only when no visible-area is
+// confidently known for the current OSD_TYPE/TXT_RES (see osdVisibleSafeArea's own null case).
+export function alignmentPosition(
+  anchor: AlignmentAnchor,
+  bounds: { cols: number; rows: number } = { cols: OSD_GRID_COLS, rows: OSD_GRID_ROWS },
+): { x: number; y: number } {
   const [vertical, horizontal] = anchor === "center" ? (["center", "center"] as const) : splitAnchor(anchor);
-  const x =
-    horizontal === "left" ? ALIGNMENT_X_MARGIN : horizontal === "right" ? OSD_GRID_COLS - 1 - ALIGNMENT_X_MARGIN : Math.round((OSD_GRID_COLS - 1) / 2);
-  const y =
-    vertical === "top" ? ALIGNMENT_Y_MARGIN : vertical === "bottom" ? OSD_GRID_ROWS - 1 - ALIGNMENT_Y_MARGIN : Math.round((OSD_GRID_ROWS - 1) / 2);
+  const x = horizontal === "left" ? ALIGNMENT_X_MARGIN : horizontal === "right" ? bounds.cols - 1 - ALIGNMENT_X_MARGIN : Math.round((bounds.cols - 1) / 2);
+  const y = vertical === "top" ? ALIGNMENT_Y_MARGIN : vertical === "bottom" ? bounds.rows - 1 - ALIGNMENT_Y_MARGIN : Math.round((bounds.rows - 1) / 2);
   return { x, y };
 }
 

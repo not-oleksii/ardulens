@@ -8,77 +8,37 @@ const V2_HEADER_LENGTH = 10;
 const PARAM_VALUE_FIELD_OFFSET = 0;
 
 /**
- * ArduPilot (and MAVLink's "byte-wise" parameter encoding in general) always transmits
- * PARAM_VALUE/PARAM_SET's `param_value` as a wire `float` regardless of the parameter's real
- * type - but for non-float types, that float slot doesn't hold a numeric cast of the value,
- * it holds the value's raw bytes *reinterpreted* as a float32 (the C equivalent of
- * `*(float*)&int_value`). Naively treating the wire float as the real value produces
- * nonsense (a tiny denormal) for anything but REAL32 params - this is a well-known MAVLink
- * GCS gotcha, and pymavlink/Mission Planner do this same bit-reinterpret round trip.
+ * ArduPilot always transmits PARAM_VALUE/PARAM_SET's `param_value` as a genuine numeric float32
+ * cast of the parameter's real value, for every parameter type - not a byte-wise reinterpret of
+ * the integer's raw bits (`*(float*)&int_value`). This is ArduPilot's own real behavior
+ * (AP_Param::cast_to_float(), used by every send_parameter() call in the firmware), confirmed
+ * against a real vehicle: ArduLens previously assumed the byte-wise convention (a real, but
+ * different, ambiguity that exists elsewhere in the wider MAVLink ecosystem), which decoded a
+ * real OSD1_CHAN_MAX of 2100 as 16384, OSD1_CHAN_MIN of 900 as 0, and RC1_MIN of 1100 as -32768 -
+ * each exactly the low bytes of that value's real float32 encoding misread as a raw integer,
+ * while Mission Planner (which decodes correctly) showed the real numbers for the same vehicle.
  *
- * Operates on the raw 32-bit pattern, not a JS `number` that already went through
- * `DataView.getFloat32()` - a negative int32/uint32 parameter value can easily have a bit
- * pattern that falls in float32's NaN range, and JS collapses *every* float32 NaN bit
- * pattern into a single canonical `NaN` the moment it's read as a float, destroying the
- * original bits before they could be reinterpreted. Read the bits as a plain uint32 instead
- * (see {@link readParamValueBits}) and pass that in here.
+ * Integer types are recovered by rounding the float back to the nearest integer - lossless for
+ * every value ArduPilot's own parameter types realistically hold, since float32 represents every
+ * integer up to 2^24 exactly. INT32/UINT32 parameters near the extreme end of their range (tens
+ * of millions+) are the one case where this can't be exact - but that precision loss happens at
+ * the source (the real vehicle already sent the rounded float), not in this decode step, so no
+ * decode strategy could recover more than what actually arrived on the wire.
  */
 export function paramWireBitsToValue(wireBits: number, type: MavParamType): number {
   const buf = new ArrayBuffer(4);
   const view = new DataView(buf);
   view.setUint32(0, wireBits, true);
-  switch (type) {
-    case MavParamType.REAL32:
-      return view.getFloat32(0, true);
-    case MavParamType.UINT8:
-      return view.getUint8(0);
-    case MavParamType.INT8:
-      return view.getInt8(0);
-    case MavParamType.UINT16:
-      return view.getUint16(0, true);
-    case MavParamType.INT16:
-      return view.getInt16(0, true);
-    case MavParamType.UINT32:
-      return view.getUint32(0, true);
-    case MavParamType.INT32:
-      return view.getInt32(0, true);
-    default:
-      // REAL64/INT64/UINT64 aren't used by ArduPilot's parameter protocol in practice (the
-      // wire float slot is only 4 bytes wide anyway, so an 8-byte type can't round-trip
-      // through it) - fall back to the raw bit pattern as an unsigned integer.
-      return wireBits;
-  }
+  const asFloat = view.getFloat32(0, true);
+  return type === MavParamType.REAL32 ? asFloat : Math.round(asFloat);
 }
 
-/** The inverse of {@link paramWireBitsToValue} - packs a real value into a raw 32-bit wire pattern. */
-export function paramValueToWireBits(value: number, type: MavParamType): number {
+/** The inverse of {@link paramWireBitsToValue} - packs a real value into a raw 32-bit wire
+ *  pattern by casting it to float32, matching ArduPilot's own AP_Param::cast_to_float(). */
+export function paramValueToWireBits(value: number, _type: MavParamType): number {
   const buf = new ArrayBuffer(4);
   const view = new DataView(buf);
-  switch (type) {
-    case MavParamType.REAL32:
-      view.setFloat32(0, value, true);
-      break;
-    case MavParamType.UINT8:
-      view.setUint8(0, value);
-      break;
-    case MavParamType.INT8:
-      view.setInt8(0, value);
-      break;
-    case MavParamType.UINT16:
-      view.setUint16(0, value, true);
-      break;
-    case MavParamType.INT16:
-      view.setInt16(0, value, true);
-      break;
-    case MavParamType.UINT32:
-      view.setUint32(0, value, true);
-      break;
-    case MavParamType.INT32:
-      view.setInt32(0, value, true);
-      break;
-    default:
-      view.setUint32(0, value, true);
-  }
+  view.setFloat32(0, value, true);
   return view.getUint32(0, true);
 }
 

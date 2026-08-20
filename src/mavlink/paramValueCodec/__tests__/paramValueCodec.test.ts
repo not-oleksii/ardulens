@@ -4,47 +4,62 @@ import { x25Crc } from "../../crc/crc";
 import { MavParamType, ParamSet, ParamValue } from "../../registry/registry";
 import { buildParamSetPacket, buildParamValuePacket, paramValueToWireBits, paramWireBitsToValue, readParamValueBits } from "../paramValueCodec";
 
-// Independently generated via Python's struct module (the same byte-wise reinterpretation
-// pymavlink itself does), not derived from this file's own logic:
-//   struct.unpack('<I', struct.pack('<i', 1000))[0]  etc. - the raw 32-bit pattern as it
-// would appear on the wire, before any float interpretation.
 describe("paramWireBitsToValue", () => {
   it("interprets REAL32 bits as a float", () => {
     const bits = paramValueToWireBits(3.5, MavParamType.REAL32);
     expect(paramWireBitsToValue(bits, MavParamType.REAL32)).toBe(3.5);
   });
 
-  it("reinterprets INT32-encoded bits back to the real integer value", () => {
-    expect(paramWireBitsToValue(1000, MavParamType.INT32)).toBe(1000);
+  it("rounds a float32-cast INT32 value back to the real integer", () => {
+    // ArduPilot sends param_value as a numeric float32 cast (AP_Param::cast_to_float()) for
+    // every non-REAL32 type, not a byte-wise reinterpret of the raw integer bits - confirmed
+    // against a real vehicle (see paramValueCodec.ts's own doc comment for the full story).
+    const bits = paramValueToWireBits(1000, MavParamType.INT32);
+    expect(paramWireBitsToValue(bits, MavParamType.INT32)).toBe(1000);
   });
 
-  it("reinterprets a negative INT32's bit pattern without collapsing through a lossy float NaN", () => {
-    // -5 as int32 two's complement is 0xFFFFFFFB - if this were ever routed through a JS
-    // float32 read/write, it would land in the NaN range and get canonicalized away.
-    expect(paramWireBitsToValue(4294967291, MavParamType.INT32)).toBe(-5);
+  it("rounds a negative INT32 value back correctly", () => {
+    const bits = paramValueToWireBits(-5, MavParamType.INT32);
+    expect(paramWireBitsToValue(bits, MavParamType.INT32)).toBe(-5);
   });
 
-  it("reinterprets a UINT8-encoded bit pattern", () => {
-    expect(paramWireBitsToValue(200, MavParamType.UINT8)).toBe(200);
+  it("rounds a UINT8 value back correctly", () => {
+    const bits = paramValueToWireBits(200, MavParamType.UINT8);
+    expect(paramWireBitsToValue(bits, MavParamType.UINT8)).toBe(200);
   });
 
-  it("reinterprets an INT16-encoded bit pattern", () => {
-    expect(paramWireBitsToValue(64302, MavParamType.INT16)).toBe(-1234);
+  it("rounds an INT16 value back correctly", () => {
+    const bits = paramValueToWireBits(-1234, MavParamType.INT16);
+    expect(paramWireBitsToValue(bits, MavParamType.INT16)).toBe(-1234);
   });
 
-  it("reinterprets a UINT32-encoded bit pattern", () => {
-    expect(paramWireBitsToValue(4000000000, MavParamType.UINT32)).toBe(4000000000);
+  it("rounds a UINT32 value comfortably within float32's exact-integer range (2^24) back correctly", () => {
+    const bits = paramValueToWireBits(4_000_000, MavParamType.UINT32);
+    expect(paramWireBitsToValue(bits, MavParamType.UINT32)).toBe(4_000_000);
+  });
+
+  it("loses precision on a UINT32 value beyond float32's exact-integer range - inherent to ArduPilot's own wire format, not a decode bug", () => {
+    // float32 only exactly represents integers whose significant bits fit in its 24-bit
+    // mantissa - most large integers beyond ~16.7M don't (though some "round" ones, like exact
+    // powers of two or multiples of one, still do). The real vehicle itself already sent this
+    // rounded float, so no decode strategy can recover more than what's on the wire. This
+    // asserts the real (imprecise) round-trip for a value that isn't mantissa-exact, rather
+    // than a fabricated one.
+    const bits = paramValueToWireBits(4_123_456_789, MavParamType.UINT32);
+    const roundTripped = paramWireBitsToValue(bits, MavParamType.UINT32);
+    expect(roundTripped).not.toBe(4_123_456_789);
+    expect(Math.abs(roundTripped - 4_123_456_789)).toBeLessThan(1000);
   });
 });
 
 describe("paramValueToWireBits", () => {
-  it("is the exact inverse of paramWireBitsToValue for every integer type, including NaN-shaped bit patterns", () => {
+  it("is the exact inverse of paramWireBitsToValue for every integer type within float32's exact-integer range", () => {
     const cases: Array<[number, MavParamType]> = [
       [1000, MavParamType.INT32],
       [-5, MavParamType.INT32],
       [200, MavParamType.UINT8],
       [-1234, MavParamType.INT16],
-      [4000000000, MavParamType.UINT32],
+      [4_000_000, MavParamType.UINT32],
       [12345, MavParamType.UINT16],
       [-100, MavParamType.INT8],
     ];
@@ -67,12 +82,13 @@ describe("readParamValueBits", () => {
     msg.paramValue = 0;
     msg.paramType = MavParamType.INT32;
     const payload = encodePayload(msg);
-    // Manually overwrite the first 4 bytes with a NaN-shaped bit pattern (-5 as int32) -
-    // simulating what a real vehicle would send, since encodePayload's own generic float
-    // writer can't produce this bit pattern itself (same hazard this module exists to avoid).
+    // Manually overwrite the first 4 bytes with a real float32(-5.0) bit pattern - simulating
+    // what a real vehicle sends, since encodePayload's own generic float writer would collapse
+    // a negative-looking raw bit pattern into a canonical NaN before we could inspect it.
+    const bits = paramValueToWireBits(-5, MavParamType.INT32);
     const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
-    view.setUint32(0, 4294967291, true);
-    expect(readParamValueBits(payload)).toBe(4294967291);
+    view.setUint32(0, bits, true);
+    expect(readParamValueBits(payload)).toBe(bits);
   });
 });
 
