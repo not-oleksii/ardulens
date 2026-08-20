@@ -3504,6 +3504,39 @@ describe("ArduPilotSetupView", () => {
       expect(screen.getByText("1361-1490 us")).toBeInTheDocument();
     });
 
+    it("sizes each flight-mode band's overview-bar segment to its real proportional PWM width, with a live needle", async () => {
+      // Betaflight-style overview bar redesign - the 6 bands are real, fixed ArduPilot firmware
+      // boundaries (RC_Channel::read_6pos_switch), not equal-width boxes: band 1 (900-1231,
+      // 331us) is genuinely wider than band 2 (1231-1360, 130us), and this asserts the rendered
+      // segment widths actually reflect that, not just that all 6 render.
+      mockBackend();
+      await connectAndOpenRcSetup();
+
+      // Default test heartbeat is a QUADROTOR (see sampleHeartbeatBytes), so mode codes resolve
+      // via COPTER_MODE_NAMES: 0=STABILIZE, 2=ALT_HOLD.
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FLTMODE_CH", 5, MavParamType.INT8, 0, 7, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FLTMODE1", 0, MavParamType.INT8, 1, 7, 2) }); // STABILIZE
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FLTMODE2", 2, MavParamType.INT8, 2, 7, 3) }); // ALT_HOLD
+      await screen.findByRole("heading", { name: "Функції" });
+
+      await emit(DATA_EVENT, { bytes: buildRcChannelsBytes({ 5: 1425 }, 8, 1) });
+
+      // Both mode names also appear as <option> text in the FLTMODE select dropdowns below the
+      // bar, hence scoping to the bar segment's own <span class="truncate"> label specifically.
+      await screen.findAllByText("STABILIZE");
+      const findSegmentLabel = (label: string) =>
+        screen.getAllByText(label).find((el) => el.tagName === "SPAN" && el.className.includes("truncate"))!;
+      const manualSegment = findSegmentLabel("STABILIZE").closest("div")!;
+      const stabilizeSegment = findSegmentLabel("ALT_HOLD").closest("div")!;
+      expect(parseFloat(manualSegment.style.width)).toBeCloseTo((331 / 1200) * 100, 1);
+      expect(parseFloat(stabilizeSegment.style.width)).toBeCloseTo((130 / 1200) * 100, 1);
+
+      // 1425us on the 900-2100us scale = 43.75% along the bar.
+      const needle = manualSegment.parentElement!.querySelector<HTMLElement>(".bg-foreground");
+      expect(needle).not.toBeNull();
+      expect(parseFloat(needle!.style.left)).toBeCloseTo(43.75, 1);
+    });
+
     it("staging an RC option edit and saving sends PARAM_SET for that channel", async () => {
       const invoked = vi.fn();
       mockBackend(invoked);
