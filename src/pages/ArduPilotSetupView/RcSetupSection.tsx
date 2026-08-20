@@ -10,7 +10,7 @@ import { fetchParamDocs, vehicleFolderForMavType, type ParamDocsMap } from "../.
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
 import { ParamLoadProgress } from "./ParamLoadProgress";
-import { FLTMODE_BAND_RANGE_LABELS, fltModeBandIndex } from "./rcBands";
+import { FLTMODE_BAND_RANGE_LABELS, FLTMODE_BAND_UPPER_BOUNDS, fltModeBandIndex } from "./rcBands";
 import { colorForRcChannel } from "./rcChannelColors";
 import {
   FAILSAFE_PARAM_NAMES,
@@ -36,6 +36,15 @@ const SCALE_MAX = 2100;
 function scalePct(value: number): number {
   return Math.min(100, Math.max(0, ((value - SCALE_MIN) / (SCALE_MAX - SCALE_MIN)) * 100));
 }
+
+// Round-number gridlines on every live PWM bar (Betaflight-style rulers) - purely visual, not
+// meaningful boundaries the way the flight-mode band edges below are.
+const TICK_PWM_VALUES = [1000, 1200, 1400, 1600, 1800, 2000];
+
+// The real 6-band edges (900 and 2100 close off the first/last band) - used to size each flight-
+// mode band's segment of the wide overview bar proportionally to its actual PWM width, rather
+// than 6 equal-width boxes that would misrepresent how much smaller "1231-1360" is than "≥1751".
+const FLTMODE_BAND_EDGES = [SCALE_MIN, ...FLTMODE_BAND_UPPER_BOUNDS, SCALE_MAX];
 
 export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetupSectionProps) {
   const { t } = useTranslation();
@@ -105,6 +114,18 @@ export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetu
 
   function shownValue(name: string): number | undefined {
     return pendingChanges[name] ?? params[name]?.value;
+  }
+
+  // The resolved mode name for one FLTMODE slot, for the overview bar's segment labels - same
+  // value/label lookup modeSelect's own <select> uses, just as plain text instead of a control
+  // (some bands are too narrow, e.g. "1231-1360", to fit a dropdown at their real proportional
+  // width).
+  function modeLabelFor(name: string): string | null {
+    const entry = params[name];
+    if (!entry) return null;
+    const value = shownValue(name)!;
+    const values = docs?.[name]?.values ?? docs?.FLTMODE1?.values ?? modeNamesFallback ?? undefined;
+    return values?.[value] ?? String(value);
   }
 
   function modeSelect(name: string, ownValues: Record<number, string> | undefined) {
@@ -360,7 +381,7 @@ export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetu
               <p className="text-xs text-muted-foreground">
                 {selectedFunction ? t("ardupilotSetup.rcSetup.clickToAssign") : t("ardupilotSetup.rcSetup.selectFunctionFirst")}
               </p>
-              <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto">
+              <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
                 {Array.from({ length: RC_OPTION_CHANNEL_COUNT }, (_, i) => i + 1).map((channel) => {
                   const color = colorForRcChannel(channel);
                   const pwm = live[channel];
@@ -372,16 +393,22 @@ export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetu
                       disabled={!selectedFunction}
                       onClick={() => assignToChannel(channel)}
                       aria-label={t("ardupilotSetup.rcSetup.channelButtonLabel", { channel })}
-                      className="flex items-center gap-2 rounded-md border border-border p-1.5 text-left text-xs enabled:hover:border-primary disabled:opacity-70"
+                      className="flex items-center gap-3 rounded-lg border border-border p-2 text-left text-xs enabled:hover:border-primary disabled:opacity-70"
                     >
-                      <span className="flex w-6 shrink-0 items-center gap-1 font-mono" style={{ color }}>
-                        <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />
+                      <span className="flex w-7 shrink-0 flex-col items-center gap-0.5 font-mono font-semibold" style={{ color }}>
+                        <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />
                         {channel}
                       </span>
-                      <div className="relative h-3 min-w-0 flex-1 rounded-full bg-muted">
+                      {/* A wide ruled bar (tick marks at round PWM values) with a bold needle for
+                          the live position - Betaflight's own receiver-tab look, in place of the
+                          previous thin bar + barely-visible dot. */}
+                      <div className="relative h-5 min-w-0 flex-[2] overflow-hidden rounded-md bg-muted">
+                        {TICK_PWM_VALUES.map((tick) => (
+                          <div key={tick} className="absolute inset-y-0 w-px bg-border/70" style={{ left: `${scalePct(tick)}%` }} />
+                        ))}
                         {pwm !== undefined && (
                           <div
-                            className="absolute top-1/2 h-2.5 w-2.5 -translate-y-1/2 -translate-x-1/2 rounded-full border border-background"
+                            className="absolute inset-y-0 w-1 -translate-x-1/2 rounded-full shadow-sm"
                             style={{ left: `${scalePct(pwm)}%`, background: color }}
                           />
                         )}
@@ -397,6 +424,37 @@ export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetu
 
           <section className="flex flex-col gap-2">
             <h4 className="text-xs font-bold tracking-wide uppercase text-muted-foreground">{t("ardupilotSetup.rcSetup.flightModesHeading")}</h4>
+
+            {/* A wide overview bar sized to the 6 bands' REAL proportional PWM widths (e.g.
+                "1231-1360" is genuinely narrower than "≥1751") with a live needle for the flight-
+                mode channel's current position - these bands are real, fixed ArduPilot firmware
+                boundaries (RC_Channel::read_6pos_switch), not an editable range like Betaflight's
+                own mode sliders, so this is a live readout only; the list below is still where
+                each band's assigned mode is actually changed. */}
+            <div className="relative flex h-8 shrink-0 overflow-hidden rounded-md border border-border">
+              {FLIGHT_MODE_SLOT_NAMES.map((name, i) => {
+                const widthPct = scalePct(FLTMODE_BAND_EDGES[i + 1]!) - scalePct(FLTMODE_BAND_EDGES[i]!);
+                const isActive = activeBandIndex === i;
+                const label = modeLabelFor(name);
+                return (
+                  <div
+                    key={name}
+                    className={`flex items-center justify-center overflow-hidden border-r border-border/60 px-0.5 text-center text-[10px] font-semibold whitespace-nowrap last:border-r-0 ${isActive ? "bg-primary/25 text-primary" : "bg-muted/50 text-muted-foreground"}`}
+                    style={{ width: `${widthPct}%` }}
+                    title={label ?? undefined}
+                  >
+                    <span className="truncate">{label ?? "-"}</span>
+                  </div>
+                );
+              })}
+              {fltModeLivePwm !== undefined && (
+                <div
+                  className="absolute inset-y-0 w-1 -translate-x-1/2 rounded-full bg-foreground shadow-sm"
+                  style={{ left: `${scalePct(fltModeLivePwm)}%` }}
+                />
+              )}
+            </div>
+
             <div className="flex flex-col gap-1 rounded-lg border border-border p-2">
               {FLIGHT_MODE_SLOT_NAMES.map((name, i) => {
                 const isActive = activeBandIndex === i;

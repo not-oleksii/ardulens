@@ -1,7 +1,7 @@
 // ArduPilot's fixed 6-way flight-mode-channel band boundaries (RC_Channel::read_6pos_switch) -
 // the same breakpoints Mission Planner's own Flight Modes screen highlights against. Widely
 // documented/stable across ArduPilot versions, not guessed.
-const FLTMODE_BAND_UPPER_BOUNDS = [1231, 1361, 1491, 1621, 1751] as const;
+export const FLTMODE_BAND_UPPER_BOUNDS = [1231, 1361, 1491, 1621, 1751] as const;
 
 export const FLTMODE_BAND_RANGE_LABELS = ["<1231", "1231-1360", "1361-1490", "1491-1620", "1621-1750", "≥1751"] as const;
 
