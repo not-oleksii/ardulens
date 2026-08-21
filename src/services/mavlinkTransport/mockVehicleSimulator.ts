@@ -35,14 +35,22 @@ import {
   MagCalStatus,
   MavAutopilot,
   MavCmd,
+  MavFrame,
   MavFtpErr,
   MavFtpOpcode,
+  MavMissionResult,
+  MavMissionType,
   MavModeFlag,
   MavParamType,
   MavResult,
   MavState,
   MavSysStatusSensor,
   MavType,
+  MissionAck,
+  MissionCount,
+  MissionItemInt,
+  MissionRequestInt,
+  MissionRequestList,
   ParamRequestList,
   ParamRequestRead,
   ParamSet,
@@ -772,6 +780,105 @@ export function startMockVehicle(
     }
   }
 
+  // --- Mission (MISSION_REQUEST_LIST / MISSION_COUNT / MISSION_ITEM_INT) ---
+  // A small fake 3-item mission (two waypoints + RTL) - not real flight-worthy coordinates, just
+  // enough real MISSION_* wire traffic (request-response per item, both directions) to exercise
+  // the download/upload flow in Dev Mode without a real vehicle.
+  interface MissionItemFields {
+    seq: number;
+    command: number;
+    frame: number;
+    autocontinue: number;
+    param1: number;
+    param2: number;
+    param3: number;
+    param4: number;
+    lat: number;
+    lon: number;
+    alt: number;
+  }
+  let missionItems: MissionItemFields[] = [
+    { seq: 0, command: MavCmd.NAV_WAYPOINT, frame: MavFrame.GLOBAL_RELATIVE_ALT, autocontinue: 1, param1: 0, param2: 0, param3: 0, param4: 0, lat: 50.4501, lon: 30.5234, alt: 0 },
+    { seq: 1, command: MavCmd.NAV_WAYPOINT, frame: MavFrame.GLOBAL_RELATIVE_ALT, autocontinue: 1, param1: 0, param2: 5, param3: 0, param4: 0, lat: 50.4531, lon: 30.5264, alt: 50 },
+    { seq: 2, command: MavCmd.NAV_RETURN_TO_LAUNCH, frame: MavFrame.GLOBAL_RELATIVE_ALT, autocontinue: 1, param1: 0, param2: 0, param3: 0, param4: 0, lat: 0, lon: 0, alt: 0 },
+  ];
+  // Set only while the GCS is actively uploading a mission to us - null the rest of the time.
+  let missionUpload: { expectedCount: number; received: MissionItemFields[] } | null = null;
+
+  function handleMissionRequestList() {
+    const count = new MissionCount();
+    count.count = missionItems.length;
+    count.missionType = MavMissionType.MISSION;
+    send(count);
+  }
+
+  function handleMissionRequestInt(msg: MissionRequestInt) {
+    const item = missionItems.find((i) => i.seq === msg.seq);
+    if (!item) return;
+    const itemMsg = new MissionItemInt();
+    itemMsg.seq = item.seq;
+    itemMsg.frame = item.frame;
+    itemMsg.command = item.command;
+    itemMsg.current = item.seq === 0 ? 1 : 0;
+    itemMsg.autocontinue = item.autocontinue;
+    itemMsg.param1 = item.param1;
+    itemMsg.param2 = item.param2;
+    itemMsg.param3 = item.param3;
+    itemMsg.param4 = item.param4;
+    itemMsg.x = Math.round(item.lat * 1e7);
+    itemMsg.y = Math.round(item.lon * 1e7);
+    itemMsg.z = item.alt;
+    itemMsg.missionType = MavMissionType.MISSION;
+    send(itemMsg);
+  }
+
+  function handleMissionCount(msg: MissionCount) {
+    if (msg.count === 0) {
+      missionItems = [];
+      missionUpload = null;
+      const ack = new MissionAck();
+      ack.type = MavMissionResult.ACCEPTED;
+      ack.missionType = MavMissionType.MISSION;
+      send(ack);
+      return;
+    }
+    missionUpload = { expectedCount: msg.count, received: [] };
+    const req = new MissionRequestInt();
+    req.seq = 0;
+    req.missionType = MavMissionType.MISSION;
+    send(req);
+  }
+
+  function handleMissionItemIntFromGcs(msg: MissionItemInt) {
+    if (!missionUpload) return;
+    missionUpload.received.push({
+      seq: msg.seq,
+      command: msg.command,
+      frame: msg.frame,
+      autocontinue: msg.autocontinue,
+      param1: msg.param1,
+      param2: msg.param2,
+      param3: msg.param3,
+      param4: msg.param4,
+      lat: msg.x / 1e7,
+      lon: msg.y / 1e7,
+      alt: msg.z,
+    });
+    if (msg.seq + 1 < missionUpload.expectedCount) {
+      const req = new MissionRequestInt();
+      req.seq = msg.seq + 1;
+      req.missionType = MavMissionType.MISSION;
+      send(req);
+    } else {
+      missionItems = missionUpload.received;
+      missionUpload = null;
+      const ack = new MissionAck();
+      ack.type = MavMissionResult.ACCEPTED;
+      ack.missionType = MavMissionType.MISSION;
+      send(ack);
+    }
+  }
+
   // --- MAVLink FTP (param.pck defaults download) ---
   // A real, minimal FTP server: enough of OPEN_FILE_RO/BURSTREADFILE/TERMINATESESSION to serve
   // exactly one virtual file, @PARAM/param.pck?withdefaults=1 - the only file this app's FTP
@@ -884,6 +991,18 @@ export function startMockVehicle(
           break;
         case LogRequestData.MSG_ID:
           handleLogRequestData(packet.message as LogRequestData);
+          break;
+        case MissionRequestList.MSG_ID:
+          handleMissionRequestList();
+          break;
+        case MissionRequestInt.MSG_ID:
+          handleMissionRequestInt(packet.message as MissionRequestInt);
+          break;
+        case MissionCount.MSG_ID:
+          handleMissionCount(packet.message as MissionCount);
+          break;
+        case MissionItemInt.MSG_ID:
+          handleMissionItemIntFromGcs(packet.message as MissionItemInt);
           break;
         case COMMAND_LONG_MSG_ID:
           handleCommandLong(packet.message, packet.payload);

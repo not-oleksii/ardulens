@@ -4,7 +4,7 @@ import { emit } from "@tauri-apps/api/event";
 import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
-import { encodePacket } from "../../../mavlink/codec/codec";
+import { decodeMessage, encodePacket } from "../../../mavlink/codec/codec";
 import { x25Crc } from "../../../mavlink/crc/crc";
 import { paramValueToWireBits, paramWireBitsToValue, readParamValueBits } from "../../../mavlink/paramValueCodec/paramValueCodec";
 import {
@@ -28,6 +28,9 @@ import {
   MavAutopilot,
   MavCmd,
   MavDataStream,
+  MavFrame,
+  MavMissionResult,
+  MavMissionType,
   MavModeFlag,
   MavParamType,
   MavResult,
@@ -35,6 +38,11 @@ import {
   MavState,
   MavSysStatusSensor,
   MavType,
+  MissionAck,
+  MissionCount,
+  MissionItemInt,
+  MissionRequestInt,
+  MissionRequestList,
   ParamRequestList,
   ParamRequestRead,
   ParamSet,
@@ -53,6 +61,8 @@ import { DATA_EVENT, STATUS_EVENT } from "../../../services/mavlinkTransport/mav
 import { useMavlinkAccelCalStore } from "../../../stores/mavlinkAccelCalStore/mavlinkAccelCalStore";
 import { useMavlinkCompassCalStore } from "../../../stores/mavlinkCompassCalStore/mavlinkCompassCalStore";
 import { useMavlinkConnectionStore } from "../../../stores/mavlinkConnectionStore/mavlinkConnectionStore";
+import { useMavlinkDataflashLogStore } from "../../../stores/mavlinkDataflashLogStore/mavlinkDataflashLogStore";
+import { useMavlinkMissionStore } from "../../../stores/mavlinkMissionStore/mavlinkMissionStore";
 import { useMavlinkParamDefaultsStore } from "../../../stores/mavlinkParamDefaultsStore/mavlinkParamDefaultsStore";
 import { useMavlinkParameterStore } from "../../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import { useMavlinkRcCalStore } from "../../../stores/mavlinkRcCalStore/mavlinkRcCalStore";
@@ -427,6 +437,8 @@ afterEach(async () => {
   useMavlinkAccelCalStore.getState().reset();
   useMavlinkRcCalStore.getState().reset();
   useMavlinkParamDefaultsStore.getState().reset();
+  useMavlinkDataflashLogStore.getState().reset();
+  useMavlinkMissionStore.getState().reset();
   useFileStore.getState().clearFile();
   useUiStore.getState().setPendingPresetKey(null);
   useUiStore.getState().setActiveTab("logs");
@@ -2482,6 +2494,132 @@ describe("ArduPilotSetupView", () => {
 
       expect(useFileStore.getState().file?.name).toBe("dataflash-log-7.bin");
       expect(useUiStore.getState().activeTab).toBe("map");
+    });
+  });
+
+  describe("mission plan", () => {
+    async function connectAndOpenMissionPlan() {
+      const view = getView();
+      await view.clickConnect();
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
+      await view.user.click(screen.getByRole("tab", { name: "План місії" }));
+      return view;
+    }
+
+    function findSentMessages(invoked: ReturnType<typeof vi.fn>, msgId: number) {
+      return invoked.mock.calls.filter(([cmd, payload]) => {
+        if (cmd !== "send_bytes") return false;
+        const bytes = (payload as { bytes: number[] }).bytes;
+        return bytes[7] === msgId;
+      });
+    }
+
+    it("shows the empty-state message before any mission is loaded", async () => {
+      mockBackend();
+      await connectAndOpenMissionPlan();
+      expect(screen.getByText(/Ще немає точок місії/)).toBeInTheDocument();
+    });
+
+    it("downloads a mission: MISSION_REQUEST_LIST, then one MISSION_REQUEST_INT per item in order, ending with MISSION_ACK", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenMissionPlan();
+
+      await user.click(screen.getByRole("button", { name: "Завантажити з апарата" }));
+      expect(findSentMessages(invoked, MissionRequestList.MSG_ID)).toHaveLength(1);
+
+      const count = new MissionCount();
+      count.count = 2;
+      count.missionType = MavMissionType.MISSION;
+      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(count, { seq: 1, sysid: 1, compid: 1 })) });
+
+      await vi.waitFor(() => {
+        const requests = findSentMessages(invoked, MissionRequestInt.MSG_ID);
+        expect(requests.length).toBe(1);
+        expect((decodeMessage(MissionRequestInt, new Uint8Array((requests[0]![1] as { bytes: number[] }).bytes.slice(10)))).seq).toBe(0);
+      });
+
+      const item0 = new MissionItemInt();
+      item0.seq = 0;
+      item0.command = MavCmd.NAV_WAYPOINT;
+      item0.frame = MavFrame.GLOBAL_RELATIVE_ALT;
+      item0.autocontinue = 1;
+      item0.x = Math.round(50.4501 * 1e7);
+      item0.y = Math.round(30.5234 * 1e7);
+      item0.z = 0;
+      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(item0, { seq: 2, sysid: 1, compid: 1 })) });
+
+      await vi.waitFor(() => {
+        const requests = findSentMessages(invoked, MissionRequestInt.MSG_ID);
+        expect(requests.length).toBe(2);
+        expect((decodeMessage(MissionRequestInt, new Uint8Array((requests[1]![1] as { bytes: number[] }).bytes.slice(10)))).seq).toBe(1);
+      });
+
+      const item1 = new MissionItemInt();
+      item1.seq = 1;
+      item1.command = MavCmd.NAV_RETURN_TO_LAUNCH;
+      item1.frame = MavFrame.GLOBAL_RELATIVE_ALT;
+      item1.autocontinue = 1;
+      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(item1, { seq: 3, sysid: 1, compid: 1 })) });
+
+      await vi.waitFor(() => {
+        expect(findSentMessages(invoked, MissionAck.MSG_ID)).toHaveLength(1);
+      });
+      const ackBytes = (findSentMessages(invoked, MissionAck.MSG_ID)[0]![1] as { bytes: number[] }).bytes;
+      expect((decodeMessage(MissionAck, new Uint8Array(ackBytes.slice(10)))).type).toBe(MavMissionResult.ACCEPTED);
+
+      const rows = screen.getAllByRole("row");
+      expect(rows).toHaveLength(3); // header + 2 items
+    });
+
+    it("shows a download error when the vehicle rejects the request with a MISSION_ACK instead of MISSION_COUNT", async () => {
+      mockBackend();
+      const { user } = await connectAndOpenMissionPlan();
+      await user.click(screen.getByRole("button", { name: "Завантажити з апарата" }));
+
+      const ack = new MissionAck();
+      ack.type = MavMissionResult.ERROR;
+      ack.missionType = MavMissionType.MISSION;
+      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(ack, { seq: 1, sysid: 1, compid: 1 })) });
+
+      expect(await screen.findByText(/MISSION_ACK/)).toBeInTheDocument();
+    });
+
+    it("uploads a mission: MISSION_COUNT, answers the vehicle's MISSION_REQUEST_INT with the matching item, and finishes on MISSION_ACK", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenMissionPlan();
+
+      await user.click(screen.getByRole("button", { name: "Додати точку" }));
+      await user.click(screen.getByRole("button", { name: "Надіслати на апарат" }));
+
+      expect(findSentMessages(invoked, MissionCount.MSG_ID)).toHaveLength(1);
+      expect(screen.getByText("Надсилання місії...")).toBeInTheDocument();
+
+      const req = new MissionRequestInt();
+      req.seq = 0;
+      req.missionType = MavMissionType.MISSION;
+      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(req, { seq: 1, sysid: 1, compid: 1 })) });
+
+      await vi.waitFor(() => {
+        const items = findSentMessages(invoked, MissionItemInt.MSG_ID);
+        expect(items.length).toBe(1);
+        const sent = decodeMessage(MissionItemInt, new Uint8Array((items[0]![1] as { bytes: number[] }).bytes.slice(10)));
+        expect(sent.seq).toBe(0);
+        expect(sent.command).toBe(MavCmd.NAV_WAYPOINT);
+      });
+
+      const ack = new MissionAck();
+      ack.type = MavMissionResult.ACCEPTED;
+      ack.missionType = MavMissionType.MISSION;
+      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(ack, { seq: 2, sysid: 1, compid: 1 })) });
+
+      await vi.waitFor(() => {
+        expect(screen.queryByText("Надсилання місії...")).not.toBeInTheDocument();
+      });
+      expect(screen.queryByText(/MISSION_ACK/)).not.toBeInTheDocument();
     });
   });
 
