@@ -15,6 +15,7 @@ import { OsdSetupSection } from "./OsdSetupSection";
 import { VtxSetupSection } from "./VtxSetupSection";
 import { RcSetupSection } from "./RcSetupSection";
 import { DataflashLogsSection } from "./DataflashLogsSection";
+import { MissionPlanSection } from "./MissionPlanSection";
 import { SerialPortsSection } from "./SerialPortsSection";
 import { TelemetrySection } from "./TelemetrySection";
 import { VehicleStatusBar } from "./VehicleStatusBar";
@@ -57,11 +58,18 @@ import {
   MavDataStream,
   MavFtpErr,
   MavFtpOpcode,
+  MavMissionResult,
+  MavMissionType,
   MavModeFlag,
   MavParamType,
   MavResult,
   MavState,
   MavType,
+  MissionAck,
+  MissionCount,
+  MissionItemInt,
+  MissionRequestInt,
+  MissionRequestList,
   MotorTestThrottleType,
   ParamRequestList,
   ParamRequestRead,
@@ -96,6 +104,8 @@ import { useMavlinkAccelCalStore } from "../../stores/mavlinkAccelCalStore/mavli
 import { useMavlinkCompassCalStore } from "../../stores/mavlinkCompassCalStore/mavlinkCompassCalStore";
 import { useMavlinkConnectionStore } from "../../stores/mavlinkConnectionStore/mavlinkConnectionStore";
 import { useMavlinkDataflashLogStore } from "../../stores/mavlinkDataflashLogStore/mavlinkDataflashLogStore";
+import { useMavlinkMissionStore } from "../../stores/mavlinkMissionStore/mavlinkMissionStore";
+import type { MissionItemEntry } from "../../stores/mavlinkMissionStore/types";
 import { useMavlinkParamDefaultsStore } from "../../stores/mavlinkParamDefaultsStore/mavlinkParamDefaultsStore";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import type { ParamEntry } from "../../stores/mavlinkParameterStore/types";
@@ -241,6 +251,22 @@ export function ArduPilotSetupView() {
   const setDataflashDownloadProgress = useMavlinkDataflashLogStore((s) => s.setDownloadProgress);
   const setDataflashDownloadDone = useMavlinkDataflashLogStore((s) => s.setDownloadDone);
   const resetDataflashLog = useMavlinkDataflashLogStore((s) => s.reset);
+  const missionItems = useMavlinkMissionStore((s) => s.items);
+  const missionDownloadPhase = useMavlinkMissionStore((s) => s.downloadPhase);
+  const missionDownloadCountExpected = useMavlinkMissionStore((s) => s.downloadCountExpected);
+  const missionDownloadError = useMavlinkMissionStore((s) => s.downloadError);
+  const missionUploadPhase = useMavlinkMissionStore((s) => s.uploadPhase);
+  const missionUploadError = useMavlinkMissionStore((s) => s.uploadError);
+  const beginMissionDownload = useMavlinkMissionStore((s) => s.beginDownload);
+  const setMissionDownloadCountExpected = useMavlinkMissionStore((s) => s.setDownloadCountExpected);
+  const receiveDownloadedMissionItem = useMavlinkMissionStore((s) => s.receiveDownloadedItem);
+  const finishMissionDownload = useMavlinkMissionStore((s) => s.finishDownload);
+  const failMissionDownload = useMavlinkMissionStore((s) => s.failDownload);
+  const setMissionItems = useMavlinkMissionStore((s) => s.setItems);
+  const startMissionUpload = useMavlinkMissionStore((s) => s.startUpload);
+  const finishMissionUpload = useMavlinkMissionStore((s) => s.finishUpload);
+  const failMissionUpload = useMavlinkMissionStore((s) => s.failUpload);
+  const resetMission = useMavlinkMissionStore((s) => s.reset);
   const compassCalProgress = useMavlinkCompassCalStore((s) => s.progress);
   const compassCalReports = useMavlinkCompassCalStore((s) => s.reports);
   const compassCalLastCommandAck = useMavlinkCompassCalStore((s) => s.lastCommandAck);
@@ -311,6 +337,11 @@ export function ArduPilotSetupView() {
   // written into directly at their own offset (see LogData.MSG_ID below) - null when no download
   // is active. Same "assume in-order, nothing dropped" scope as ftpSessionRef above.
   const dataflashDownloadRef = useRef<{ id: number; totalBytes: number; bytes: Uint8Array; bytesReceived: number } | null>(null);
+  // The mission items being uploaded, snapshotted at upload-start time (see handleUploadMission)
+  // rather than read live from the store - the vehicle drives this exchange by requesting one
+  // item at a time (MissionRequestInt.MSG_ID below), so what's sent must stay fixed for the whole
+  // transaction even if the store's `items` changes mid-upload.
+  const missionUploadRef = useRef<MissionItemEntry[] | null>(null);
   // Mirrors `vehicle` for the persistent onData effect closure below, which can't see fresh
   // render-scope state (its own dependency array only re-subscribes on things like `status`,
   // not on every heartbeat-driven `vehicle` update - see buildFtpPacket's comment for why).
@@ -324,6 +355,29 @@ export function ArduPilotSetupView() {
     let cancelled = false;
     let unlistenData: (() => void) | undefined;
     let unlistenStatus: (() => void) | undefined;
+
+    // Same body as the component-level sendGcsPacket() below, duplicated as an effect-local
+    // function (like sendFtp just below) so the mission protocol's immediate in-band replies
+    // (e.g. requesting the next MISSION_ITEM_INT as soon as this one arrives) don't need
+    // sendGcsPacket itself in this effect's own dependency array - sendGcsPacket is a plain
+    // function re-created every render, so depending on it directly would re-subscribe this
+    // whole effect (and its onData/onStatus listeners) on every render instead of only when
+    // connection-relevant state actually changes.
+    function sendGcs(packet: Uint8Array) {
+      sendBytes(packet)
+        .then(() => addBytesSent(packet.length))
+        .catch(() => {
+          // Best-effort - same as sendGcsPacket, no good recovery path for a single lost send.
+        });
+    }
+
+    // Same body as the component-level nextSeq() below, duplicated for the same reason as
+    // sendGcs above - keeps this effect's own dependency array from needing to include it.
+    function nextOutgoingSeq(): number {
+      const seq = outgoingSeqRef.current;
+      outgoingSeqRef.current = (seq + 1) % 256;
+      return seq;
+    }
 
     // Sends one FTP request packet, reading `vehicle` from vehicleRef (this closure is set up
     // once per effect run, not per render - see vehicleRef's own comment above).
@@ -697,6 +751,117 @@ export function ArduPilotSetupView() {
             }
             break;
           }
+          case MissionCount.MSG_ID: {
+            // Only meaningful mid-download - a real vehicle only ever sends this unsolicited as
+            // the direct response to our own MISSION_REQUEST_LIST (see handleDownloadMission).
+            const msg = packet.message as MissionCount;
+            setMissionDownloadCountExpected(msg.count);
+            if (!vehicleRef.current) break;
+            if (msg.count === 0) {
+              finishMissionDownload();
+              const ack = new MissionAck();
+              ack.targetSystem = vehicleRef.current.sysid;
+              ack.targetComponent = vehicleRef.current.compid;
+              ack.type = MavMissionResult.ACCEPTED;
+              ack.missionType = MavMissionType.MISSION;
+              sendGcs(encodePacket(ack, { seq: nextOutgoingSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+            } else {
+              const req = new MissionRequestInt();
+              req.targetSystem = vehicleRef.current.sysid;
+              req.targetComponent = vehicleRef.current.compid;
+              req.seq = 0;
+              req.missionType = MavMissionType.MISSION;
+              sendGcs(encodePacket(req, { seq: nextOutgoingSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+            }
+            break;
+          }
+          case MissionItemInt.MSG_ID: {
+            // The vehicle answering our own MISSION_REQUEST_INT for one item, one at a time -
+            // the mission protocol is inherently request-response per item (unlike PARAM_VALUE's
+            // or LOG_DATA's burst streaming), so requesting the next seq only after this one
+            // arrives is the correct protocol shape, not an extra precaution.
+            const msg = packet.message as MissionItemInt;
+            receiveDownloadedMissionItem({
+              seq: msg.seq,
+              command: msg.command,
+              frame: msg.frame,
+              autocontinue: msg.autocontinue !== 0,
+              param1: msg.param1,
+              param2: msg.param2,
+              param3: msg.param3,
+              param4: msg.param4,
+              lat: msg.x / 1e7,
+              lon: msg.y / 1e7,
+              alt: msg.z,
+            });
+            const countExpected = useMavlinkMissionStore.getState().downloadCountExpected;
+            if (vehicleRef.current && countExpected !== null) {
+              if (msg.seq + 1 < countExpected) {
+                const req = new MissionRequestInt();
+                req.targetSystem = vehicleRef.current.sysid;
+                req.targetComponent = vehicleRef.current.compid;
+                req.seq = msg.seq + 1;
+                req.missionType = MavMissionType.MISSION;
+                sendGcs(encodePacket(req, { seq: nextOutgoingSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+              } else {
+                finishMissionDownload();
+                const ack = new MissionAck();
+                ack.targetSystem = vehicleRef.current.sysid;
+                ack.targetComponent = vehicleRef.current.compid;
+                ack.type = MavMissionResult.ACCEPTED;
+                ack.missionType = MavMissionType.MISSION;
+                sendGcs(encodePacket(ack, { seq: nextOutgoingSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+              }
+            }
+            break;
+          }
+          case MissionRequestInt.MSG_ID: {
+            // Only meaningful mid-upload - the vehicle is asking us (the GCS) for item `seq` (see
+            // handleUploadMission). Incoming outside an upload would be unexpected and is safely
+            // ignored, same convention as the FTP/DataFlash handlers above.
+            const msg = packet.message as MissionRequestInt;
+            const uploadItems = missionUploadRef.current;
+            const item = uploadItems?.[msg.seq];
+            if (item && vehicleRef.current) {
+              const itemMsg = new MissionItemInt();
+              itemMsg.targetSystem = vehicleRef.current.sysid;
+              itemMsg.targetComponent = vehicleRef.current.compid;
+              itemMsg.seq = msg.seq;
+              itemMsg.frame = item.frame;
+              itemMsg.command = item.command;
+              itemMsg.current = 0;
+              itemMsg.autocontinue = item.autocontinue ? 1 : 0;
+              itemMsg.param1 = item.param1;
+              itemMsg.param2 = item.param2;
+              itemMsg.param3 = item.param3;
+              itemMsg.param4 = item.param4;
+              itemMsg.x = Math.round(item.lat * 1e7);
+              itemMsg.y = Math.round(item.lon * 1e7);
+              itemMsg.z = item.alt;
+              itemMsg.missionType = MavMissionType.MISSION;
+              sendGcs(encodePacket(itemMsg, { seq: nextOutgoingSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+            }
+            break;
+          }
+          case MissionAck.MSG_ID: {
+            // Only meaningful mid-upload - the vehicle's final accept/reject of the whole
+            // mission just sent (see handleUploadMission). This app's own download path sends a
+            // MISSION_ACK rather than receiving one, so an incoming ack outside an upload is
+            // safely ignored.
+            const msg = packet.message as MissionAck;
+            if (missionUploadRef.current) {
+              missionUploadRef.current = null;
+              if (msg.type === MavMissionResult.ACCEPTED) finishMissionUpload();
+              else failMissionUpload(`MISSION_ACK: ${MavMissionResult[msg.type] ?? msg.type}`);
+            } else if (useMavlinkMissionStore.getState().downloadPhase === "active") {
+              // The vehicle rejected our MISSION_REQUEST_LIST/_INT outright (e.g. no mission
+              // stored, or a genuine protocol error) instead of answering with
+              // MISSION_COUNT/MISSION_ITEM_INT - a real, documented part of the mission
+              // protocol's error path, not a hypothetical.
+              failMissionDownload(`MISSION_ACK: ${MavMissionResult[msg.type] ?? msg.type}`);
+            }
+            break;
+          }
           default:
             break;
         }
@@ -719,10 +884,12 @@ export function ArduPilotSetupView() {
         resetRcCal();
         resetParamDefaults();
         resetDataflashLog();
+        resetMission();
         pendingParamsRef.current.clear();
         pendingParamCountRef.current = null;
         ftpSessionRef.current = null;
         dataflashDownloadRef.current = null;
+        missionUploadRef.current = null;
         streamsRequestedRef.current = false;
         fullParamsRequestedRef.current = false;
         setRebootLastCommandAck(null);
@@ -737,10 +904,12 @@ export function ArduPilotSetupView() {
         resetRcCal();
         resetParamDefaults();
         resetDataflashLog();
+        resetMission();
         pendingParamsRef.current.clear();
         pendingParamCountRef.current = null;
         ftpSessionRef.current = null;
         dataflashDownloadRef.current = null;
+        missionUploadRef.current = null;
         streamsRequestedRef.current = false;
         fullParamsRequestedRef.current = false;
         setRebootLastCommandAck(null);
@@ -800,6 +969,14 @@ export function ArduPilotSetupView() {
     setDataflashDownloadProgress,
     setDataflashDownloadDone,
     resetDataflashLog,
+    beginMissionDownload,
+    setMissionDownloadCountExpected,
+    receiveDownloadedMissionItem,
+    finishMissionDownload,
+    failMissionDownload,
+    finishMissionUpload,
+    failMissionUpload,
+    resetMission,
   ]);
 
   // Flushes buffered PARAM_VALUE decodes (see pendingParamsRef above) to the store in one
@@ -1058,6 +1235,33 @@ export function ArduPilotSetupView() {
     req.ofs = 0;
     req.count = sizeBytes;
     sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+  }
+
+  // Kicks off the mission read - MISSION_COUNT and each requested MISSION_ITEM_INT are handled
+  // as they arrive in the main onData effect above, since the vehicle drives the pacing.
+  function handleDownloadMission() {
+    if (!vehicle) return;
+    beginMissionDownload();
+    const req = new MissionRequestList();
+    req.targetSystem = vehicle.sysid;
+    req.targetComponent = vehicle.compid;
+    req.missionType = MavMissionType.MISSION;
+    sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+  }
+
+  // Announces the mission's size via MISSION_COUNT - the vehicle then drives the rest by
+  // requesting each item one at a time (MissionRequestInt.MSG_ID above), same request-response
+  // shape as the download, just with the roles reversed.
+  function handleUploadMission() {
+    if (!vehicle || missionItems.length === 0) return;
+    missionUploadRef.current = missionItems;
+    startMissionUpload();
+    const count = new MissionCount();
+    count.targetSystem = vehicle.sysid;
+    count.targetComponent = vehicle.compid;
+    count.count = missionItems.length;
+    count.missionType = MavMissionType.MISSION;
+    sendGcsPacket(encodePacket(count, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
   }
 
   // Opens the @PARAM/param.pck?withdefaults=1 virtual file over MAVLink FTP - the rest of the
@@ -1416,6 +1620,19 @@ export function ArduPilotSetupView() {
               downloadedFile={dataflashDownloadedFile}
               onRequestList={handleRequestDataflashList}
               onDownload={handleDownloadDataflashLog}
+            />
+          ) : activeSection === "missionPlan" ? (
+            <MissionPlanSection
+              items={missionItems}
+              downloadPhase={missionDownloadPhase}
+              downloadCountExpected={missionDownloadCountExpected}
+              downloadError={missionDownloadError}
+              uploadPhase={missionUploadPhase}
+              uploadError={missionUploadError}
+              vehiclePosition={position}
+              onDownload={handleDownloadMission}
+              onUpload={handleUploadMission}
+              onSetItems={setMissionItems}
             />
           ) : activeSection === "compassCal" ? (
             <CompassCalSection

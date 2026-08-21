@@ -14,6 +14,7 @@ import {
   Radio,
   SlidersHorizontal,
   Video,
+  Waypoints,
   Zap,
 } from "lucide-react";
 import { useState } from "react";
@@ -26,6 +27,7 @@ import { cn } from "@/lib/utils";
 
 export type ArduPilotSetupSection =
   | "telemetry"
+  | "missionPlan"
   | "parameters"
   | "serialPorts"
   | "dataflashLogs"
@@ -42,6 +44,7 @@ export type ArduPilotSetupSection =
 
 const SECTIONS: readonly ArduPilotSetupSection[] = [
   "telemetry",
+  "missionPlan",
   "parameters",
   "serialPorts",
   "dataflashLogs",
@@ -59,6 +62,7 @@ const SECTIONS: readonly ArduPilotSetupSection[] = [
 
 const SECTION_ICONS = {
   telemetry: Gauge,
+  missionPlan: Waypoints,
   parameters: List,
   serialPorts: Cable,
   dataflashLogs: HardDrive,

@@ -50,6 +50,31 @@ export { RcChannels } from "mavlink-mappings/dist/lib/common";
 // download), chunks are assumed to arrive in offset order with nothing dropped - true for the
 // local serial/UDP links this app targets, not an oversight.
 export { LogData, LogEntry, LogRequestData, LogRequestList } from "mavlink-mappings/dist/lib/common";
+// The MISSION_* microservice (MSG_ID 40-47, 51, 73) lists/uploads/downloads a stored mission,
+// geofence, or rally-points list, per https://mavlink.io/en/services/mission.html and confirmed
+// against MAVLink's own common.xml. Uses the modern `_INT` item variant (int32 lat/lon * 1e7,
+// like GLOBAL_POSITION_INT) rather than the deprecated float-precision MISSION_ITEM - real GCS's
+// (Mission Planner, QGroundControl) both default to `_INT` now. Unlike this app's other
+// multi-packet protocols (params, DataFlash logs, FTP), the mission protocol is inherently
+// request-response PER ITEM (GCS requests seq N, vehicle answers seq N, GCS requests seq N+1),
+// not a burst - so there's no gap-filling/reordering concern to begin with, by design of the
+// protocol itself. `missionType` (MavMissionType) selects which list: MISSION (the flight plan),
+// FENCE, or RALLY - all three share these exact same messages.
+export {
+  MavMissionResult,
+  MavMissionType,
+  MissionAck,
+  MissionClearAll,
+  MissionCount,
+  MissionCurrent,
+  MissionItemInt,
+  MissionItemReached,
+  MissionRequestInt,
+  MissionRequestList,
+} from "mavlink-mappings/dist/lib/common";
+// MavFrame.GLOBAL_RELATIVE_ALT (altitude relative to home) is the standard frame real GCS's use
+// for waypoints - confirmed against MAVLink's own common.xml (<enum name="MAV_FRAME">).
+export { MavFrame } from "mavlink-mappings/dist/lib/common";
 // FILE_TRANSFER_PROTOCOL (MSG_ID 110) is ArduPilot's MAVLink FTP microservice - the only real
 // mechanism it exposes for parameter DEFAULT values (confirmed: neither PARAM_VALUE nor the
 // apm.pdef.xml docs carry a default). `payload` (uint8_t[251]) carries a 12-byte PayloadHeader
