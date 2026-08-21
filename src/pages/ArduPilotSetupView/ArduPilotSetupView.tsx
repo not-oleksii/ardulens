@@ -40,6 +40,7 @@ import {
   DoStartMagCalCommand,
   FileTransferProtocol,
   GlobalPositionInt,
+  Gps2Raw,
   GpsRawInt,
   Heartbeat,
   MagCalProgress,
@@ -188,12 +189,14 @@ export function ArduPilotSetupView() {
   const vfrHud = useMavlinkTelemetryStore((s) => s.vfrHud);
   const battery = useMavlinkTelemetryStore((s) => s.battery);
   const gps = useMavlinkTelemetryStore((s) => s.gps);
+  const gps2 = useMavlinkTelemetryStore((s) => s.gps2);
   const position = useMavlinkTelemetryStore((s) => s.position);
   const sensorHealth = useMavlinkTelemetryStore((s) => s.sensorHealth);
   const setAttitude = useMavlinkTelemetryStore((s) => s.setAttitude);
   const setVfrHud = useMavlinkTelemetryStore((s) => s.setVfrHud);
   const setBattery = useMavlinkTelemetryStore((s) => s.setBattery);
   const setGps = useMavlinkTelemetryStore((s) => s.setGps);
+  const setGps2 = useMavlinkTelemetryStore((s) => s.setGps2);
   const setPosition = useMavlinkTelemetryStore((s) => s.setPosition);
   const setSensorHealth = useMavlinkTelemetryStore((s) => s.setSensorHealth);
   const servoOutputs = useMavlinkTelemetryStore((s) => s.servoOutputs);
@@ -424,6 +427,11 @@ export function ArduPilotSetupView() {
           case GpsRawInt.MSG_ID: {
             const msg = packet.message as GpsRawInt;
             setGps({ fixType: msg.fixType, satellitesVisible: msg.satellitesVisible, updatedAt: now });
+            break;
+          }
+          case Gps2Raw.MSG_ID: {
+            const msg = packet.message as Gps2Raw;
+            setGps2({ fixType: msg.fixType, satellitesVisible: msg.satellitesVisible, updatedAt: now });
             break;
           }
           case GlobalPositionInt.MSG_ID: {
@@ -678,6 +686,7 @@ export function ArduPilotSetupView() {
     setVfrHud,
     setBattery,
     setGps,
+    setGps2,
     setPosition,
     setSensorHealth,
     mergeServoOutputs,
@@ -1258,6 +1267,7 @@ export function ArduPilotSetupView() {
               vfrHud={vfrHud}
               battery={battery}
               gps={gps}
+              gps2={gps2}
               position={position}
               sensorHealth={sensorHealth}
               statusTextMessages={statusTextMessages}

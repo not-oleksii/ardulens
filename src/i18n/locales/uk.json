@@ -581,6 +581,8 @@
       "batteryRemaining": "Заряд батареї",
       "gpsFixLabel": "GPS-фікс",
       "satellites": "Супутники",
+      "gps2FixLabel": "GPS2-фікс",
+      "satellites2": "Супутники GPS2",
       "position": "Позиція (шир., довг.)",
       "gpsFix": {
         "noGps": "Немає GPS",

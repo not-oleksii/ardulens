@@ -52,6 +52,9 @@ export interface MavlinkTelemetryState {
   vfrHud: VfrHudTelemetry | null;
   battery: BatteryTelemetry | null;
   gps: GpsTelemetry | null;
+  /** From GPS2_RAW - stays null for the many vehicles that only have one GPS receiver, rather
+   *  than a permanent "no data" row for hardware that doesn't exist on this vehicle. */
+  gps2: GpsTelemetry | null;
   position: PositionTelemetry | null;
   sensorHealth: SensorHealthTelemetry | null;
   /** Live PWM per output channel (1-indexed), from SERVO_OUTPUT_RAW - lets a servo test show
@@ -61,6 +64,7 @@ export interface MavlinkTelemetryState {
   setVfrHud: (vfrHud: VfrHudTelemetry) => void;
   setBattery: (battery: BatteryTelemetry) => void;
   setGps: (gps: GpsTelemetry) => void;
+  setGps2: (gps2: GpsTelemetry) => void;
   setPosition: (position: PositionTelemetry) => void;
   setSensorHealth: (sensorHealth: SensorHealthTelemetry) => void;
   /** Merges a partial channel->pwm update (e.g. just channels 1-8 or 9-16, matching

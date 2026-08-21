@@ -35,6 +35,7 @@ interface TelemetrySectionProps {
   vfrHud: VfrHudTelemetry | null;
   battery: BatteryTelemetry | null;
   gps: GpsTelemetry | null;
+  gps2: GpsTelemetry | null;
   position: PositionTelemetry | null;
   sensorHealth: SensorHealthTelemetry | null;
   statusTextMessages: StatusTextEntry[];
@@ -47,6 +48,7 @@ export function TelemetrySection({
   vfrHud,
   battery,
   gps,
+  gps2,
   position,
   sensorHealth,
   statusTextMessages,
@@ -84,7 +86,7 @@ export function TelemetrySection({
                   <TabsTrigger value="preflight">{t("ardupilotSetup.telemetry.preflightTab")}</TabsTrigger>
                 </TabsList>
                 <TabsContent value="stats">
-                  {battery || gps || position ? (
+                  {battery || gps || gps2 || position ? (
                     <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
                       <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.batteryVoltage")}</dt>
                       <dd className="font-mono">{battery ? `${battery.voltageV.toFixed(2)} V` : "-"}</dd>
@@ -96,10 +98,23 @@ export function TelemetrySection({
                       <dd className="font-mono">
                         {battery && battery.remainingPercent !== null ? `${battery.remainingPercent}%` : "-"}
                       </dd>
+                      <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.groundspeed")}</dt>
+                      <dd className="font-mono">{vfrHud ? `${vfrHud.groundspeed.toFixed(1)} m/s` : "-"}</dd>
                       <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.gpsFixLabel")}</dt>
                       <dd>{gps ? gpsFixTypeLabel(t, gps.fixType) : "-"}</dd>
                       <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.satellites")}</dt>
                       <dd className="font-mono">{gps ? gps.satellitesVisible : "-"}</dd>
+                      {/* GPS2 rows only appear once a GPS2_RAW packet has actually arrived - most
+                          vehicles only have one GPS receiver, so this stays absent rather than
+                          showing a permanent "no second GPS" placeholder. */}
+                      {gps2 && (
+                        <>
+                          <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.gps2FixLabel")}</dt>
+                          <dd>{gpsFixTypeLabel(t, gps2.fixType)}</dd>
+                          <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.satellites2")}</dt>
+                          <dd className="font-mono">{gps2.satellitesVisible}</dd>
+                        </>
+                      )}
                       <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.position")}</dt>
                       <dd className="font-mono">{position ? `${position.lat.toFixed(6)}, ${position.lon.toFixed(6)}` : "-"}</dd>
                     </dl>

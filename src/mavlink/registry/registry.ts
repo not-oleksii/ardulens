@@ -10,7 +10,7 @@ import type { MavLinkPacketRegistry } from "mavlink-mappings/dist/lib/mavlink";
 
 export { Heartbeat } from "mavlink-mappings/dist/lib/minimal";
 export { MavAutopilot, MavModeFlag, MavState, MavType } from "mavlink-mappings/dist/lib/minimal";
-export { Attitude, GpsRawInt, GpsFixType, RequestDataStream, SysStatus, VfrHud } from "mavlink-mappings/dist/lib/common";
+export { Attitude, GpsRawInt, Gps2Raw, GpsFixType, RequestDataStream, SysStatus, VfrHud } from "mavlink-mappings/dist/lib/common";
 export { MavDataStream } from "mavlink-mappings/dist/lib/common";
 export { MavParamType, ParamRequestList, ParamRequestRead, ParamSet, ParamValue } from "mavlink-mappings/dist/lib/common";
 export { CommandAck, MavResult, MagCalReport, MagCalStatus } from "mavlink-mappings/dist/lib/common";
