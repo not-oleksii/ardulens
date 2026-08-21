@@ -43,6 +43,13 @@ export { DoMotorTestCommand, MotorTestThrottleType } from "mavlink-mappings/dist
 // side above. `invalid="UINT16_MAX"` per-channel (confirmed against MAVLink's own common.xml)
 // marks a channel as unused, not 0.
 export { RcChannels } from "mavlink-mappings/dist/lib/common";
+// The LOG_* microservice (MSG_ID 117-120) lists and downloads ArduPilot's own onboard DataFlash
+// logs: LOG_REQUEST_LIST/LOG_ENTRY enumerate what's stored, LOG_REQUEST_DATA/LOG_DATA transfer
+// one log's raw bytes in ~90-byte chunks - confirmed against MAVLink's own common.xml. Like this
+// app's other multi-packet flows (mag cal, accel cal, RC cal, the FTP-based param-defaults
+// download), chunks are assumed to arrive in offset order with nothing dropped - true for the
+// local serial/UDP links this app targets, not an oversight.
+export { LogData, LogEntry, LogRequestData, LogRequestList } from "mavlink-mappings/dist/lib/common";
 // FILE_TRANSFER_PROTOCOL (MSG_ID 110) is ArduPilot's MAVLink FTP microservice - the only real
 // mechanism it exposes for parameter DEFAULT values (confirmed: neither PARAM_VALUE nor the
 // apm.pdef.xml docs carry a default). `payload` (uint8_t[251]) carries a 12-byte PayloadHeader

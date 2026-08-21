@@ -26,6 +26,10 @@ import {
   GpsFixType,
   GpsRawInt,
   Heartbeat,
+  LogData,
+  LogEntry,
+  LogRequestData,
+  LogRequestList,
   MagCalProgress,
   MagCalReport,
   MagCalStatus,
@@ -725,6 +729,49 @@ export function startMockVehicle(
     sendHeartbeat(); // same immediate-feedback convenience as the arm/disarm handler above
   }
 
+  // --- DataFlash logs (LOG_REQUEST_LIST / LOG_REQUEST_DATA) ---
+  // Fake log entries with plausible sizes - not real ArduPilot binary log content (there's no
+  // simple way to fabricate a genuinely parseable .bin file here), just enough real LOG_ENTRY/
+  // LOG_DATA traffic to exercise the download progress/completion plumbing in Dev Mode.
+  const FAKE_LOGS = [
+    { id: 1, timeUtc: Math.floor(Date.now() / 1000) - 3 * 86400, size: 512_000 },
+    { id: 2, timeUtc: Math.floor(Date.now() / 1000) - 2 * 86400, size: 2_048_000 },
+    { id: 3, timeUtc: Math.floor(Date.now() / 1000) - 86400, size: 128_000 },
+  ];
+
+  function handleLogRequestList() {
+    for (const log of FAKE_LOGS) {
+      const entry = new LogEntry();
+      entry.id = log.id;
+      entry.numLogs = FAKE_LOGS.length;
+      entry.lastLogNum = FAKE_LOGS[FAKE_LOGS.length - 1]!.id;
+      entry.timeUtc = log.timeUtc;
+      entry.size = log.size;
+      send(entry);
+    }
+  }
+
+  const LOG_DATA_CHUNK_SIZE = 90; // LOG_DATA.data's real fixed array length (see registry.ts)
+
+  // Streams the requested byte range as consecutive LOG_DATA chunks in one synchronous burst -
+  // same "no artificial pacing" convenience as the FTP burst-read handler below.
+  function handleLogRequestData(msg: LogRequestData) {
+    const log = FAKE_LOGS.find((l) => l.id === msg.id);
+    if (!log) return;
+    const end = Math.min(msg.ofs + msg.count, log.size);
+    for (let offset = msg.ofs; offset < end; offset += LOG_DATA_CHUNK_SIZE) {
+      const count = Math.min(LOG_DATA_CHUNK_SIZE, end - offset);
+      const data: number[] = [];
+      for (let i = 0; i < count; i++) data.push((offset + i) % 256);
+      const chunk = new LogData();
+      chunk.id = msg.id;
+      chunk.ofs = offset;
+      chunk.count = count;
+      chunk.data = data;
+      send(chunk);
+    }
+  }
+
   // --- MAVLink FTP (param.pck defaults download) ---
   // A real, minimal FTP server: enough of OPEN_FILE_RO/BURSTREADFILE/TERMINATESESSION to serve
   // exactly one virtual file, @PARAM/param.pck?withdefaults=1 - the only file this app's FTP
@@ -831,6 +878,12 @@ export function startMockVehicle(
           break;
         case ParamSet.MSG_ID:
           handleParamSet(packet.message as ParamSet, packet.payload);
+          break;
+        case LogRequestList.MSG_ID:
+          handleLogRequestList();
+          break;
+        case LogRequestData.MSG_ID:
+          handleLogRequestData(packet.message as LogRequestData);
           break;
         case COMMAND_LONG_MSG_ID:
           handleCommandLong(packet.message, packet.payload);

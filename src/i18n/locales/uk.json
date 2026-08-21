@@ -45,6 +45,7 @@
       "telemetry": "Телеметрія",
       "parameters": "Параметри",
       "serialPorts": "Послідовні порти",
+      "dataflashLogs": "DataFlash Логи",
       "compassCal": "Калібрування компаса",
       "accelCal": "Калібрування акселерометра",
       "rcCal": "Калібрування RC",
@@ -337,6 +338,22 @@
       "to": "Стане",
       "cancel": "Скасувати",
       "confirmSave": "Надіслати зміни"
+    },
+    "dataflashLogs": {
+      "heading": "DataFlash Логи",
+      "refreshList": "Оновити список",
+      "notLoaded": "Натисніть \"Оновити список\", щоб побачити логи, збережені на апараті.",
+      "waitingForList": "Очікування списку логів апарата...",
+      "listProgress": "Знайдено {{received}} з {{total}} логів...",
+      "id": "№",
+      "time": "Час",
+      "size": "Розмір (байт)",
+      "action": "Дія",
+      "unknownTime": "Невідомо",
+      "download": "Завантажити",
+      "downloading": "Завантаження... {{received}} / {{total}} Б",
+      "saveFile": "Зберегти .bin",
+      "viewOnMap": "Переглянути на карті"
     },
     "osdSetup": {
       "heading": "Налаштування OSD",

@@ -45,6 +45,7 @@
       "telemetry": "Telemetry",
       "parameters": "Parameters",
       "serialPorts": "Serial Ports",
+      "dataflashLogs": "DataFlash Logs",
       "compassCal": "Compass Cal",
       "accelCal": "Accel Cal",
       "rcCal": "RC Cal",
@@ -337,6 +338,22 @@
       "to": "To",
       "cancel": "Cancel",
       "confirmSave": "Send changes"
+    },
+    "dataflashLogs": {
+      "heading": "DataFlash Logs",
+      "refreshList": "Refresh list",
+      "notLoaded": "Click \"Refresh list\" to see the logs stored on the vehicle.",
+      "waitingForList": "Waiting for the vehicle's log list...",
+      "listProgress": "{{received}} of {{total}} logs found so far...",
+      "id": "#",
+      "time": "Time",
+      "size": "Size (bytes)",
+      "action": "Action",
+      "unknownTime": "Unknown",
+      "download": "Download",
+      "downloading": "Downloading... {{received}} / {{total}} B",
+      "saveFile": "Save .bin",
+      "viewOnMap": "View on map"
     },
     "osdSetup": {
       "heading": "OSD Setup",
