@@ -559,6 +559,9 @@
     },
     "telemetry": {
       "waitingForTelemetry": "Waiting for telemetry...",
+      "statsTab": "Stats",
+      "messagesTab": "Messages",
+      "preflightTab": "PreFlight",
       "pfdAriaLabel": "Primary flight display",
       "pfd": {
         "airspeedLabel": "ASPD, m/s",
@@ -591,6 +594,10 @@
         "ppp": "PPP",
         "unknown": "Unknown ({{value}})"
       }
+    },
+    "messages": {
+      "heading": "Messages",
+      "empty": "No messages received yet."
     },
     "health": {
       "prearmFailing": "Pre-arm checks failing",

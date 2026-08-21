@@ -556,7 +556,7 @@ describe("ArduPilotSetupView", () => {
       return view;
     }
 
-    it("shows nothing once SYS_STATUS reports every present sensor healthy - this view is failures-only", async () => {
+    it("shows nothing once SYS_STATUS reports PREARM_CHECK healthy - just the headline badge, no per-sensor detail", async () => {
       mockBackend();
       await connectAndOpenTelemetry();
 
@@ -564,71 +564,111 @@ describe("ArduPilotSetupView", () => {
       await emit(DATA_EVENT, { bytes: Array.from(encodePacket(buildSysStatus(present, present), { seq: 2, sysid: 1, compid: 1 })) });
 
       // No reliable "it arrived and was processed" signal to await for a UI that stays empty -
-      // a short real wait is the only option here (see the STATUSTEXT INFO-filtering test above
-      // for the same tradeoff).
+      // a short real wait is the only option here.
       await new Promise((resolve) => setTimeout(resolve, 50));
       expect(screen.queryByText(/Перевірки перед зльотом/)).not.toBeInTheDocument();
-      expect(screen.queryByText("Гіроскоп")).not.toBeInTheDocument();
     });
 
-    it("flags an unhealthy present sensor and a failing pre-arm badge", async () => {
+    it("flags a failing pre-arm badge on the PFD, with the actual unhealthy sensor detail on the PreFlight tab instead", async () => {
       mockBackend();
-      await connectAndOpenTelemetry();
+      const { user } = await connectAndOpenTelemetry();
 
       const present = MavSysStatusSensor.SENSOR_3D_GYRO | MavSysStatusSensor.PREARM_CHECK;
       // Both present, neither healthy - health=0 for both bits.
       await emit(DATA_EVENT, { bytes: Array.from(encodePacket(buildSysStatus(present, 0), { seq: 2, sysid: 1, compid: 1 })) });
 
       expect(await screen.findByText("Перевірки перед зльотом не пройдено")).toBeInTheDocument();
-      expect(screen.getByText("Гіроскоп")).toBeInTheDocument();
+      // The PFD overlay itself no longer names the sensor - that detail moved to PreFlight.
+      expect(screen.queryByText("Гіроскоп")).not.toBeInTheDocument();
+
+      const preflightTab = within(screen.getByRole("main")).getByRole("tab", { name: "Перед польотом" });
+      await user.click(preflightTab);
+      expect(await screen.findByText("Гіроскоп")).toBeInTheDocument();
     });
 
-    it("shows recent STATUSTEXT failure messages (WARNING or worse), most recent first", async () => {
-      mockBackend();
-      const { clickDevMode, getStatusAlert } = getView();
-      await clickDevMode();
-      await within(getStatusAlert()).findByText("Підключено: Dev mode (simulated vehicle)");
-
-      function buildStatusText(severity: MavSeverity, text: string) {
-        const msg = new StatusText();
-        msg.severity = severity;
-        msg.text = text;
-        msg.id = 0;
-        msg.chunkSeq = 0;
-        return msg;
-      }
-
-      await emit(DATA_EVENT, {
-        bytes: Array.from(encodePacket(buildStatusText(MavSeverity.WARNING, "PreArm: Compass not calibrated"), { seq: 1, sysid: 1, compid: 1 })),
-      });
-      await screen.findByText("PreArm: Compass not calibrated");
-      await emit(DATA_EVENT, {
-        bytes: Array.from(encodePacket(buildStatusText(MavSeverity.ERROR, "PreArm: GPS glitch"), { seq: 2, sysid: 1, compid: 1 })),
-      });
-      await screen.findByText("PreArm: GPS glitch");
-
-      const messages = screen.getAllByText(/PreArm: Compass not calibrated|PreArm: GPS glitch/);
-      expect(messages.map((el) => el.textContent)).toEqual(["PreArm: GPS glitch", "PreArm: Compass not calibrated"]);
-    });
-
-    it("doesn't show a routine INFO/DEBUG STATUSTEXT message - this view is failures-only", async () => {
-      mockBackend();
-      const { clickDevMode, getStatusAlert } = getView();
-      await clickDevMode();
-      await within(getStatusAlert()).findByText("Підключено: Dev mode (simulated vehicle)");
-
+    // Nested here (rather than a sibling describe) so these can reuse connectAndOpenTelemetry.
+    describe("compact Messages tab (under the PFD)", () => {
+    function buildStatusText(severity: MavSeverity, text: string) {
       const msg = new StatusText();
-      msg.severity = MavSeverity.INFO;
-      msg.text = "Ready to fly";
+      msg.severity = severity;
+      msg.text = text;
       msg.id = 0;
       msg.chunkSeq = 0;
-      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(msg, { seq: 1, sysid: 1, compid: 1 })) });
+      return msg;
+    }
 
-      // No reliable "it arrived" signal to await for a message we expect NOT to render - a
-      // short real wait is the only option, matching this file's own established tolerance for
-      // small timing waits elsewhere (see the mock heartbeat's own immediate-vs-1s-tick tests).
+    async function connectAndOpenMessagesTab() {
+      const view = await connectAndOpenTelemetry();
+      const messagesTab = within(screen.getByRole("main")).getByRole("tab", { name: "Повідомлення" });
+      await view.user.click(messagesTab);
+      return view;
+    }
+
+    it("defaults to the Stats tab, not Messages", async () => {
+      mockBackend();
+      await connectAndOpenTelemetry();
+      expect(within(screen.getByRole("main")).getByRole("tab", { name: "Статистика" })).toHaveAttribute("data-state", "active");
+    });
+
+    it("shows the empty-state message before any STATUSTEXT has arrived", async () => {
+      mockBackend();
+      await connectAndOpenMessagesTab();
+      expect(screen.getByText("Повідомлень ще не отримано.")).toBeInTheDocument();
+    });
+
+    it("shows a routine INFO message, unlike the failures-only health overlay", async () => {
+      mockBackend();
+      await connectAndOpenMessagesTab();
+
+      await emit(DATA_EVENT, {
+        bytes: Array.from(encodePacket(buildStatusText(MavSeverity.INFO, "Ready to fly"), { seq: 1, sysid: 1, compid: 1 })),
+      });
+
+      expect(await screen.findByText("Ready to fly")).toBeInTheDocument();
+    });
+
+    it("shows messages most-recent-first", async () => {
+      mockBackend();
+      await connectAndOpenMessagesTab();
+
+      // Both INFO (not WARNING+) - the vehicle-health overlay elsewhere on this same page also
+      // shows WARNING+ messages, so a WARNING severity here would make these queries ambiguous
+      // against that separate copy rather than actually testing this tab's own ordering.
+      await emit(DATA_EVENT, {
+        bytes: Array.from(encodePacket(buildStatusText(MavSeverity.INFO, "first message"), { seq: 1, sysid: 1, compid: 1 })),
+      });
+      await screen.findByText("first message");
+      await emit(DATA_EVENT, {
+        bytes: Array.from(encodePacket(buildStatusText(MavSeverity.INFO, "second message"), { seq: 2, sysid: 1, compid: 1 })),
+      });
+      await screen.findByText("second message");
+
+      // Each <p> is matched by its own direct text node ("first message"/"second message"), but
+      // its full textContent also includes the sibling timestamp <span> - check order via
+      // .toContain rather than exact equality so this doesn't couple to that timestamp text.
+      const messages = screen.getAllByText(/first message|second message/);
+      expect(messages[0]?.textContent).toContain("second message");
+      expect(messages[1]?.textContent).toContain("first message");
+    });
+
+    it("keeps showing a message once it's older than the health overlay's 15s relevance window - this is the full history, not a live-problems snapshot", async () => {
+      mockBackend();
+      await connectAndOpenMessagesTab();
+
+      await emit(DATA_EVENT, {
+        bytes: Array.from(encodePacket(buildStatusText(MavSeverity.WARNING, "RC Short Failsafe: switched to CIRCLE"), { seq: 1, sysid: 1, compid: 1 })),
+      });
+      // WARNING severity also renders in the vehicle-health overlay elsewhere on this page, so
+      // this query is scoped to just this tab's own panel to test only its behavior.
+      const tabpanel = screen.getByRole("tabpanel");
+      const message = await within(tabpanel).findByText("RC Short Failsafe: switched to CIRCLE");
+
+      // No fake timers here (this file uses real ones throughout) - just confirms the message is
+      // still in the DOM well after the health overlay's window would have hidden it, without
+      // actually waiting out 15s in the test.
       await new Promise((resolve) => setTimeout(resolve, 50));
-      expect(screen.queryByText("Ready to fly")).not.toBeInTheDocument();
+      expect(message).toBeInTheDocument();
+    });
     });
   });
 
@@ -3595,5 +3635,98 @@ describe("ArduPilotSetupView", () => {
       },
       15000,
     );
+
+    it("shows ArduCopter's full failsafe param set, including radio/GCS/EKF/crash/vibration/dead-reckoning and options", async () => {
+      mockBackend();
+      await connectAndOpenRcSetup(); // default heartbeat is QUADROTOR -> ArduCopter
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FS_THR_ENABLE", 1, MavParamType.INT8, 0, 1, 1) });
+      expect(await screen.findByText("FS_GCS_ENABLE")).toBeInTheDocument();
+      expect(screen.getByText("FS_GCS_TIMEOUT")).toBeInTheDocument();
+      expect(screen.getByText("FS_EKF_ACTION")).toBeInTheDocument();
+      expect(screen.getByText("FS_EKF_THRESH")).toBeInTheDocument();
+      expect(screen.getByText("FS_EKF_FILT")).toBeInTheDocument();
+      expect(screen.getByText("FS_CRASH_CHECK")).toBeInTheDocument();
+      expect(screen.getByText("FS_VIBE_ENABLE")).toBeInTheDocument();
+      expect(screen.getByText("FS_DR_ENABLE")).toBeInTheDocument();
+      expect(screen.getByText("FS_DR_TIMEOUT")).toBeInTheDocument();
+      expect(screen.getByText("FS_OPTIONS")).toBeInTheDocument();
+      // Plane-only params (different failsafe model entirely) shouldn't leak into Copter's list.
+      expect(screen.queryByText("FS_SHORT_ACTN")).not.toBeInTheDocument();
+      expect(screen.queryByText("THR_FS_VALUE")).not.toBeInTheDocument();
+    });
+
+    it("shows ArduPlane's own failsafe params - genuinely different names, not a subset of Copter's", async () => {
+      // Real ArduPilot quirk, not a typo: Plane has no FS_THR_ENABLE at all (just a bare PWM
+      // threshold, THR_FS_VALUE) and its GCS-failsafe param is "FS_GCS_ENABL" (no trailing E),
+      // distinct from Copter's "FS_GCS_ENABLE" - see rcSetupParams.ts.
+      mockBackend();
+      const view = getView();
+      await view.clickConnect();
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit(DATA_EVENT, { bytes: samplePlaneHeartbeatBytes() });
+      await view.clickRcSetupNav();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("THR_FS_VALUE", 950, MavParamType.INT16, 0, 1, 1) });
+      expect(await screen.findByText("THR_FS_VALUE")).toBeInTheDocument();
+      expect(screen.getByText("FS_GCS_ENABL")).toBeInTheDocument();
+      expect(screen.getByText("FS_SHORT_ACTN")).toBeInTheDocument();
+      expect(screen.getByText("FS_LONG_ACTN")).toBeInTheDocument();
+      expect(screen.getByText("FS_LONG_TIMEOUT")).toBeInTheDocument();
+      expect(screen.getByText("FS_EKF_THRESH")).toBeInTheDocument();
+      expect(screen.queryByText("FS_THR_ENABLE")).not.toBeInTheDocument();
+      expect(screen.queryByText("FS_OPTIONS")).not.toBeInTheDocument();
+    });
+
+    it("renders a bitmask-typed failsafe param as checkboxes, and toggling a bit stages the OR'd value", async () => {
+      // Uses the Rover vehicle folder as an isolated docs-fetch-stub slot not claimed by any
+      // other test in this file (see the "one legitimate real-fetch-stub slot per folder"
+      // comment on the Parameters-panel ArduCopter test - fetchParamDocs caches per-folder at
+      // module scope, shared across every test here). FS_THR_ENABLE is declared as a <bitmask>
+      // purely to exercise RcSetupSection's bitmaskField rendering/staging path - real ArduPilot
+      // only documents FS_OPTIONS that way (Rover falls back to the generic FS_THR_ENABLE/VALUE
+      // pair, see FAILSAFE_PARAM_NAMES_FALLBACK), but the rendering logic itself is name-agnostic.
+      const sampleXml = `<?xml version="1.0"?><paramfile><vehicles><parameters name="Rover">
+        <param humanName="Throttle Failsafe Enable" name="Rover:FS_THR_ENABLE" documentation="Bitmask of options">
+          <bitmask>
+            <bit code="0">Option A</bit>
+            <bit code="1">Option B</bit>
+          </bitmask>
+        </param>
+      </parameters></vehicles></paramfile>`;
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, text: () => Promise.resolve(sampleXml) }));
+
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const view = getView();
+      await view.clickConnect();
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit(DATA_EVENT, { bytes: sampleRoverHeartbeatBytes() });
+      await view.clickRcSetupNav();
+      const { user } = view;
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FS_THR_ENABLE", 0, MavParamType.INT16, 0, 2, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("FS_THR_VALUE", 975, MavParamType.INT16, 1, 2, 2) });
+
+      const optionB = await screen.findByRole("checkbox", { name: "Option B" });
+      expect(optionB).not.toBeChecked();
+      await user.click(optionB);
+      expect(optionB).toBeChecked();
+
+      const saveAllButton = await screen.findByRole("button", { name: "Зберегти все (1)" });
+      await user.click(saveAllButton);
+      await user.click(screen.getByRole("button", { name: "Зберегти" }));
+
+      const paramSet = invoked.mock.calls.find(
+        ([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamSet.MSG_ID,
+      );
+      expect(paramSet).toBeDefined();
+      const bytes = (paramSet![1] as { bytes: number[] }).bytes;
+      const payload = new Uint8Array(bytes.slice(10));
+      // Bit 1 set, bit 0 clear -> 2.
+      expect(paramWireBitsToValue(readParamValueBits(payload), MavParamType.INT16)).toBe(2);
+    });
   });
 });

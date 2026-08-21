@@ -14,7 +14,7 @@ import { ParamLoadProgress } from "./ParamLoadProgress";
 import { FLTMODE_BAND_RANGE_LABELS, FLTMODE_BAND_UPPER_BOUNDS, fltModeBandIndex } from "./rcBands";
 import { colorForRcChannel } from "./rcChannelColors";
 import {
-  FAILSAFE_PARAM_NAMES,
+  failsafeParamNamesFor,
   FLIGHT_MODE_SLOT_NAMES,
   RC_OPTION_CHANNEL_COUNT,
   RC_SETUP_PARAM_NAMES,
@@ -131,6 +131,7 @@ export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetu
 
   const vehicleFolder = vehicleFolderForMavType(vehicleType);
   const modeNamesFallback = vehicleFolder === "ArduCopter" ? COPTER_MODE_NAMES : vehicleFolder === "ArduPlane" ? PLANE_MODE_NAMES : null;
+  const failsafeParamNames = failsafeParamNamesFor(vehicleFolder);
 
   useEffect(() => {
     let cancelled = false;
@@ -320,6 +321,34 @@ export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetu
         </button>
         <ModifiedFromDefaultDot name={name} value={value} />
       </span>
+    );
+  }
+
+  // Bitmask params (e.g. FS_OPTIONS) don't fit editableField's single-value select/input - each
+  // documented bit gets its own checkbox, and the staged value is the OR/AND of the current value
+  // with that bit's mask, same stageChange path every other field here uses.
+  function bitmaskField(name: string, bits: Record<number, string>) {
+    const entry = params[name];
+    if (!entry) return <span className="font-mono text-xs text-muted-foreground">-</span>;
+    const value = shownValue(name)!;
+    return (
+      <div className="flex flex-col gap-1">
+        {Object.entries(bits).map(([bit, label]) => {
+          const bitValue = 1 << Number(bit);
+          const checked = (value & bitValue) !== 0;
+          return (
+            <label key={bit} className="flex items-center gap-1.5 text-xs">
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={() => stageChange(name, value ^ bitValue)}
+              />
+              {label}
+            </label>
+          );
+        })}
+        <ModifiedFromDefaultDot name={name} value={value} />
+      </div>
     );
   }
 
@@ -561,12 +590,18 @@ export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetu
           <section className="flex flex-col gap-2">
             <h4 className="text-xs font-bold tracking-wide uppercase text-muted-foreground">{t("ardupilotSetup.rcSetup.failsafeHeading")}</h4>
             <div className="flex flex-col gap-2 rounded-lg border border-border p-2">
-              {FAILSAFE_PARAM_NAMES.map((name) => (
-                <div key={name} className="flex items-center justify-between gap-2 text-xs">
-                  <span className="font-mono">{name}</span>
-                  {editableField(name, name === "FS_THR_ENABLE" ? docs?.FS_THR_ENABLE?.values : undefined)}
-                </div>
-              ))}
+              {failsafeParamNames.map((name) => {
+                const bits = docs?.[name]?.bitmask;
+                return (
+                  <div
+                    key={name}
+                    className={bits ? "flex flex-col gap-1 text-xs" : "flex items-center justify-between gap-2 text-xs"}
+                  >
+                    <span className="font-mono">{name}</span>
+                    {bits ? bitmaskField(name, bits) : editableField(name, docs?.[name]?.values)}
+                  </div>
+                );
+              })}
             </div>
           </section>
         </div>

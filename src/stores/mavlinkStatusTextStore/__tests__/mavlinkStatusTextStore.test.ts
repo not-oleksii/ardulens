@@ -24,14 +24,14 @@ describe("mavlinkStatusTextStore", () => {
     expect(messages.map((m) => m.text)).toEqual(["second", "first"]);
   });
 
-  it("caps the message list at 50, dropping the oldest", () => {
-    for (let i = 0; i < 55; i++) {
+  it("caps the message list at 300, dropping the oldest", () => {
+    for (let i = 0; i < 305; i++) {
       useMavlinkStatusTextStore.getState().addMessage(entry(`msg-${i}`));
     }
 
     const messages = useMavlinkStatusTextStore.getState().messages;
-    expect(messages.length).toBe(50);
-    expect(messages[0]!.text).toBe("msg-54"); // most recent kept
+    expect(messages.length).toBe(300);
+    expect(messages[0]!.text).toBe("msg-304"); // most recent kept
     expect(messages.at(-1)!.text).toBe("msg-5"); // the first 5 (0-4) were dropped
   });
 
