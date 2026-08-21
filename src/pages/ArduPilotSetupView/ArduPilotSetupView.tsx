@@ -14,6 +14,7 @@ import { RcCalSection } from "./RcCalSection";
 import { OsdSetupSection } from "./OsdSetupSection";
 import { VtxSetupSection } from "./VtxSetupSection";
 import { RcSetupSection } from "./RcSetupSection";
+import { DataflashLogsSection } from "./DataflashLogsSection";
 import { SerialPortsSection } from "./SerialPortsSection";
 import { TelemetrySection } from "./TelemetrySection";
 import { VehicleStatusBar } from "./VehicleStatusBar";
@@ -45,6 +46,10 @@ import {
   Gps2Raw,
   GpsRawInt,
   Heartbeat,
+  LogData,
+  LogEntry,
+  LogRequestData,
+  LogRequestList,
   MagCalProgress,
   MagCalReport,
   MavAutopilot,
@@ -90,6 +95,7 @@ import type { SerialPortInfo } from "../../services/mavlinkTransport/types";
 import { useMavlinkAccelCalStore } from "../../stores/mavlinkAccelCalStore/mavlinkAccelCalStore";
 import { useMavlinkCompassCalStore } from "../../stores/mavlinkCompassCalStore/mavlinkCompassCalStore";
 import { useMavlinkConnectionStore } from "../../stores/mavlinkConnectionStore/mavlinkConnectionStore";
+import { useMavlinkDataflashLogStore } from "../../stores/mavlinkDataflashLogStore/mavlinkDataflashLogStore";
 import { useMavlinkParamDefaultsStore } from "../../stores/mavlinkParamDefaultsStore/mavlinkParamDefaultsStore";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import type { ParamEntry } from "../../stores/mavlinkParameterStore/types";
@@ -220,6 +226,21 @@ export function ArduPilotSetupView() {
   const setParamDefaultsDone = useMavlinkParamDefaultsStore((s) => s.setDone);
   const setParamDefaultsError = useMavlinkParamDefaultsStore((s) => s.setError);
   const resetParamDefaults = useMavlinkParamDefaultsStore((s) => s.reset);
+  const dataflashEntries = useMavlinkDataflashLogStore((s) => s.entries);
+  const dataflashNumLogsExpected = useMavlinkDataflashLogStore((s) => s.numLogsExpected);
+  const dataflashListRequested = useMavlinkDataflashLogStore((s) => s.listRequested);
+  const dataflashDownloadPhase = useMavlinkDataflashLogStore((s) => s.downloadPhase);
+  const dataflashDownloadId = useMavlinkDataflashLogStore((s) => s.downloadId);
+  const dataflashDownloadTotalBytes = useMavlinkDataflashLogStore((s) => s.downloadTotalBytes);
+  const dataflashDownloadBytesReceived = useMavlinkDataflashLogStore((s) => s.downloadBytesReceived);
+  const dataflashDownloadedFile = useMavlinkDataflashLogStore((s) => s.downloadedFile);
+  const requestDataflashList = useMavlinkDataflashLogStore((s) => s.requestList);
+  const upsertDataflashEntry = useMavlinkDataflashLogStore((s) => s.upsertEntry);
+  const setDataflashNumLogsExpected = useMavlinkDataflashLogStore((s) => s.setNumLogsExpected);
+  const startDataflashDownload = useMavlinkDataflashLogStore((s) => s.startDownload);
+  const setDataflashDownloadProgress = useMavlinkDataflashLogStore((s) => s.setDownloadProgress);
+  const setDataflashDownloadDone = useMavlinkDataflashLogStore((s) => s.setDownloadDone);
+  const resetDataflashLog = useMavlinkDataflashLogStore((s) => s.reset);
   const compassCalProgress = useMavlinkCompassCalStore((s) => s.progress);
   const compassCalReports = useMavlinkCompassCalStore((s) => s.reports);
   const compassCalLastCommandAck = useMavlinkCompassCalStore((s) => s.lastCommandAck);
@@ -286,6 +307,10 @@ export function ArduPilotSetupView() {
   // The FTP payload's own seq_number field - a separate counter from outgoingSeqRef's MAVLink
   // packet seq (the FTP spec's sequence numbering is per sub-protocol, not per MAVLink packet).
   const ftpSeqRef = useRef(0);
+  // The in-progress DataFlash log download's id/total size and the buffer LOG_DATA chunks are
+  // written into directly at their own offset (see LogData.MSG_ID below) - null when no download
+  // is active. Same "assume in-order, nothing dropped" scope as ftpSessionRef above.
+  const dataflashDownloadRef = useRef<{ id: number; totalBytes: number; bytes: Uint8Array; bytesReceived: number } | null>(null);
   // Mirrors `vehicle` for the persistent onData effect closure below, which can't see fresh
   // render-scope state (its own dependency array only re-subscribes on things like `status`,
   // not on every heartbeat-driven `vehicle` update - see buildFtpPacket's comment for why).
@@ -649,6 +674,29 @@ export function ArduPilotSetupView() {
             }
             break;
           }
+          case LogEntry.MSG_ID: {
+            const msg = packet.message as LogEntry;
+            upsertDataflashEntry({ id: msg.id, timeUtc: msg.timeUtc, sizeBytes: msg.size });
+            setDataflashNumLogsExpected(msg.numLogs);
+            break;
+          }
+          case LogData.MSG_ID: {
+            const msg = packet.message as LogData;
+            const download = dataflashDownloadRef.current;
+            if (download && download.id === msg.id) {
+              // LogData.data is a fixed-length 90-element field on the wire (see registry.ts) -
+              // the codec's decoder always returns all 90, padded with zeros past msg.count, so
+              // only the real `count` bytes are meaningful and get written.
+              download.bytes.set(msg.data.slice(0, msg.count), msg.ofs);
+              download.bytesReceived += msg.count;
+              setDataflashDownloadProgress(download.bytesReceived);
+              if (download.bytesReceived >= download.totalBytes) {
+                dataflashDownloadRef.current = null;
+                setDataflashDownloadDone(download.bytes);
+              }
+            }
+            break;
+          }
           default:
             break;
         }
@@ -670,9 +718,11 @@ export function ArduPilotSetupView() {
         resetAccelCal();
         resetRcCal();
         resetParamDefaults();
+        resetDataflashLog();
         pendingParamsRef.current.clear();
         pendingParamCountRef.current = null;
         ftpSessionRef.current = null;
+        dataflashDownloadRef.current = null;
         streamsRequestedRef.current = false;
         fullParamsRequestedRef.current = false;
         setRebootLastCommandAck(null);
@@ -686,9 +736,11 @@ export function ArduPilotSetupView() {
         resetAccelCal();
         resetRcCal();
         resetParamDefaults();
+        resetDataflashLog();
         pendingParamsRef.current.clear();
         pendingParamCountRef.current = null;
         ftpSessionRef.current = null;
+        dataflashDownloadRef.current = null;
         streamsRequestedRef.current = false;
         fullParamsRequestedRef.current = false;
         setRebootLastCommandAck(null);
@@ -743,6 +795,11 @@ export function ArduPilotSetupView() {
     setParamDefaultsDone,
     setParamDefaultsError,
     resetParamDefaults,
+    upsertDataflashEntry,
+    setDataflashNumLogsExpected,
+    setDataflashDownloadProgress,
+    setDataflashDownloadDone,
+    resetDataflashLog,
   ]);
 
   // Flushes buffered PARAM_VALUE decodes (see pendingParamsRef above) to the store in one
@@ -971,6 +1028,35 @@ export function ArduPilotSetupView() {
     const req = new ParamRequestList();
     req.targetSystem = vehicle.sysid;
     req.targetComponent = vehicle.compid;
+    sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+  }
+
+  // start=0/end=0xFFFF is the standard "give me everything" convention (mavlink.io's own LOG_
+  // microservice docs) - the resulting LOG_ENTRY stream is handled in the main onData effect.
+  function handleRequestDataflashList() {
+    if (!vehicle) return;
+    requestDataflashList();
+    const req = new LogRequestList();
+    req.targetSystem = vehicle.sysid;
+    req.targetComponent = vehicle.compid;
+    req.start = 0;
+    req.end = 0xffff;
+    sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+  }
+
+  // A single LOG_REQUEST_DATA covering the whole file makes ArduPilot stream it back as a burst
+  // of LOG_DATA chunks (see the LogData.MSG_ID case above), the same "one request, keep reading
+  // until done" shape as PARAM_REQUEST_LIST and FTP's BURSTREADFILE.
+  function handleDownloadDataflashLog(id: number, sizeBytes: number) {
+    if (!vehicle || sizeBytes <= 0) return;
+    dataflashDownloadRef.current = { id, totalBytes: sizeBytes, bytes: new Uint8Array(sizeBytes), bytesReceived: 0 };
+    startDataflashDownload(id, sizeBytes);
+    const req = new LogRequestData();
+    req.targetSystem = vehicle.sysid;
+    req.targetComponent = vehicle.compid;
+    req.id = id;
+    req.ofs = 0;
+    req.count = sizeBytes;
     sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
   }
 
@@ -1318,6 +1404,19 @@ export function ArduPilotSetupView() {
             />
           ) : activeSection === "serialPorts" ? (
             <SerialPortsSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoad={handleLoadParameters} onSetParam={handleSetParam} />
+          ) : activeSection === "dataflashLogs" ? (
+            <DataflashLogsSection
+              entries={dataflashEntries}
+              numLogsExpected={dataflashNumLogsExpected}
+              listRequested={dataflashListRequested}
+              downloadPhase={dataflashDownloadPhase}
+              downloadId={dataflashDownloadId}
+              downloadTotalBytes={dataflashDownloadTotalBytes}
+              downloadBytesReceived={dataflashDownloadBytesReceived}
+              downloadedFile={dataflashDownloadedFile}
+              onRequestList={handleRequestDataflashList}
+              onDownload={handleDownloadDataflashLog}
+            />
           ) : activeSection === "compassCal" ? (
             <CompassCalSection
               progress={compassCalProgress}

@@ -18,6 +18,10 @@ import {
   GpsFixType,
   GpsRawInt,
   Heartbeat,
+  LogData,
+  LogEntry,
+  LogRequestData,
+  LogRequestList,
   MagCalProgress,
   MagCalReport,
   MagCalStatus,
@@ -2366,6 +2370,118 @@ describe("ArduPilotSetupView", () => {
         });
         expect(setRequest).toBeDefined();
       });
+    });
+  });
+
+  describe("dataflash logs", () => {
+    async function connectAndOpenDataflashLogs() {
+      const view = getView();
+      await view.clickConnect();
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
+      await view.user.click(screen.getByRole("tab", { name: "DataFlash Логи" }));
+      return view;
+    }
+
+    it("shows a not-loaded message and a Refresh list button", async () => {
+      mockBackend();
+      await connectAndOpenDataflashLogs();
+      expect(screen.getByRole("button", { name: "Оновити список" })).toBeInTheDocument();
+      expect(
+        screen.getByText('Натисніть "Оновити список", щоб побачити логи, збережені на апараті.'),
+      ).toBeInTheDocument();
+    });
+
+    it("Refresh list sends LOG_REQUEST_LIST, and shows an entry's size/time once LOG_ENTRY arrives", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenDataflashLogs();
+
+      await user.click(screen.getByRole("button", { name: "Оновити список" }));
+
+      const listRequest = invoked.mock.calls.find(([cmd, payload]) => {
+        if (cmd !== "send_bytes") return false;
+        const bytes = (payload as { bytes: number[] }).bytes;
+        return bytes[7] === LogRequestList.MSG_ID;
+      });
+      expect(listRequest).toBeDefined();
+
+      const entry = new LogEntry();
+      entry.id = 1;
+      entry.numLogs = 1;
+      entry.lastLogNum = 1;
+      entry.timeUtc = 0; // unknown time - real ArduPilot sends this for older logs
+      entry.size = 50;
+      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(entry, { seq: 1, sysid: 1, compid: 1 })) });
+
+      expect(await screen.findByText("50")).toBeInTheDocument();
+      expect(screen.getByText("Невідомо")).toBeInTheDocument();
+    });
+
+    it("downloads a log's full bytes via LOG_REQUEST_DATA/LOG_DATA, then shows Save/View buttons", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenDataflashLogs();
+      await user.click(screen.getByRole("button", { name: "Оновити список" }));
+
+      const entry = new LogEntry();
+      entry.id = 1;
+      entry.numLogs = 1;
+      entry.lastLogNum = 1;
+      entry.timeUtc = 0;
+      entry.size = 50;
+      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(entry, { seq: 1, sysid: 1, compid: 1 })) });
+      await screen.findByText("50");
+
+      await user.click(screen.getByRole("button", { name: "Завантажити" }));
+
+      const dataRequest = invoked.mock.calls.find(([cmd, payload]) => {
+        if (cmd !== "send_bytes") return false;
+        const bytes = (payload as { bytes: number[] }).bytes;
+        return bytes[7] === LogRequestData.MSG_ID;
+      });
+      expect(dataRequest).toBeDefined();
+
+      // One chunk covers the whole (deliberately tiny) log - real logs arrive as many, but the
+      // completion check (bytesReceived >= totalBytes) doesn't care how many packets it took.
+      const chunk = new LogData();
+      chunk.id = 1;
+      chunk.ofs = 0;
+      chunk.count = 50;
+      chunk.data = Array.from({ length: 50 }, (_, i) => i);
+      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(chunk, { seq: 2, sysid: 1, compid: 1 })) });
+
+      expect(await screen.findByRole("button", { name: "Зберегти .bin" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Переглянути на карті" })).toBeInTheDocument();
+    });
+
+    it("'View on map' hands the downloaded bytes to the shared fileStore and deep-links to the Map tab", async () => {
+      mockBackend();
+      const { user } = await connectAndOpenDataflashLogs();
+      await user.click(screen.getByRole("button", { name: "Оновити список" }));
+
+      const entry = new LogEntry();
+      entry.id = 7;
+      entry.numLogs = 1;
+      entry.lastLogNum = 7;
+      entry.timeUtc = 0;
+      entry.size = 10;
+      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(entry, { seq: 1, sysid: 1, compid: 1 })) });
+      await screen.findByText("10");
+
+      await user.click(screen.getByRole("button", { name: "Завантажити" }));
+      const chunk = new LogData();
+      chunk.id = 7;
+      chunk.ofs = 0;
+      chunk.count = 10;
+      chunk.data = Array.from({ length: 10 }, (_, i) => i);
+      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(chunk, { seq: 2, sysid: 1, compid: 1 })) });
+
+      await user.click(await screen.findByRole("button", { name: "Переглянути на карті" }));
+
+      expect(useFileStore.getState().file?.name).toBe("dataflash-log-7.bin");
+      expect(useUiStore.getState().activeTab).toBe("map");
     });
   });
 

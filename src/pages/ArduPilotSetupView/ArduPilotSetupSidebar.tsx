@@ -6,6 +6,7 @@ import {
   Cog,
   Compass,
   Gauge,
+  HardDrive,
   Joystick,
   List,
   MonitorPlay,
@@ -27,6 +28,7 @@ export type ArduPilotSetupSection =
   | "telemetry"
   | "parameters"
   | "serialPorts"
+  | "dataflashLogs"
   | "compassCal"
   | "accelCal"
   | "rcCal"
@@ -42,6 +44,7 @@ const SECTIONS: readonly ArduPilotSetupSection[] = [
   "telemetry",
   "parameters",
   "serialPorts",
+  "dataflashLogs",
   "compassCal",
   "accelCal",
   "rcCal",
@@ -58,6 +61,7 @@ const SECTION_ICONS = {
   telemetry: Gauge,
   parameters: List,
   serialPorts: Cable,
+  dataflashLogs: HardDrive,
   compassCal: Compass,
   accelCal: MoveDiagonal,
   rcCal: Joystick,
