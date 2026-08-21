@@ -367,6 +367,7 @@
       "downloading": "Downloading mission... {{received}} / {{total}}",
       "uploading": "Uploading mission...",
       "empty": "No mission items yet - download from the vehicle, load a file, or add a waypoint.",
+      "waypointsCount": "Waypoints ({{count}})",
       "command": "Command",
       "lat": "Lat",
       "lon": "Lon",

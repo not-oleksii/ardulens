@@ -86,6 +86,26 @@ describe("MissionPlanSection", () => {
     expect(screen.getByPlaceholderText("Вставте сюди свій токен Cesium ion")).toBeInTheDocument();
   });
 
+  it("shows the waypoints drawer open by default, with the item count in its handle", () => {
+    getView(sampleItems());
+    const handle = screen.getByRole("button", { name: /Точки маршруту \(2\)/ });
+    expect(handle).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("collapses and re-expands the waypoints drawer without unmounting the table", async () => {
+    const { user } = getView(sampleItems());
+    const handle = screen.getByRole("button", { name: /Точки маршруту/ });
+
+    await user.click(handle);
+    expect(handle).toHaveAttribute("aria-expanded", "false");
+    // Still in the DOM (a real slide transition, not a mount/unmount) - just visually
+    // translated out of view via CSS, which jsdom doesn't compute layout for anyway.
+    expect(screen.getAllByRole("row")).toHaveLength(3);
+
+    await user.click(handle);
+    expect(handle).toHaveAttribute("aria-expanded", "true");
+  });
+
   it("lists mission items in the table with editable lat/lon/alt", () => {
     getView(sampleItems());
     const rows = screen.getAllByRole("row");

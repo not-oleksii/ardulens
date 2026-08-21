@@ -14,8 +14,10 @@ import {
   VerticalOrigin,
 } from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
+import { ChevronUp } from "lucide-react";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { cn } from "@/lib/utils";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,6 +65,7 @@ export function MissionPlanSection({
   const [token, setToken] = useState(() => localStorage.getItem(CESIUM_TOKEN_STORAGE_KEY) ?? "");
   const [tokenInput, setTokenInput] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(true);
   // Mirrors `items`/`onSetItems` for the map-click handler's closure below, which is set up once
   // per Cesium viewer lifetime (see the token-keyed effect), not per render.
   const itemsRef = useRef(items);
@@ -258,131 +261,161 @@ export function MissionPlanSection({
       )}
       {loadError && <Alert variant="destructive"><AlertDescription>{loadError}</AlertDescription></Alert>}
 
-      {token ? (
-        <div ref={containerRef} data-testid="mission-map" className="h-72 shrink-0 rounded-lg border border-border" />
-      ) : (
-        <Alert variant="info">
-          <AlertDescription>
-            {t("map.token.intro")}{" "}
-            <a href="https://ion.cesium.com/tokens" target="_blank" rel="noreferrer" className="underline">
-              ion.cesium.com/tokens
-            </a>
-            . {t("map.token.instructions")}
-            <div className="mt-2 flex gap-2">
-              <Input value={tokenInput} onChange={(e) => setTokenInput(e.target.value)} placeholder={t("map.token.placeholder")} />
-              <Button onClick={saveToken}>{t("map.token.save")}</Button>
-            </div>
-          </AlertDescription>
-        </Alert>
-      )}
+      {/* The map fills this whole area regardless of the drawer's state - the drawer only
+          overlays its bottom portion, sliding up/down over the map rather than pushing it down
+          in normal flow, so the map itself always gets the full remaining height. */}
+      <div className="relative min-h-0 flex-1 overflow-hidden rounded-lg border border-border">
+        {token ? (
+          <div ref={containerRef} data-testid="mission-map" className="absolute inset-0" />
+        ) : (
+          <div className="absolute inset-0 overflow-y-auto p-3">
+            <Alert variant="info">
+              <AlertDescription>
+                {t("map.token.intro")}{" "}
+                <a href="https://ion.cesium.com/tokens" target="_blank" rel="noreferrer" className="underline">
+                  ion.cesium.com/tokens
+                </a>
+                . {t("map.token.instructions")}
+                <div className="mt-2 flex gap-2">
+                  <Input value={tokenInput} onChange={(e) => setTokenInput(e.target.value)} placeholder={t("map.token.placeholder")} />
+                  <Button onClick={saveToken}>{t("map.token.save")}</Button>
+                </div>
+              </AlertDescription>
+            </Alert>
+          </div>
+        )}
 
-      {items.length === 0 ? (
-        <p className="text-xs text-muted-foreground">{t("ardupilotSetup.missionPlan.empty")}</p>
-      ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>#</TableHead>
-                <TableHead>{t("ardupilotSetup.missionPlan.command")}</TableHead>
-                <TableHead>{t("ardupilotSetup.missionPlan.lat")}</TableHead>
-                <TableHead>{t("ardupilotSetup.missionPlan.lon")}</TableHead>
-                <TableHead>{t("ardupilotSetup.missionPlan.alt")}</TableHead>
-                <TableHead>{t("ardupilotSetup.missionPlan.param1")}</TableHead>
-                <TableHead>{t("ardupilotSetup.missionPlan.param2")}</TableHead>
-                <TableHead>{t("ardupilotSetup.missionPlan.param3")}</TableHead>
-                <TableHead>{t("ardupilotSetup.missionPlan.param4")}</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((item) => {
-                const config = missionCommandConfig(item.command);
-                return (
-                  <TableRow key={item.seq}>
-                    <TableCell className="font-mono">{item.seq}</TableCell>
-                    <TableCell>
-                      <select
-                        className="w-full min-w-0 rounded-md border border-border bg-background px-2 py-1 text-xs"
-                        value={item.command}
-                        onChange={(e) => updateItem(item.seq, { command: Number(e.target.value) })}
-                      >
-                        {!MISSION_COMMANDS.some((c) => c.command === item.command) && (
-                          <option value={item.command}>{t("ardupilotSetup.missionPlan.unknownCommand", { command: item.command })}</option>
-                        )}
-                        {MISSION_COMMANDS.map((c) => (
-                          <option key={c.command} value={c.command}>
-                            {t(`ardupilotSetup.missionPlan.${c.labelKey}`)}
-                          </option>
-                        ))}
-                      </select>
-                    </TableCell>
-                    <TableCell>
-                      {config.usesPosition ? (
-                        <Input
-                          className="h-7 w-24 font-mono text-xs"
-                          type="number"
-                          value={item.lat}
-                          onChange={(e) => updateItem(item.seq, { lat: Number(e.target.value) })}
-                        />
-                      ) : (
-                        <span className="text-xs text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {config.usesPosition ? (
-                        <Input
-                          className="h-7 w-24 font-mono text-xs"
-                          type="number"
-                          value={item.lon}
-                          onChange={(e) => updateItem(item.seq, { lon: Number(e.target.value) })}
-                        />
-                      ) : (
-                        <span className="text-xs text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {config.usesPosition ? (
-                        <Input
-                          className="h-7 w-20 font-mono text-xs"
-                          type="number"
-                          value={item.alt}
-                          onChange={(e) => updateItem(item.seq, { alt: Number(e.target.value) })}
-                        />
-                      ) : (
-                        <span className="text-xs text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    {(["param1", "param2", "param3", "param4"] as const).map((paramField, index) => {
-                      const paramLabelKey = config.paramLabelKeys[index];
-                      return (
-                        <TableCell key={paramField}>
-                          {paramLabelKey ? (
+        {/* A bottom-sheet-style drawer - always mounted (so the slide is a real transition, not
+            a mount/unmount pop) and translated fully out of view except for its handle bar when
+            collapsed, leaving the map underneath at full height. A plain inline `transform`
+            style rather than a Tailwind translate-y-[...] utility: Tailwind v4 resolves
+            translate-y-* through a --tw-translate-y custom property feeding the standalone
+            `translate` CSS property, and this arbitrary calc() value wasn't taking visible
+            effect through that path when checked directly - switched to the plain `transform`
+            property instead, which transition-transform's transition-property list covers just
+            as well. */}
+        <div
+          className="absolute inset-x-0 bottom-0 z-10 flex max-h-[55%] flex-col rounded-t-lg border border-border bg-card shadow-lg transition-transform duration-300 ease-in-out"
+          style={{ transform: drawerOpen ? "translateY(0)" : "translateY(calc(100% - 2.75rem))" }}
+        >
+          <button
+            type="button"
+            onClick={() => setDrawerOpen((open) => !open)}
+            aria-expanded={drawerOpen}
+            className="flex h-11 shrink-0 items-center justify-between gap-2 rounded-t-lg px-3 py-2.5 text-xs font-bold tracking-wide uppercase transition-colors hover:bg-accent"
+          >
+            <span>{t("ardupilotSetup.missionPlan.waypointsCount", { count: items.length })}</span>
+            <ChevronUp className={cn("h-4 w-4 shrink-0 transition-transform duration-300", drawerOpen ? "rotate-0" : "rotate-180")} />
+          </button>
+          <div className="min-h-0 flex-1 overflow-y-auto border-t border-border">
+            {items.length === 0 ? (
+              <p className="p-3 text-xs text-muted-foreground">{t("ardupilotSetup.missionPlan.empty")}</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>#</TableHead>
+                    <TableHead>{t("ardupilotSetup.missionPlan.command")}</TableHead>
+                    <TableHead>{t("ardupilotSetup.missionPlan.lat")}</TableHead>
+                    <TableHead>{t("ardupilotSetup.missionPlan.lon")}</TableHead>
+                    <TableHead>{t("ardupilotSetup.missionPlan.alt")}</TableHead>
+                    <TableHead>{t("ardupilotSetup.missionPlan.param1")}</TableHead>
+                    <TableHead>{t("ardupilotSetup.missionPlan.param2")}</TableHead>
+                    <TableHead>{t("ardupilotSetup.missionPlan.param3")}</TableHead>
+                    <TableHead>{t("ardupilotSetup.missionPlan.param4")}</TableHead>
+                    <TableHead />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {items.map((item) => {
+                    const config = missionCommandConfig(item.command);
+                    return (
+                      <TableRow key={item.seq}>
+                        <TableCell className="font-mono">{item.seq}</TableCell>
+                        <TableCell>
+                          <select
+                            className="w-full min-w-0 rounded-md border border-border bg-background px-2 py-1 text-xs"
+                            value={item.command}
+                            onChange={(e) => updateItem(item.seq, { command: Number(e.target.value) })}
+                          >
+                            {!MISSION_COMMANDS.some((c) => c.command === item.command) && (
+                              <option value={item.command}>{t("ardupilotSetup.missionPlan.unknownCommand", { command: item.command })}</option>
+                            )}
+                            {MISSION_COMMANDS.map((c) => (
+                              <option key={c.command} value={c.command}>
+                                {t(`ardupilotSetup.missionPlan.${c.labelKey}`)}
+                              </option>
+                            ))}
+                          </select>
+                        </TableCell>
+                        <TableCell>
+                          {config.usesPosition ? (
                             <Input
-                              className="h-7 w-20 font-mono text-xs"
+                              className="h-7 w-24 font-mono text-xs"
                               type="number"
-                              title={t(`ardupilotSetup.missionPlan.${paramLabelKey}`)}
-                              value={item[paramField]}
-                              onChange={(e) => updateItem(item.seq, { [paramField]: Number(e.target.value) })}
+                              value={item.lat}
+                              onChange={(e) => updateItem(item.seq, { lat: Number(e.target.value) })}
                             />
                           ) : (
                             <span className="text-xs text-muted-foreground">-</span>
                           )}
                         </TableCell>
-                      );
-                    })}
-                    <TableCell>
-                      <Button type="button" size="sm" variant="ghost" onClick={() => deleteItem(item.seq)}>
-                        {t("ardupilotSetup.missionPlan.deleteItem")}
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+                        <TableCell>
+                          {config.usesPosition ? (
+                            <Input
+                              className="h-7 w-24 font-mono text-xs"
+                              type="number"
+                              value={item.lon}
+                              onChange={(e) => updateItem(item.seq, { lon: Number(e.target.value) })}
+                            />
+                          ) : (
+                            <span className="text-xs text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {config.usesPosition ? (
+                            <Input
+                              className="h-7 w-20 font-mono text-xs"
+                              type="number"
+                              value={item.alt}
+                              onChange={(e) => updateItem(item.seq, { alt: Number(e.target.value) })}
+                            />
+                          ) : (
+                            <span className="text-xs text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        {(["param1", "param2", "param3", "param4"] as const).map((paramField, index) => {
+                          const paramLabelKey = config.paramLabelKeys[index];
+                          return (
+                            <TableCell key={paramField}>
+                              {paramLabelKey ? (
+                                <Input
+                                  className="h-7 w-20 font-mono text-xs"
+                                  type="number"
+                                  title={t(`ardupilotSetup.missionPlan.${paramLabelKey}`)}
+                                  value={item[paramField]}
+                                  onChange={(e) => updateItem(item.seq, { [paramField]: Number(e.target.value) })}
+                                />
+                              ) : (
+                                <span className="text-xs text-muted-foreground">-</span>
+                              )}
+                            </TableCell>
+                          );
+                        })}
+                        <TableCell>
+                          <Button type="button" size="sm" variant="ghost" onClick={() => deleteItem(item.seq)}>
+                            {t("ardupilotSetup.missionPlan.deleteItem")}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
