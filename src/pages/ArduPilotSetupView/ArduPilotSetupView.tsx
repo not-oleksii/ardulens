@@ -14,6 +14,7 @@ import { RcCalSection } from "./RcCalSection";
 import { OsdSetupSection } from "./OsdSetupSection";
 import { VtxSetupSection } from "./VtxSetupSection";
 import { RcSetupSection } from "./RcSetupSection";
+import { SerialPortsSection } from "./SerialPortsSection";
 import { TelemetrySection } from "./TelemetrySection";
 import { VehicleStatusBar } from "./VehicleStatusBar";
 import { decodeMessage, encodePacket } from "../../mavlink/codec/codec";
@@ -1281,6 +1282,8 @@ export function ArduPilotSetupView() {
               onSetParam={handleSetParam}
               onLoadParamDefaults={handleLoadParamDefaults}
             />
+          ) : activeSection === "serialPorts" ? (
+            <SerialPortsSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoad={handleLoadParameters} onSetParam={handleSetParam} />
           ) : activeSection === "compassCal" ? (
             <CompassCalSection
               progress={compassCalProgress}

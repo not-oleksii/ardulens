@@ -1,5 +1,6 @@
 import {
   BatteryMedium,
+  Cable,
   ChevronsLeft,
   ChevronsRight,
   Cog,
@@ -25,6 +26,7 @@ import { cn } from "@/lib/utils";
 export type ArduPilotSetupSection =
   | "telemetry"
   | "parameters"
+  | "serialPorts"
   | "compassCal"
   | "accelCal"
   | "rcCal"
@@ -39,6 +41,7 @@ export type ArduPilotSetupSection =
 const SECTIONS: readonly ArduPilotSetupSection[] = [
   "telemetry",
   "parameters",
+  "serialPorts",
   "compassCal",
   "accelCal",
   "rcCal",
@@ -54,6 +57,7 @@ const SECTIONS: readonly ArduPilotSetupSection[] = [
 const SECTION_ICONS = {
   telemetry: Gauge,
   parameters: List,
+  serialPorts: Cable,
   compassCal: Compass,
   accelCal: MoveDiagonal,
   rcCal: Joystick,

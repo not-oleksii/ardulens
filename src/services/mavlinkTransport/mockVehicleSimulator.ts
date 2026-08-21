@@ -212,6 +212,40 @@ const FAKE_PARAM_SEED: ReadonlyArray<readonly [string, number, MavParamType]> = 
   ["VTX_OPTIONS", 0, MavParamType.INT8],
   ["VTX_MAX_POWER", 800, MavParamType.INT16],
   ["VTX_TYPES", 0b0110, MavParamType.INT8], // SmartAudio + Tramp
+  // Serial Ports tab - real AP_SerialManager param names (see serialPortsParams.ts). SERIAL0
+  // (USB) and SERIAL1/2 (telemetry) default to MAVLink2, SERIAL3/4 (GPS1/2) default to the GPS
+  // protocol, and SERIAL5-9 default to protocol -1 (None) - all real ArduPilot factory defaults.
+  // Baud codes are the real non-sequential AP_SerialManager scale (57 -> 57600, 38 -> 38400,
+  // 115 -> 115200).
+  ["SERIAL0_PROTOCOL", 2, MavParamType.INT8], // MAVLink2 (USB console)
+  ["SERIAL0_BAUD", 115, MavParamType.INT32],
+  ["SERIAL1_PROTOCOL", 2, MavParamType.INT8], // MAVLink2 (Telem1)
+  ["SERIAL1_BAUD", 57, MavParamType.INT32],
+  ["SERIAL1_OPTIONS", 0, MavParamType.INT16],
+  ["SERIAL2_PROTOCOL", 2, MavParamType.INT8], // MAVLink2 (Telem2)
+  ["SERIAL2_BAUD", 57, MavParamType.INT32],
+  ["SERIAL2_OPTIONS", 0, MavParamType.INT16],
+  ["SERIAL3_PROTOCOL", 5, MavParamType.INT8], // GPS (GPS1)
+  ["SERIAL3_BAUD", 38, MavParamType.INT32],
+  ["SERIAL3_OPTIONS", 0, MavParamType.INT16],
+  ["SERIAL4_PROTOCOL", 5, MavParamType.INT8], // GPS (GPS2)
+  ["SERIAL4_BAUD", 38, MavParamType.INT32],
+  ["SERIAL4_OPTIONS", 0, MavParamType.INT16],
+  ["SERIAL5_PROTOCOL", -1, MavParamType.INT8], // None
+  ["SERIAL5_BAUD", 57, MavParamType.INT32],
+  ["SERIAL5_OPTIONS", 0, MavParamType.INT16],
+  ["SERIAL6_PROTOCOL", -1, MavParamType.INT8],
+  ["SERIAL6_BAUD", 57, MavParamType.INT32],
+  ["SERIAL6_OPTIONS", 0, MavParamType.INT16],
+  ["SERIAL7_PROTOCOL", -1, MavParamType.INT8],
+  ["SERIAL7_BAUD", 57, MavParamType.INT32],
+  ["SERIAL7_OPTIONS", 0, MavParamType.INT16],
+  ["SERIAL8_PROTOCOL", -1, MavParamType.INT8],
+  ["SERIAL8_BAUD", 57, MavParamType.INT32],
+  ["SERIAL8_OPTIONS", 0, MavParamType.INT16],
+  ["SERIAL9_PROTOCOL", -1, MavParamType.INT8],
+  ["SERIAL9_BAUD", 57, MavParamType.INT32],
+  ["SERIAL9_OPTIONS", 0, MavParamType.INT16],
 ];
 
 export interface MockVehicleHandle {
