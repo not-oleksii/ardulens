@@ -27,6 +27,12 @@ const SAMPLE_XML = `<?xml version="1.0" encoding="utf-8"?>
           <value code="4">Aileron</value>
         </values>
       </param>
+      <param humanName="Failsafe options bitmask" name="ArduCopter:FS_OPTIONS" documentation="Bitmask of additional options">
+        <bitmask>
+          <bit code="0">Continue if in Auto on RC failsafe</bit>
+          <bit code="1">Continue if in Auto on GCS failsafe</bit>
+        </bitmask>
+      </param>
     </parameters>
   </vehicles>
   <libraries>
@@ -82,6 +88,19 @@ describe("parsePdefXml", () => {
   it("omits the values key entirely for a non-enum param", () => {
     const docs = parsePdefXml(SAMPLE_XML);
     expect(docs["PILOT_THR_FILT"]).not.toHaveProperty("values");
+  });
+
+  it("parses a bitmask param's <bitmask> into a bit-index->label map", () => {
+    const docs = parsePdefXml(SAMPLE_XML);
+    expect(docs["FS_OPTIONS"]?.bitmask).toEqual({
+      0: "Continue if in Auto on RC failsafe",
+      1: "Continue if in Auto on GCS failsafe",
+    });
+  });
+
+  it("omits the bitmask key entirely for a non-bitmask param", () => {
+    const docs = parsePdefXml(SAMPLE_XML);
+    expect(docs["PILOT_THR_FILT"]).not.toHaveProperty("bitmask");
   });
 });
 

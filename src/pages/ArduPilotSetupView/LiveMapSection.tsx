@@ -171,8 +171,12 @@ export function LiveMapSection({ position, headingDeg }: LiveMapSectionProps) {
   }
 
   return (
-    <div className="flex h-full flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    // The header bar and "no fix" note float on top of the map instead of sitting above it in
+    // normal flow, so the map itself fills this whole panel and its top edge lines up with the
+    // PFD's in the sibling column, rather than starting lower because of the header's own height.
+    <div className="relative h-full">
+      <div ref={containerRef} data-testid="live-map" className="absolute inset-0 rounded-lg border border-border" />
+      <div className="absolute inset-x-0 top-0 z-10 flex flex-wrap items-center justify-between gap-2 rounded-t-lg bg-card/90 px-3 py-2 shadow-sm backdrop-blur-sm">
         <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.map.heading")}</h3>
         <div className="flex gap-2">
           <Button type="button" size="sm" variant="outline" onClick={recenter} disabled={!position}>
@@ -183,8 +187,11 @@ export function LiveMapSection({ position, headingDeg }: LiveMapSectionProps) {
           </Button>
         </div>
       </div>
-      {!position && <p className="text-xs text-muted-foreground">{t("ardupilotSetup.map.noFix")}</p>}
-      <div ref={containerRef} data-testid="live-map" className="min-h-0 flex-1 rounded-lg border border-border" />
+      {!position && (
+        <p className="absolute inset-x-0 top-12 z-10 bg-card/90 px-3 py-1 text-xs text-muted-foreground shadow-sm backdrop-blur-sm">
+          {t("ardupilotSetup.map.noFix")}
+        </p>
+      )}
     </div>
   );
 }

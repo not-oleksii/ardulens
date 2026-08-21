@@ -10,6 +10,10 @@ export interface ParamDoc {
   /** For enum-typed params (e.g. SERVO1_FUNCTION), the real code->label list ArduPilot ships
    *  in its own pdef.xml - absent for non-enum params. */
   values?: Record<number, string>;
+  /** For bitmask-typed params (e.g. FS_OPTIONS), the real bit-index->label list from the
+   *  pdef.xml's own <bitmask> element - absent for non-bitmask params. Mutually exclusive with
+   *  `values` in practice (a param is documented as one or the other, never both). */
+  bitmask?: Record<number, string>;
   /** Short unit abbreviation (e.g. "Hz", "deg/s") from the pdef.xml's own <field name="Units">. */
   units?: string;
   /** The valid range from <field name="Range"> (e.g. "10.0 80.0"), absent for unbounded params. */
@@ -92,6 +96,17 @@ export function parsePdefXml(xmlText: string): ParamDocsMap {
       }
     }
 
+    const bitmaskEl = paramEl.getElementsByTagName("bitmask")[0];
+    let bitmask: Record<number, string> | undefined;
+    if (bitmaskEl) {
+      bitmask = {};
+      for (const bitEl of Array.from(bitmaskEl.getElementsByTagName("bit"))) {
+        const code = bitEl.getAttribute("code");
+        if (code === null) continue;
+        bitmask[Number(code)] = bitEl.textContent ?? "";
+      }
+    }
+
     // <field name="..."> children carry Units/Range (among others) - not attributes on <param>
     // itself, unlike humanName/documentation above (real pdef.xml structure, confirmed against
     // ArduCopter's own apm.pdef.xml).
@@ -111,6 +126,7 @@ export function parsePdefXml(xmlText: string): ParamDocsMap {
       humanName: paramEl.getAttribute("humanName") ?? name,
       documentation: paramEl.getAttribute("documentation") ?? "",
       ...(values ? { values } : {}),
+      ...(bitmask ? { bitmask } : {}),
       ...(units ? { units } : {}),
       ...(range ? { range } : {}),
     };

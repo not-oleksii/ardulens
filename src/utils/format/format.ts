@@ -16,6 +16,13 @@ export function fmtDurMs(ms: number): string {
   return String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
 }
 
+/** Local wall-clock time (device timezone, not a fixed one) with seconds - for live-session
+ *  events like STATUSTEXT messages, several of which can arrive within the same second (e.g.
+ *  during boot), unlike fmtKyiv's minute-only precision for post-flight log timestamps. */
+export function fmtTimeHms(ms: number): string {
+  return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(new Date(ms));
+}
+
 export function fmtKyiv(ms: number): string {
   try {
     return new Intl.DateTimeFormat("uk-UA", {

@@ -31,11 +31,17 @@ function TabsTrigger({ className, ...props }: React.ComponentProps<typeof TabsPr
     <TabsPrimitive.Trigger
       data-slot="tabs-trigger"
       className={cn(
-        "inline-flex items-center justify-center gap-2 whitespace-nowrap border-b-2 border-transparent px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors",
+        "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-t-sm border-b-[3px] border-transparent px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors",
         "hover:text-foreground",
         "disabled:pointer-events-none disabled:opacity-50",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        "data-[state=active]:border-primary data-[state=active]:text-foreground",
+        // Bold weight and a filled background, not just the border color swap - Tailwind's own
+        // Preflight ("* { border-color: var(--border) }") beats the border-color utility here for
+        // reasons that didn't resolve even with an explicit !important, so a background highlight
+        // (the same mechanism the vertical/sidebar variant below already uses successfully) is
+        // the reliable "which tab is selected" signal; the border utilities stay as a bonus for
+        // whichever build config does render them correctly.
+        "data-[state=active]:border-primary data-[state=active]:bg-accent data-[state=active]:font-semibold data-[state=active]:text-foreground",
         "data-[orientation=vertical]:justify-start data-[orientation=vertical]:rounded-md data-[orientation=vertical]:border-b-0 data-[orientation=vertical]:px-3",
         "data-[orientation=vertical]:data-[state=active]:bg-secondary",
         className,

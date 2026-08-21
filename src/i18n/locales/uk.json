@@ -559,6 +559,9 @@
     },
     "telemetry": {
       "waitingForTelemetry": "Очікування телеметрії...",
+      "statsTab": "Статистика",
+      "messagesTab": "Повідомлення",
+      "preflightTab": "Перед польотом",
       "pfdAriaLabel": "Основний пілотажний прилад",
       "pfd": {
         "airspeedLabel": "ШВИДК, м/с",
@@ -591,6 +594,10 @@
         "ppp": "PPP",
         "unknown": "Невідомо ({{value}})"
       }
+    },
+    "messages": {
+      "heading": "Повідомлення",
+      "empty": "Повідомлень ще не отримано."
     },
     "health": {
       "prearmFailing": "Перевірки перед зльотом не пройдено",
