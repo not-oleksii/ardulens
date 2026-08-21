@@ -13,6 +13,7 @@ import {
   Attitude,
   CommandAck,
   GlobalPositionInt,
+  Gps2Raw,
   GpsFixType,
   GpsRawInt,
   Heartbeat,
@@ -1018,10 +1019,33 @@ describe("ArduPilotSetupView", () => {
     expect(screen.getByText("16.80 V")).toBeInTheDocument();
     expect(screen.getByText("5.2 A")).toBeInTheDocument();
     expect(screen.getByText("77%")).toBeInTheDocument();
+    expect(screen.getByText("11.8 m/s")).toBeInTheDocument(); // groundspeed
     expect(screen.getByText("3D-фіксація")).toBeInTheDocument();
     expect(screen.getByText("14")).toBeInTheDocument();
     expect(screen.getByText("50.450000, 30.520000")).toBeInTheDocument();
     expect(screen.queryByText("Очікування телеметрії...")).not.toBeInTheDocument();
+    // No second GPS reported yet - its rows shouldn't show up as a permanent placeholder.
+    expect(screen.queryByText("GPS2-фікс")).not.toBeInTheDocument();
+  });
+
+  it("shows a second GPS's fix/satellite count once GPS2_RAW arrives, but not before", async () => {
+    mockBackend();
+    const { clickConnect, getStatusAlert } = getView();
+    await clickConnect();
+    await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
+    await within(getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+    await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
+
+    expect(screen.queryByText("GPS2-фікс")).not.toBeInTheDocument();
+
+    const gps2 = new Gps2Raw();
+    gps2.fixType = GpsFixType.NO_FIX;
+    gps2.satellitesVisible = 0;
+    await emit(DATA_EVENT, { bytes: Array.from(encodePacket(gps2, { seq: 1, sysid: 1, compid: 1 })) });
+
+    expect(await screen.findByText("GPS2-фікс")).toBeInTheDocument();
+    expect(screen.getByText("Немає фіксації")).toBeInTheDocument();
+    expect(screen.getByText("Супутники GPS2")).toBeInTheDocument();
   });
 
   it("requests telemetry data streams once the vehicle's heartbeat is known", async () => {
@@ -2847,7 +2871,12 @@ describe("ArduPilotSetupView", () => {
         expect(await screen.findByText("PARAM_5")).toBeInTheDocument();
         expect(screen.queryByText("PARAM_6")).not.toBeInTheDocument();
       },
-      30000,
+      // 800 sequential awaited emit() calls each cost at least one microtask tick through
+      // @tauri-apps/api/mocks' async invoke() plus RTL's act()-driven sync overhead under jsdom -
+      // that per-iteration harness cost (not the batched-flush code under test) is what pushed
+      // this past the original 30s budget in a slower environment; the correctness assertions
+      // are unchanged, this just gives the loop itself more real wall-clock room to finish.
+      60000,
     );
 
     it("re-requests only the missing indices, not the whole list", async () => {

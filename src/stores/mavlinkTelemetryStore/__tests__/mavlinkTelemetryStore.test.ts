@@ -15,6 +15,7 @@ const VFR_HUD: VfrHudTelemetry = {
 };
 const BATTERY: BatteryTelemetry = { voltageV: 16.8, currentA: 5.2, remainingPercent: 80, updatedAt: 1000 };
 const GPS: GpsTelemetry = { fixType: GpsFixType.GPS_FIX_TYPE_3D_FIX, satellitesVisible: 12, updatedAt: 1000 };
+const GPS2: GpsTelemetry = { fixType: GpsFixType.NO_FIX, satellitesVisible: 0, updatedAt: 1000 };
 const POSITION: PositionTelemetry = { lat: 50.45, lon: 30.52, relativeAltM: 100, updatedAt: 1000 };
 const SENSOR_HEALTH: SensorHealthTelemetry = { present: 0b111, enabled: 0b111, health: 0b101, updatedAt: 1000 };
 
@@ -29,6 +30,7 @@ describe("mavlinkTelemetryStore", () => {
     expect(state.vfrHud).toBeNull();
     expect(state.battery).toBeNull();
     expect(state.gps).toBeNull();
+    expect(state.gps2).toBeNull();
     expect(state.position).toBeNull();
     expect(state.sensorHealth).toBeNull();
     expect(state.servoOutputs).toEqual({});
@@ -51,6 +53,7 @@ describe("mavlinkTelemetryStore", () => {
     useMavlinkTelemetryStore.getState().setVfrHud(VFR_HUD);
     useMavlinkTelemetryStore.getState().setBattery(BATTERY);
     useMavlinkTelemetryStore.getState().setGps(GPS);
+    useMavlinkTelemetryStore.getState().setGps2(GPS2);
     useMavlinkTelemetryStore.getState().setPosition(POSITION);
     useMavlinkTelemetryStore.getState().setSensorHealth(SENSOR_HEALTH);
 
@@ -59,6 +62,7 @@ describe("mavlinkTelemetryStore", () => {
     expect(state.vfrHud).toEqual(VFR_HUD);
     expect(state.battery).toEqual(BATTERY);
     expect(state.gps).toEqual(GPS);
+    expect(state.gps2).toEqual(GPS2);
     expect(state.position).toEqual(POSITION);
     expect(state.sensorHealth).toEqual(SENSOR_HEALTH);
   });
@@ -67,6 +71,7 @@ describe("mavlinkTelemetryStore", () => {
     useMavlinkTelemetryStore.getState().setAttitude(ATTITUDE);
     useMavlinkTelemetryStore.getState().setBattery(BATTERY);
     useMavlinkTelemetryStore.getState().setSensorHealth(SENSOR_HEALTH);
+    useMavlinkTelemetryStore.getState().setGps2(GPS2);
     useMavlinkTelemetryStore.getState().mergeServoOutputs({ 1: 1500 });
     useMavlinkTelemetryStore.getState().reset();
 
@@ -74,6 +79,7 @@ describe("mavlinkTelemetryStore", () => {
     expect(state.attitude).toBeNull();
     expect(state.battery).toBeNull();
     expect(state.sensorHealth).toBeNull();
+    expect(state.gps2).toBeNull();
     expect(state.servoOutputs).toEqual({});
   });
 });

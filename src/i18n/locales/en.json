@@ -581,6 +581,8 @@
       "batteryRemaining": "Battery remaining",
       "gpsFixLabel": "GPS fix",
       "satellites": "Satellites",
+      "gps2FixLabel": "GPS2 fix",
+      "satellites2": "GPS2 satellites",
       "position": "Position (lat, lon)",
       "gpsFix": {
         "noGps": "No GPS",
