@@ -47,6 +47,30 @@ export interface PositionTelemetry {
   updatedAt: number;
 }
 
+/** From EKF_STATUS_REPORT - each variance is normalized so ~1.0 is AP_NavEKF's own "degraded
+ *  estimate" threshold (the same boundary its internal innovation-ratio checks gate on), not an
+ *  arbitrary UI-picked number. */
+export interface EkfTelemetry {
+  velocityVariance: number;
+  posHorizVariance: number;
+  posVertVariance: number;
+  compassVariance: number;
+  updatedAt: number;
+}
+
+/** From VIBRATION - per-axis accelerometer noise (m/s/s) plus each axis's cumulative clipping
+ *  event count (a nonzero count means the accelerometer has been saturating, a more serious
+ *  sign than the vibration level alone). */
+export interface VibrationTelemetry {
+  x: number;
+  y: number;
+  z: number;
+  clippingX: number;
+  clippingY: number;
+  clippingZ: number;
+  updatedAt: number;
+}
+
 export interface MavlinkTelemetryState {
   attitude: AttitudeTelemetry | null;
   vfrHud: VfrHudTelemetry | null;
@@ -57,6 +81,8 @@ export interface MavlinkTelemetryState {
   gps2: GpsTelemetry | null;
   position: PositionTelemetry | null;
   sensorHealth: SensorHealthTelemetry | null;
+  ekf: EkfTelemetry | null;
+  vibration: VibrationTelemetry | null;
   /** Live PWM per output channel (1-indexed), from SERVO_OUTPUT_RAW - lets a servo test show
    *  the vehicle's actual reported output rather than just the value we last sent. */
   servoOutputs: Record<number, number>;
@@ -67,6 +93,8 @@ export interface MavlinkTelemetryState {
   setGps2: (gps2: GpsTelemetry) => void;
   setPosition: (position: PositionTelemetry) => void;
   setSensorHealth: (sensorHealth: SensorHealthTelemetry) => void;
+  setEkf: (ekf: EkfTelemetry) => void;
+  setVibration: (vibration: VibrationTelemetry) => void;
   /** Merges a partial channel->pwm update (e.g. just channels 1-8 or 9-16, matching
    *  SERVO_OUTPUT_RAW's `port` grouping) into the existing servoOutputs record. */
   mergeServoOutputs: (channelValues: Record<number, number>) => void;

@@ -9,6 +9,8 @@ export const useMavlinkTelemetryStore = create<MavlinkTelemetryState>((set) => (
   gps2: null,
   position: null,
   sensorHealth: null,
+  ekf: null,
+  vibration: null,
   servoOutputs: {},
   setAttitude: (attitude) => set({ attitude }),
   setVfrHud: (vfrHud) => set({ vfrHud }),
@@ -17,6 +19,8 @@ export const useMavlinkTelemetryStore = create<MavlinkTelemetryState>((set) => (
   setGps2: (gps2) => set({ gps2 }),
   setPosition: (position) => set({ position }),
   setSensorHealth: (sensorHealth) => set({ sensorHealth }),
+  setEkf: (ekf) => set({ ekf }),
+  setVibration: (vibration) => set({ vibration }),
   mergeServoOutputs: (channelValues) => set((s) => ({ servoOutputs: { ...s.servoOutputs, ...channelValues } })),
   reset: () =>
     set({
@@ -27,6 +31,8 @@ export const useMavlinkTelemetryStore = create<MavlinkTelemetryState>((set) => (
       gps2: null,
       position: null,
       sensorHealth: null,
+      ekf: null,
+      vibration: null,
       servoOutputs: {},
     }),
 }));

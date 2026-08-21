@@ -39,6 +39,7 @@ import {
   DoMotorTestCommand,
   DoSetServoCommand,
   DoStartMagCalCommand,
+  EkfStatusReport,
   FileTransferProtocol,
   GlobalPositionInt,
   Gps2Raw,
@@ -71,6 +72,7 @@ import {
   StatusText,
   SysStatus,
   VfrHud,
+  Vibration,
 } from "../../mavlink/registry/registry";
 import type { MavMode } from "../../mavlink/registry/registry";
 import {
@@ -193,6 +195,8 @@ export function ArduPilotSetupView() {
   const gps2 = useMavlinkTelemetryStore((s) => s.gps2);
   const position = useMavlinkTelemetryStore((s) => s.position);
   const sensorHealth = useMavlinkTelemetryStore((s) => s.sensorHealth);
+  const ekf = useMavlinkTelemetryStore((s) => s.ekf);
+  const vibration = useMavlinkTelemetryStore((s) => s.vibration);
   const setAttitude = useMavlinkTelemetryStore((s) => s.setAttitude);
   const setVfrHud = useMavlinkTelemetryStore((s) => s.setVfrHud);
   const setBattery = useMavlinkTelemetryStore((s) => s.setBattery);
@@ -200,6 +204,8 @@ export function ArduPilotSetupView() {
   const setGps2 = useMavlinkTelemetryStore((s) => s.setGps2);
   const setPosition = useMavlinkTelemetryStore((s) => s.setPosition);
   const setSensorHealth = useMavlinkTelemetryStore((s) => s.setSensorHealth);
+  const setEkf = useMavlinkTelemetryStore((s) => s.setEkf);
+  const setVibration = useMavlinkTelemetryStore((s) => s.setVibration);
   const servoOutputs = useMavlinkTelemetryStore((s) => s.servoOutputs);
   const mergeServoOutputs = useMavlinkTelemetryStore((s) => s.mergeServoOutputs);
   const resetTelemetry = useMavlinkTelemetryStore((s) => s.reset);
@@ -433,6 +439,30 @@ export function ArduPilotSetupView() {
           case Gps2Raw.MSG_ID: {
             const msg = packet.message as Gps2Raw;
             setGps2({ fixType: msg.fixType, satellitesVisible: msg.satellitesVisible, updatedAt: now });
+            break;
+          }
+          case EkfStatusReport.MSG_ID: {
+            const msg = packet.message as EkfStatusReport;
+            setEkf({
+              velocityVariance: msg.velocityVariance,
+              posHorizVariance: msg.posHorizVariance,
+              posVertVariance: msg.posVertVariance,
+              compassVariance: msg.compassVariance,
+              updatedAt: now,
+            });
+            break;
+          }
+          case Vibration.MSG_ID: {
+            const msg = packet.message as Vibration;
+            setVibration({
+              x: msg.vibrationX,
+              y: msg.vibrationY,
+              z: msg.vibrationZ,
+              clippingX: msg.clipping0,
+              clippingY: msg.clipping1,
+              clippingZ: msg.clipping2,
+              updatedAt: now,
+            });
             break;
           }
           case GlobalPositionInt.MSG_ID: {
@@ -690,6 +720,8 @@ export function ArduPilotSetupView() {
     setGps2,
     setPosition,
     setSensorHealth,
+    setEkf,
+    setVibration,
     mergeServoOutputs,
     resetTelemetry,
     addStatusText,
@@ -1271,6 +1303,8 @@ export function ArduPilotSetupView() {
               gps2={gps2}
               position={position}
               sensorHealth={sensorHealth}
+              ekf={ekf}
+              vibration={vibration}
               statusTextMessages={statusTextMessages}
               onNavigateToSection={setActiveSection}
             />

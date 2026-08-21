@@ -11,6 +11,10 @@ import type { MavLinkPacketRegistry } from "mavlink-mappings/dist/lib/mavlink";
 export { Heartbeat } from "mavlink-mappings/dist/lib/minimal";
 export { MavAutopilot, MavModeFlag, MavState, MavType } from "mavlink-mappings/dist/lib/minimal";
 export { Attitude, GpsRawInt, Gps2Raw, GpsFixType, RequestDataStream, SysStatus, VfrHud } from "mavlink-mappings/dist/lib/common";
+// VIBRATION (MSG_ID 241) reports per-axis accelerometer vibration levels (m/s/s) plus a
+// cumulative clipping event count per axis - lives in the common dialect, confirmed against
+// MAVLink's own common.xml.
+export { Vibration } from "mavlink-mappings/dist/lib/common";
 export { MavDataStream } from "mavlink-mappings/dist/lib/common";
 export { MavParamType, ParamRequestList, ParamRequestRead, ParamSet, ParamValue } from "mavlink-mappings/dist/lib/common";
 export { CommandAck, MavResult, MagCalReport, MagCalStatus } from "mavlink-mappings/dist/lib/common";
@@ -94,6 +98,11 @@ export { MagCalProgress, DoStartMagCalCommand, DoAcceptMagCalCommand, DoCancelMa
 // documents this exact bidirectional meaning (not a guess or an assumption from R5's mag-cal
 // pattern, which is unidirectional by contrast).
 export { AccelcalVehiclePos, AccelcalVehiclePosCommand } from "mavlink-mappings/dist/lib/ardupilotmega";
+// EKF_STATUS_REPORT (MSG_ID 193) is ArduPilot-specific (not vanilla MAVLink common), so it lives
+// in the ardupilotmega dialect. Its variance fields are normalized so ~1.0 is AP_NavEKF's own
+// "degraded estimate" boundary (the same threshold its internal innovation-ratio checks gate
+// on), not an arbitrary UI-picked number - confirmed against ardupilotmega.xml.
+export { EkfStatusReport } from "mavlink-mappings/dist/lib/ardupilotmega";
 // NOT simply "ardupilotmega's MavCmd extends common's" - verified (while building the mock
 // vehicle simulator, which needs to recognize a standard command like DO_SET_SERVO) that
 // ardupilotmega's own MavCmd export contains ONLY its ~32 ArduPilot-specific additions (e.g.
