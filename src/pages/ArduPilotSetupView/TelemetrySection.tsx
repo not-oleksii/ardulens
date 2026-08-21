@@ -7,10 +7,12 @@ import type { StatusTextEntry } from "../../stores/mavlinkStatusTextStore/types"
 import type {
   AttitudeTelemetry,
   BatteryTelemetry,
+  EkfTelemetry,
   GpsTelemetry,
   PositionTelemetry,
   SensorHealthTelemetry,
   VfrHudTelemetry,
+  VibrationTelemetry,
 } from "../../stores/mavlinkTelemetryStore/types";
 import type { VehicleInfo } from "../../stores/mavlinkVehicleStore/types";
 import { fmtTimeHms } from "../../utils/format/format";
@@ -29,6 +31,24 @@ function messageClassName(severity: MavSeverity): string {
   return "text-muted-foreground"; // INFO/DEBUG - routine chatter
 }
 
+// ArduPilot's own documented vibration guidance (see the wiki's "Measuring Vibration" page):
+// below 30 m/s/s is fine, 30-60 is marginal, above 60 is bad enough to affect EKF/altitude
+// estimates - not an arbitrary UI-picked threshold.
+function vibrationClassName(maxAxis: number): string {
+  if (maxAxis >= 60) return "text-destructive font-semibold";
+  if (maxAxis >= 30) return "text-amber-700 dark:text-amber-400";
+  return "";
+}
+
+// EKF_STATUS_REPORT's variances are normalized so ~1.0 is AP_NavEKF's own "degraded estimate"
+// boundary (see EkfTelemetry's own doc comment) - reusing that same boundary here rather than
+// picking a new one.
+function ekfVarianceClassName(maxVariance: number): string {
+  if (maxVariance >= 1) return "text-destructive font-semibold";
+  if (maxVariance >= 0.5) return "text-amber-700 dark:text-amber-400";
+  return "";
+}
+
 interface TelemetrySectionProps {
   vehicle: VehicleInfo | null;
   attitude: AttitudeTelemetry | null;
@@ -38,6 +58,8 @@ interface TelemetrySectionProps {
   gps2: GpsTelemetry | null;
   position: PositionTelemetry | null;
   sensorHealth: SensorHealthTelemetry | null;
+  ekf: EkfTelemetry | null;
+  vibration: VibrationTelemetry | null;
   statusTextMessages: StatusTextEntry[];
   onNavigateToSection: (section: ArduPilotSetupSection) => void;
 }
@@ -51,6 +73,8 @@ export function TelemetrySection({
   gps2,
   position,
   sensorHealth,
+  ekf,
+  vibration,
   statusTextMessages,
   onNavigateToSection,
 }: TelemetrySectionProps) {
@@ -86,7 +110,7 @@ export function TelemetrySection({
                   <TabsTrigger value="preflight">{t("ardupilotSetup.telemetry.preflightTab")}</TabsTrigger>
                 </TabsList>
                 <TabsContent value="stats">
-                  {battery || gps || gps2 || position ? (
+                  {battery || gps || gps2 || position || ekf || vibration ? (
                     <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
                       <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.batteryVoltage")}</dt>
                       <dd className="font-mono">{battery ? `${battery.voltageV.toFixed(2)} V` : "-"}</dd>
@@ -117,6 +141,37 @@ export function TelemetrySection({
                       )}
                       <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.position")}</dt>
                       <dd className="font-mono">{position ? `${position.lat.toFixed(6)}, ${position.lon.toFixed(6)}` : "-"}</dd>
+                      {/* Vibration/EKF variance rows only appear once the vehicle actually sends
+                          VIBRATION/EKF_STATUS_REPORT - not every ArduPilot build streams these by
+                          default, so a permanent "-" placeholder would be misleading. */}
+                      {vibration && (
+                        <>
+                          <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.vibration")}</dt>
+                          <dd className={`font-mono ${vibrationClassName(Math.max(vibration.x, vibration.y, vibration.z))}`}>
+                            {vibration.x.toFixed(1)} / {vibration.y.toFixed(1)} / {vibration.z.toFixed(1)} m/s²
+                          </dd>
+                        </>
+                      )}
+                      {vibration && (vibration.clippingX > 0 || vibration.clippingY > 0 || vibration.clippingZ > 0) && (
+                        <>
+                          <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.vibrationClipping")}</dt>
+                          <dd className="font-mono text-destructive font-semibold">
+                            {vibration.clippingX} / {vibration.clippingY} / {vibration.clippingZ}
+                          </dd>
+                        </>
+                      )}
+                      {ekf && (
+                        <>
+                          <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.ekfVariance")}</dt>
+                          <dd
+                            className={`font-mono ${ekfVarianceClassName(
+                              Math.max(ekf.velocityVariance, ekf.posHorizVariance, ekf.posVertVariance, ekf.compassVariance),
+                            )}`}
+                          >
+                            {Math.max(ekf.velocityVariance, ekf.posHorizVariance, ekf.posVertVariance, ekf.compassVariance).toFixed(2)}
+                          </dd>
+                        </>
+                      )}
                     </dl>
                   ) : (
                     <p className="text-xs text-muted-foreground">{t("ardupilotSetup.telemetry.waitingForTelemetry")}</p>

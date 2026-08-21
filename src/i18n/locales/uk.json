@@ -607,6 +607,9 @@
       "gps2FixLabel": "GPS2-фікс",
       "satellites2": "Супутники GPS2",
       "position": "Позиція (шир., довг.)",
+      "vibration": "Вібрація (X/Y/Z)",
+      "vibrationClipping": "Кліпінг (X/Y/Z)",
+      "ekfVariance": "Варіація EKF",
       "gpsFix": {
         "noGps": "Немає GPS",
         "noFix": "Немає фіксації",

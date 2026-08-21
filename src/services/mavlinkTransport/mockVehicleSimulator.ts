@@ -20,6 +20,7 @@ import {
   ComponentArmDisarmCommand,
   DoMotorTestCommand,
   DoSetServoCommand,
+  EkfStatusReport,
   FileTransferProtocol,
   GlobalPositionInt,
   GpsFixType,
@@ -49,6 +50,7 @@ import {
   SetMode,
   SysStatus,
   VfrHud,
+  Vibration,
 } from "../../mavlink/registry/registry";
 import { vehicleFolderForMavType } from "../ardupilotParamDocs/ardupilotParamDocs";
 
@@ -349,6 +351,29 @@ export function startMockVehicle(
     pos.lon = Math.round(lon * 1e7);
     pos.relativeAlt = Math.round((100 + Math.sin(t * 0.05) * 10) * 1000);
     send(pos);
+
+    // Mostly-healthy demo values (real vehicles in normal flight sit well under both
+    // AP_NavEKF's ~1.0 variance boundary and ArduPilot's own <30 m/s/s "fine" vibration
+    // guidance) - lets the Stats tab's rows show something plausible in Dev Mode without
+    // needing a real vehicle, without ever tripping the amber/red thresholds by default.
+    const ekf = new EkfStatusReport();
+    ekf.velocityVariance = 0.1 + Math.abs(Math.sin(t * 0.07)) * 0.05;
+    ekf.posHorizVariance = 0.1 + Math.abs(Math.sin(t * 0.09)) * 0.05;
+    ekf.posVertVariance = 0.1 + Math.abs(Math.sin(t * 0.11)) * 0.05;
+    ekf.compassVariance = 0.05 + Math.abs(Math.sin(t * 0.13)) * 0.05;
+    ekf.terrainAltVariance = 0.1;
+    ekf.airspeedVariance = 0.1;
+    send(ekf);
+
+    const vibe = new Vibration();
+    vibe.timeUsec = BigInt(Math.round(elapsedMs * 1000));
+    vibe.vibrationX = 12 + Math.abs(Math.sin(t * 0.4)) * 5;
+    vibe.vibrationY = 11 + Math.abs(Math.sin(t * 0.45)) * 5;
+    vibe.vibrationZ = 15 + Math.abs(Math.sin(t * 0.35)) * 5;
+    vibe.clipping0 = 0;
+    vibe.clipping1 = 0;
+    vibe.clipping2 = 0;
+    send(vibe);
 
     // Simulated stick/switch movement - a different phase per channel so Dev Mode's RC
     // calibration screen has something real to capture min/max/trim from without needing an

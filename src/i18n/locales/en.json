@@ -607,6 +607,9 @@
       "gps2FixLabel": "GPS2 fix",
       "satellites2": "GPS2 satellites",
       "position": "Position (lat, lon)",
+      "vibration": "Vibration (X/Y/Z)",
+      "vibrationClipping": "Clipping events (X/Y/Z)",
+      "ekfVariance": "EKF variance",
       "gpsFix": {
         "noGps": "No GPS",
         "noFix": "No fix",

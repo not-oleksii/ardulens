@@ -12,6 +12,7 @@ import {
   AccelcalVehiclePosCommand,
   Attitude,
   CommandAck,
+  EkfStatusReport,
   GlobalPositionInt,
   Gps2Raw,
   GpsFixType,
@@ -41,6 +42,7 @@ import {
   StatusText,
   SysStatus,
   VfrHud,
+  Vibration,
 } from "../../../mavlink/registry/registry";
 import { PFD_TEST_IDS } from "../../../components/PrimaryFlightDisplay/pfdTestIds";
 import { DATA_EVENT, STATUS_EVENT } from "../../../services/mavlinkTransport/mavlinkTransport";
@@ -1046,6 +1048,44 @@ describe("ArduPilotSetupView", () => {
     expect(await screen.findByText("GPS2-фікс")).toBeInTheDocument();
     expect(screen.getByText("Немає фіксації")).toBeInTheDocument();
     expect(screen.getByText("Супутники GPS2")).toBeInTheDocument();
+  });
+
+  it("shows vibration and EKF variance once VIBRATION/EKF_STATUS_REPORT arrive, colored by ArduPilot's own thresholds", async () => {
+    mockBackend();
+    const { clickConnect, getStatusAlert } = getView();
+    await clickConnect();
+    await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
+    await within(getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+    await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
+
+    expect(screen.queryByText("Варіація EKF")).not.toBeInTheDocument();
+
+    // Vibration well above the "bad" (>=60 m/s/s) threshold on Z, with clipping on that axis -
+    // both should render, and the vibration row's color should reflect the destructive case.
+    const vibe = new Vibration();
+    vibe.timeUsec = BigInt(0);
+    vibe.vibrationX = 10;
+    vibe.vibrationY = 12;
+    vibe.vibrationZ = 65;
+    vibe.clipping0 = 0;
+    vibe.clipping1 = 0;
+    vibe.clipping2 = 3;
+    await emit(DATA_EVENT, { bytes: Array.from(encodePacket(vibe, { seq: 1, sysid: 1, compid: 1 })) });
+
+    expect(await screen.findByText("10.0 / 12.0 / 65.0 m/s²")).toBeInTheDocument();
+    expect(screen.getByText("0 / 0 / 3")).toBeInTheDocument();
+
+    // Compass variance well above AP_NavEKF's own ~1.0 "degraded estimate" boundary.
+    const ekf = new EkfStatusReport();
+    ekf.velocityVariance = 0.1;
+    ekf.posHorizVariance = 0.1;
+    ekf.posVertVariance = 0.1;
+    ekf.compassVariance = 1.5;
+    ekf.terrainAltVariance = 0.1;
+    ekf.airspeedVariance = 0.1;
+    await emit(DATA_EVENT, { bytes: Array.from(encodePacket(ekf, { seq: 2, sysid: 1, compid: 1 })) });
+
+    expect(await screen.findByText("1.50")).toBeInTheDocument();
   });
 
   it("requests telemetry data streams once the vehicle's heartbeat is known", async () => {
