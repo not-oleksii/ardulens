@@ -2197,6 +2197,138 @@ describe("ArduPilotSetupView", () => {
     });
   });
 
+  describe("serial ports", () => {
+    async function connectAndOpenSerialPorts() {
+      const view = getView();
+      await view.clickConnect();
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
+      await view.user.click(screen.getByRole("tab", { name: "Послідовні порти" }));
+      return view;
+    }
+
+    it("shows a Load button and not-loaded message", async () => {
+      mockBackend();
+      await connectAndOpenSerialPorts();
+      expect(screen.getByRole("button", { name: "Завантажити налаштування портів" })).toBeInTheDocument();
+      expect(screen.getByText("Налаштування послідовних портів ще не завантажено.")).toBeInTheDocument();
+    });
+
+    it("Load re-sends the full PARAM_REQUEST_LIST, and fields populate from PARAM_VALUE without it", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenSerialPorts();
+      invoked.mockClear(); // drop the auto-load-on-connect request, isolate the manual click
+
+      await user.click(screen.getByRole("button", { name: "Завантажити налаштування портів" }));
+
+      const listRequests = invoked.mock.calls.filter(([cmd, payload]) => {
+        if (cmd !== "send_bytes") return false;
+        const bytes = (payload as { bytes: number[] }).bytes;
+        return bytes[7] === ParamRequestList.MSG_ID;
+      });
+      expect(listRequests.length).toBe(1);
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERIAL1_PROTOCOL", 2, MavParamType.INT8, 0, 1, 1) });
+      expect(await screen.findByText("2")).toBeInTheDocument();
+    });
+
+    it("stages a protocol edit via the offline-editable fallback (no docs loaded) and Save all sends PARAM_SET", async () => {
+      // File-wide beforeEach stubs fetch to reject, so docs never load here - exercises
+      // SerialPortsSection's raw-numeric-code fallback (see enumSelect's editingName/editingValue
+      // branch), a real usability requirement for a user with no internet access.
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenSerialPorts();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERIAL1_PROTOCOL", 1, MavParamType.INT8, 0, 2, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERIAL1_BAUD", 57, MavParamType.INT8, 1, 2, 2) });
+      expect(await screen.findByText("1")).toBeInTheDocument();
+
+      await user.click(screen.getByText("1"));
+      const protocolInput = screen.getByRole("textbox");
+      await user.clear(protocolInput);
+      await user.type(protocolInput, "5{Enter}");
+
+      const saveAllButton = await screen.findByRole("button", { name: "Зберегти все (1)" });
+      await user.click(saveAllButton);
+      const dialog = screen.getByRole("dialog");
+      expect(within(dialog).getByText("SERIAL1_PROTOCOL")).toBeInTheDocument();
+      expect(within(dialog).getByText("1")).toBeInTheDocument();
+      expect(within(dialog).getByText("5")).toBeInTheDocument();
+
+      await user.click(within(dialog).getByRole("button", { name: "Надіслати зміни" }));
+
+      await vi.waitFor(() => {
+        const setRequest = invoked.mock.calls.find(([cmd, payload]) => {
+          if (cmd !== "send_bytes") return false;
+          const bytes = (payload as { bytes: number[] }).bytes;
+          return bytes[7] === ParamSet.MSG_ID;
+        });
+        expect(setRequest).toBeDefined();
+      });
+    });
+
+    it("shows protocol as a labeled dropdown and Options as bitmask checkboxes once docs load, staging an OR'd value", async () => {
+      // Uses the ArduSub vehicle folder as an isolated docs-fetch-stub slot not claimed by any
+      // other test in this file (see the "one legitimate real-fetch-stub slot per folder"
+      // comment on the RC Setup bitmask test - fetchParamDocs caches per-folder at module scope,
+      // shared across every test here).
+      const sampleXml = `<?xml version="1.0"?><paramfile><vehicles><parameters name="ArduSub">
+        <param humanName="Telem1 Protocol" name="SERIAL1_PROTOCOL" documentation="Protocol selection">
+          <values>
+            <value code="1">MAVLink1</value>
+            <value code="2">MAVLink2</value>
+          </values>
+        </param>
+        <param humanName="Telem1 Options" name="SERIAL1_OPTIONS" documentation="Bitmask of options">
+          <bitmask>
+            <bit code="0">InvertRX</bit>
+            <bit code="2">HalfDuplex</bit>
+          </bitmask>
+        </param>
+      </parameters></vehicles></paramfile>`;
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, text: () => Promise.resolve(sampleXml) }));
+
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const view = getView();
+      await view.clickConnect();
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit(DATA_EVENT, { bytes: sampleSubHeartbeatBytes() });
+      await view.user.click(screen.getByRole("tab", { name: "Послідовні порти" }));
+      const { user } = view;
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERIAL1_PROTOCOL", 2, MavParamType.INT8, 0, 2, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERIAL1_OPTIONS", 0, MavParamType.INT16, 1, 2, 2) });
+
+      expect(await screen.findByDisplayValue("MAVLink2")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Налаштувати опції" }));
+      const optionsDialog = screen.getByRole("dialog");
+      const invertRx = within(optionsDialog).getByRole("checkbox", { name: "InvertRX" });
+      expect(invertRx).not.toBeChecked();
+      await user.click(invertRx);
+      expect(invertRx).toBeChecked();
+      await user.click(within(optionsDialog).getByRole("button", { name: "Готово" }));
+
+      const saveAllButton = await screen.findByRole("button", { name: "Зберегти все (1)" });
+      await user.click(saveAllButton);
+      await user.click(screen.getByRole("button", { name: "Надіслати зміни" }));
+
+      await vi.waitFor(() => {
+        const setRequest = invoked.mock.calls.find(([cmd, payload]) => {
+          if (cmd !== "send_bytes") return false;
+          const bytes = (payload as { bytes: number[] }).bytes;
+          return bytes[7] === ParamSet.MSG_ID;
+        });
+        expect(setRequest).toBeDefined();
+      });
+    });
+  });
+
   describe("OSD setup", () => {
     async function connectAndOpenOsdSetup() {
       const view = getView();
