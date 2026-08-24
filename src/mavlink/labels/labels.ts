@@ -75,6 +75,16 @@ export function flightModeLabel(type: MavType, customMode: number): string {
   return names?.[customMode] ?? String(customMode);
 }
 
+/** The RTL custom_mode number for whichever vehicle family `type` belongs to - null for a
+ *  family without a known mode table (see flightModeLabel's own comment), so callers can hide
+ *  an "RTL" quick-action rather than sending a mode number that isn't actually RTL there. */
+export function rtlModeNumber(type: MavType): number | null {
+  const folder = vehicleFolderForMavType(type);
+  if (folder === "ArduPlane") return 11;
+  if (folder === "ArduCopter") return 6;
+  return null;
+}
+
 const GPS_FIX_KEYS: Partial<Record<GpsFixType, string>> = {
   [GpsFixType.NO_GPS]: "noGps",
   [GpsFixType.NO_FIX]: "noFix",

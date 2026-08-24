@@ -61,7 +61,12 @@ interface TelemetrySectionProps {
   ekf: EkfTelemetry | null;
   vibration: VibrationTelemetry | null;
   statusTextMessages: StatusTextEntry[];
+  rtlModeNumber: number | null;
   onNavigateToSection: (section: ArduPilotSetupSection) => void;
+  onFlyToHere: (lat: number, lon: number) => void;
+  onSetHomeHere: (lat: number, lon: number) => void;
+  onTakeoff: (altitudeM: number) => void;
+  onRtl: () => void;
 }
 
 export function TelemetrySection({
@@ -76,7 +81,12 @@ export function TelemetrySection({
   ekf,
   vibration,
   statusTextMessages,
+  rtlModeNumber,
   onNavigateToSection,
+  onFlyToHere,
+  onSetHomeHere,
+  onTakeoff,
+  onRtl,
 }: TelemetrySectionProps) {
   const { t } = useTranslation();
 
@@ -199,7 +209,15 @@ export function TelemetrySection({
         </div>
 
         <div className="min-h-0">
-          <LiveMapSection position={position} headingDeg={vfrHud?.headingDeg} />
+          <LiveMapSection
+            position={position}
+            headingDeg={vfrHud?.headingDeg}
+            rtlModeNumber={rtlModeNumber}
+            onFlyToHere={onFlyToHere}
+            onSetHomeHere={onSetHomeHere}
+            onTakeoff={onTakeoff}
+            onRtl={onRtl}
+          />
         </div>
       </div>
     </div>

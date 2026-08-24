@@ -33,6 +33,16 @@ export { PreflightRebootShutdownCommand, RebootShutdownAction } from "mavlink-ma
 // vehicle's actual live per-channel PWM back, so the test's effect can be confirmed rather
 // than just trusted.
 export { DoSetServoCommand, ServoOutputRaw } from "mavlink-mappings/dist/lib/common";
+// Live-map guided commands (all COMMAND_LONG wrappers, MAV_CMD real values confirmed against
+// MAVLink's own common.xml): DO_REPOSITION (192) sends the vehicle to a point while in/entering
+// GUIDED mode - its `bitmask` field's CHANGE_MODE bit (see MavDoRepositionFlags) makes the
+// vehicle switch to GUIDED itself, so no separate SET_MODE is needed first. DO_SET_HOME (179)
+// sets the home/RTL-return point. NAV_TAKEOFF (22) climbs to `altitude` in place for a
+// multirotor (lat/lon are Plane/VTOL-only fields, left unset here). Unlike MISSION_ITEM_INT's
+// int32*1e7 lat/lon, these all carry plain float-degree lat/lon (confirmed via each class's own
+// property doc comment, no *1e7 scaling note) - COMMAND_LONG's real wire shape for these three
+// commands, not a precision shortcut taken here.
+export { DoRepositionCommand, DoSetHomeCommand, MavDoRepositionFlags, NavTakeoffCommand } from "mavlink-mappings/dist/lib/common";
 // DO_MOTOR_TEST spins one Copter motor at a given throttle for a bounded duration (the
 // firmware itself auto-stops after `timeout` even if a follow-up stop command is lost, on
 // top of the explicit stop this app sends on release) - used for the motor-identification

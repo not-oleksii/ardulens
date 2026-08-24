@@ -244,7 +244,13 @@
       "recenter": "Recenter",
       "noFix": "Waiting for a GPS fix...",
       "radarLabel": "Position relative to start (no map tiles - no Cesium ion token set)",
-      "distanceFromStart": "{{meters}} m from start"
+      "distanceFromStart": "{{meters}} m from start",
+      "flyToHere": "Fly to here",
+      "setHomeHere": "Set home here",
+      "takeoffAltitude": "Takeoff altitude (m)",
+      "takeoff": "Takeoff",
+      "rtl": "RTL",
+      "clickToConfirm": "Click a point on the map to send the command."
     },
     "parameters": {
       "heading": "Parameters",

@@ -12,6 +12,8 @@ import {
   AccelcalVehiclePosCommand,
   Attitude,
   CommandAck,
+  DoRepositionCommand,
+  DoSetHomeCommand,
   EkfStatusReport,
   GlobalPositionInt,
   Gps2Raw,
@@ -28,6 +30,7 @@ import {
   MavAutopilot,
   MavCmd,
   MavDataStream,
+  MavDoRepositionFlags,
   MavFrame,
   MavMissionResult,
   MavMissionType,
@@ -43,6 +46,7 @@ import {
   MissionItemInt,
   MissionRequestInt,
   MissionRequestList,
+  NavTakeoffCommand,
   ParamRequestList,
   ParamRequestRead,
   ParamSet,
@@ -51,6 +55,7 @@ import {
   RebootShutdownAction,
   RequestDataStream,
   ServoOutputRaw,
+  SetMode,
   StatusText,
   SysStatus,
   VfrHud,
@@ -88,6 +93,43 @@ vi.mock("@tanstack/react-virtual", () => ({
     getTotalSize: () => count * PARAM_ROW_HEIGHT_PX,
   }),
 }));
+
+// Same reasoning/mocking approach as LiveMapSection.test.tsx's own dedicated Cesium mock: no
+// test in this file ever sets a Cesium ion token by default (beforeEach clears localStorage),
+// so LiveMapSection's real Viewer never gets constructed in the vast majority of tests here -
+// this mock only matters for the "live map guided commands" tests below, which deliberately set
+// a token to reach the connected-map view.
+const { MockCesiumViewer, MockScreenSpaceEventHandler, cesiumViewerInstances, cesiumClickHandlers } = vi.hoisted(() => {
+  const cesiumViewerInstances: MockCesiumViewer[] = [];
+  const cesiumClickHandlers: Array<(movement: { position: unknown }) => void> = [];
+  class MockCesiumViewer {
+    entities = { add: vi.fn(), remove: vi.fn() };
+    camera = { flyTo: vi.fn(), pickEllipsoid: vi.fn() };
+    scene = { canvas: {}, globe: { ellipsoid: {} } };
+    terrainProvider = {};
+    destroy = vi.fn();
+    constructor() {
+      cesiumViewerInstances.push(this);
+    }
+  }
+  class MockScreenSpaceEventHandler {
+    setInputAction(callback: (movement: { position: unknown }) => void) {
+      cesiumClickHandlers.push(callback);
+    }
+    destroy = vi.fn();
+  }
+  return { MockCesiumViewer, MockScreenSpaceEventHandler, cesiumViewerInstances, cesiumClickHandlers };
+});
+vi.mock("cesium", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("cesium")>();
+  return {
+    ...actual,
+    Viewer: MockCesiumViewer,
+    ScreenSpaceEventHandler: MockScreenSpaceEventHandler,
+    Terrain: { fromWorldTerrain: () => ({}) },
+    sampleTerrainMostDetailed: () => Promise.resolve([{ height: 100 }]),
+  };
+});
 
 const SAMPLE_PORTS = [
   { name: "COM3", description: "USB Serial" },
@@ -439,6 +481,8 @@ afterEach(async () => {
   useMavlinkParamDefaultsStore.getState().reset();
   useMavlinkDataflashLogStore.getState().reset();
   useMavlinkMissionStore.getState().reset();
+  cesiumViewerInstances.length = 0;
+  cesiumClickHandlers.length = 0;
   useFileStore.getState().clearFile();
   useUiStore.getState().setPendingPresetKey(null);
   useUiStore.getState().setActiveTab("logs");
@@ -2620,6 +2664,92 @@ describe("ArduPilotSetupView", () => {
         expect(screen.queryByText("Надсилання місії...")).not.toBeInTheDocument();
       });
       expect(screen.queryByText(/MISSION_ACK/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe("live map guided commands", () => {
+    async function connectWithCesiumTokenSet() {
+      localStorage.setItem("ardulens.cesiumIonToken", "test-token");
+      const view = getView();
+      await view.clickConnect();
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() }); // QUADROTOR -> Copter RTL mode 6
+      await screen.findByTestId("live-map"); // Telemetry (with the map) is the default landing section
+      return view;
+    }
+
+    function findSentMessages(invoked: ReturnType<typeof vi.fn>, msgId: number) {
+      return invoked.mock.calls.filter(([cmd, payload]) => {
+        if (cmd !== "send_bytes") return false;
+        const bytes = (payload as { bytes: number[] }).bytes;
+        return bytes[7] === msgId;
+      });
+    }
+
+    it("RTL sends SET_MODE with the Copter RTL mode number (6)", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectWithCesiumTokenSet();
+
+      await user.click(screen.getByRole("button", { name: "RTL" }));
+
+      await vi.waitFor(() => expect(findSentMessages(invoked, SetMode.MSG_ID)).toHaveLength(1));
+      const bytes = (findSentMessages(invoked, SetMode.MSG_ID)[0]![1] as { bytes: number[] }).bytes;
+      expect(decodeMessage(SetMode, new Uint8Array(bytes.slice(10))).customMode).toBe(6);
+    });
+
+    it("Takeoff sends NAV_TAKEOFF with the entered altitude", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectWithCesiumTokenSet();
+
+      const altInput = screen.getByLabelText("Висота зльоту (м)");
+      await user.clear(altInput);
+      await user.type(altInput, "25");
+      await user.click(screen.getByRole("button", { name: "Зліт" }));
+
+      await vi.waitFor(() => expect(findSentMessages(invoked, NavTakeoffCommand.MSG_ID)).toHaveLength(1));
+      const bytes = (findSentMessages(invoked, NavTakeoffCommand.MSG_ID)[0]![1] as { bytes: number[] }).bytes;
+      expect(decodeMessage(NavTakeoffCommand, new Uint8Array(bytes.slice(10))).altitude).toBe(25);
+    });
+
+    it("Fly to here arms on click and sends DO_REPOSITION (with the CHANGE_MODE bit) for the clicked point", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectWithCesiumTokenSet();
+
+      await user.click(screen.getByRole("button", { name: "Летіти сюди" }));
+      const viewer = cesiumViewerInstances.at(-1)!;
+      const { Cartesian3 } = await import("cesium");
+      viewer.camera.pickEllipsoid.mockReturnValue(Cartesian3.fromDegrees(31, 52, 0));
+      cesiumClickHandlers[0]!({ position: {} });
+
+      await vi.waitFor(() => expect(findSentMessages(invoked, DoRepositionCommand.MSG_ID)).toHaveLength(1));
+      const bytes = (findSentMessages(invoked, DoRepositionCommand.MSG_ID)[0]![1] as { bytes: number[] }).bytes;
+      const sent = decodeMessage(DoRepositionCommand, new Uint8Array(bytes.slice(10)));
+      expect(sent.bitmask).toBe(MavDoRepositionFlags.CHANGE_MODE);
+      expect(sent.latitude).toBeCloseTo(52, 4);
+      expect(sent.longitude).toBeCloseTo(31, 4);
+    });
+
+    it("Set home here sends DO_SET_HOME for the clicked point", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectWithCesiumTokenSet();
+
+      await user.click(screen.getByRole("button", { name: "Встановити дім тут" }));
+      const viewer = cesiumViewerInstances.at(-1)!;
+      const { Cartesian3 } = await import("cesium");
+      viewer.camera.pickEllipsoid.mockReturnValue(Cartesian3.fromDegrees(31, 52, 0));
+      cesiumClickHandlers[0]!({ position: {} });
+
+      await vi.waitFor(() => expect(findSentMessages(invoked, DoSetHomeCommand.MSG_ID)).toHaveLength(1));
+      const bytes = (findSentMessages(invoked, DoSetHomeCommand.MSG_ID)[0]![1] as { bytes: number[] }).bytes;
+      const sent = decodeMessage(DoSetHomeCommand, new Uint8Array(bytes.slice(10)));
+      expect(sent.useCurrent).toBe(0);
+      expect(sent.latitude).toBeCloseTo(52, 4);
+      expect(sent.longitude).toBeCloseTo(31, 4);
     });
   });
 
