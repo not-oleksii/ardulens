@@ -14,6 +14,7 @@
     "logs": "Logs",
     "graphs": "Graphs",
     "map": "Map",
+    "geotag": "GeoTag",
     "parameters": "Parameters",
     "advisor": "Advisor",
     "compare": "Compare"
@@ -1089,6 +1090,27 @@
       "save": "Save",
       "clear": "Clear saved token"
     }
+  },
+  "geotag": {
+    "heading": "GeoTag",
+    "description": "Match photos from a mapping flight to the vehicle's own logged camera-trigger positions (ArduPilot's CAM dataflash message), then write real GPS EXIF into geotagged copies - ready for Pix4D, DroneDeploy, WebODM, or any other photogrammetry tool. Needs a real .bin log with camera triggers logged.",
+    "desktopOnly": "GeoTag needs the desktop app (reads/writes real files on disk) - not available in the plain browser build.",
+    "loadingLog": "Reading camera-trigger records from the log...",
+    "noCamRecords": "No CAM (camera-trigger) records found in this log - GeoTag needs a mapping mission that actually fired the camera, and a real .bin dataflash log (not .skylog).",
+    "camRecordCount": "{{count}} camera-trigger record(s) found in the log.",
+    "pickFolder": "Choose photo folder...",
+    "photoCount": "{{count}} JPEG photo(s) found in the folder.",
+    "countMismatch": "Photo count ({{photos}}) doesn't match the number of CAM records ({{cam}}) - make sure the folder contains only this flight's photos, and only this flight's photos.",
+    "useAmslAltitude": "Use AMSL altitude (unchecked: altitude relative to home)",
+    "table": {
+      "photo": "Photo",
+      "lat": "Lat",
+      "lng": "Lng",
+      "alt": "Alt (m)"
+    },
+    "geotagImages": "GeoTag Images",
+    "writing": "Geotagging {{done}} / {{total}}...",
+    "done": "Geotagged {{succeeded}} / {{total}} photos into {{folder}}"
   },
   "parameters": {
     "heading": "Parameters",

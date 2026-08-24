@@ -5,6 +5,7 @@ import { ArduPilotSetupView } from "./pages/ArduPilotSetupView/ArduPilotSetupVie
 import { AdvisorView } from "./pages/AdvisorView/AdvisorView";
 import { CesiumMapView } from "./pages/CesiumMapView/CesiumMapView";
 import { CompareView } from "./pages/CompareView/CompareView";
+import { GeoTagView } from "./pages/GeoTagView/GeoTagView";
 import { GraphsView } from "./pages/GraphsView/GraphsView";
 import { HomeView } from "./pages/HomeView/HomeView";
 import { LogsView } from "./pages/LogsView/LogsView";
@@ -16,6 +17,7 @@ const VIEWS = {
   logs: LogsView,
   graphs: GraphsView,
   map: CesiumMapView,
+  geotag: GeoTagView,
   parameters: ParametersView,
   advisor: AdvisorView,
   compare: CompareView,

@@ -1,6 +1,7 @@
 import * as Comlink from "comlink";
 import { runAdvisors } from "../../analysis/advisors/registry/registry";
 import { buildFlightMapDataFromBin } from "../../analysis/flight-map/fromBin";
+import { extractCamGeoTags } from "../../analysis/geotag/geotag";
 import { computeRow } from "../../analysis/metrics/metrics";
 import { buildRawLog } from "../../analysis/raw-log/raw-log";
 import { extractParamsFromBin } from "../../parameters/dataflash-params/dataflash-params";
@@ -16,6 +17,7 @@ const api = {
   parseParamFile,
   buildRawLog,
   buildFlightMapDataFromBin,
+  extractCamGeoTags,
 };
 
 export type CoreWorkerApi = typeof api;
