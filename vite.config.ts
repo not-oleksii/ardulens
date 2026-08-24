@@ -16,6 +16,44 @@ export default defineConfig({
       '@': path.resolve(import.meta.dirname, 'src'),
     },
   },
+  // `cesium`'s own package.json points its ESM entry at Source/Cesium.js, a single aggregator
+  // re-exporting ~1600+ individual Core/Scene/DataSources modules - Vite's dev-server dependency
+  // scanner has to fully walk that whole fan-out to pre-bundle it, which is expensive enough to
+  // blow past V8's Zone allocator on memory-constrained machines, crashing `vite`/`tauri dev`
+  // outright with "FATAL ERROR: Zone Allocation failed - process out of memory" during the
+  // "scanning dependencies" phase - reproduced directly (twice, including once even with
+  // --max-old-space-size=8192, confirming it's the separate Zone allocator, not the general
+  // heap, so raising heap size alone doesn't help).
+  //
+  // Excluding cesium sidesteps the scan (it's served as native ESM instead), but then esbuild's
+  // CJS-interop wrapping no longer runs for anything reached only through Cesium's OWN internal
+  // imports either - every one of its transitive dependencies below is genuinely CommonJS-only
+  // (`module.exports = ...`, confirmed via each package's own package.json/entry file, not
+  // guessed), so each needs to stay explicitly included or the browser fails outright with
+  // "does not provide an export named 'default'" the moment Cesium touches it.
+  optimizeDeps: {
+    exclude: ['cesium'],
+    include: [
+      '@spz-loader/core',
+      '@tweenjs/tween.js',
+      '@zip.js/zip.js',
+      'autolinker',
+      'bitmap-sdf',
+      'dompurify',
+      'draco3d',
+      'grapheme-splitter',
+      'jsep',
+      'kdbush',
+      'ktx-parse',
+      'lerc',
+      'mersenne-twister',
+      'nosleep.js',
+      'pako',
+      'protobufjs',
+      'topojson-client',
+      'urijs',
+    ],
+  },
   publicDir: 'app/public',
   server: {
     // Only auto-open a browser tab for a plain `npm run dev` - when Vite is started as
