@@ -1,3 +1,3 @@
 import { createMissionListStore } from "./createMissionListStore";
 
-export const useMavlinkMissionStore = createMissionListStore();
+export const useMavlinkRallyStore = createMissionListStore();

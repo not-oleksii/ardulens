@@ -780,10 +780,15 @@ export function startMockVehicle(
     }
   }
 
-  // --- Mission (MISSION_REQUEST_LIST / MISSION_COUNT / MISSION_ITEM_INT) ---
-  // A small fake 3-item mission (two waypoints + RTL) - not real flight-worthy coordinates, just
-  // enough real MISSION_* wire traffic (request-response per item, both directions) to exercise
-  // the download/upload flow in Dev Mode without a real vehicle.
+  // --- Mission/Fence/Rally (MISSION_REQUEST_LIST / MISSION_COUNT / MISSION_ITEM_INT) ---
+  // MISSION, FENCE, and RALLY share this exact same MAVLink microservice, disambiguated only by
+  // each message's own `missionType` field (see registry.ts's mission comment) - a fake 3-item
+  // mission (two waypoints + RTL), a fake 4-vertex fence polygon, and 2 fake rally points, one
+  // independent list per type (not real flight-worthy coordinates, just enough real wire traffic,
+  // request-response per item in both directions, to exercise download/upload in Dev Mode
+  // without a real vehicle). Every handler below routes by the incoming message's own
+  // `missionType` rather than assuming MISSION, mirroring the same real-bug fix this app's own
+  // ArduPilotSetupView.tsx onData switch needed once FENCE/RALLY were added.
   interface MissionItemFields {
     seq: number;
     command: number;
@@ -797,23 +802,58 @@ export function startMockVehicle(
     lon: number;
     alt: number;
   }
-  let missionItems: MissionItemFields[] = [
-    { seq: 0, command: MavCmd.NAV_WAYPOINT, frame: MavFrame.GLOBAL_RELATIVE_ALT, autocontinue: 1, param1: 0, param2: 0, param3: 0, param4: 0, lat: 50.4501, lon: 30.5234, alt: 0 },
-    { seq: 1, command: MavCmd.NAV_WAYPOINT, frame: MavFrame.GLOBAL_RELATIVE_ALT, autocontinue: 1, param1: 0, param2: 5, param3: 0, param4: 0, lat: 50.4531, lon: 30.5264, alt: 50 },
-    { seq: 2, command: MavCmd.NAV_RETURN_TO_LAUNCH, frame: MavFrame.GLOBAL_RELATIVE_ALT, autocontinue: 1, param1: 0, param2: 0, param3: 0, param4: 0, lat: 0, lon: 0, alt: 0 },
-  ];
-  // Set only while the GCS is actively uploading a mission to us - null the rest of the time.
-  let missionUpload: { expectedCount: number; received: MissionItemFields[] } | null = null;
+  interface MissionListState {
+    items: MissionItemFields[];
+    // Set only while the GCS is actively uploading this list to us - null the rest of the time.
+    upload: { expectedCount: number; received: MissionItemFields[] } | null;
+  }
+  const missionLists = new Map<MavMissionType, MissionListState>([
+    [
+      MavMissionType.MISSION,
+      {
+        items: [
+          { seq: 0, command: MavCmd.NAV_WAYPOINT, frame: MavFrame.GLOBAL_RELATIVE_ALT, autocontinue: 1, param1: 0, param2: 0, param3: 0, param4: 0, lat: 50.4501, lon: 30.5234, alt: 0 },
+          { seq: 1, command: MavCmd.NAV_WAYPOINT, frame: MavFrame.GLOBAL_RELATIVE_ALT, autocontinue: 1, param1: 0, param2: 5, param3: 0, param4: 0, lat: 50.4531, lon: 30.5264, alt: 50 },
+          { seq: 2, command: MavCmd.NAV_RETURN_TO_LAUNCH, frame: MavFrame.GLOBAL_RELATIVE_ALT, autocontinue: 1, param1: 0, param2: 0, param3: 0, param4: 0, lat: 0, lon: 0, alt: 0 },
+        ],
+        upload: null,
+      },
+    ],
+    [
+      MavMissionType.FENCE,
+      {
+        items: [
+          { seq: 0, command: MavCmd.NAV_FENCE_POLYGON_VERTEX_INCLUSION, frame: MavFrame.GLOBAL, autocontinue: 1, param1: 4, param2: 0, param3: 0, param4: 0, lat: 50.448, lon: 30.52, alt: 0 },
+          { seq: 1, command: MavCmd.NAV_FENCE_POLYGON_VERTEX_INCLUSION, frame: MavFrame.GLOBAL, autocontinue: 1, param1: 4, param2: 0, param3: 0, param4: 0, lat: 50.448, lon: 30.532, alt: 0 },
+          { seq: 2, command: MavCmd.NAV_FENCE_POLYGON_VERTEX_INCLUSION, frame: MavFrame.GLOBAL, autocontinue: 1, param1: 4, param2: 0, param3: 0, param4: 0, lat: 50.458, lon: 30.532, alt: 0 },
+          { seq: 3, command: MavCmd.NAV_FENCE_POLYGON_VERTEX_INCLUSION, frame: MavFrame.GLOBAL, autocontinue: 1, param1: 4, param2: 0, param3: 0, param4: 0, lat: 50.458, lon: 30.52, alt: 0 },
+        ],
+        upload: null,
+      },
+    ],
+    [
+      MavMissionType.RALLY,
+      {
+        items: [
+          { seq: 0, command: MavCmd.NAV_RALLY_POINT, frame: MavFrame.GLOBAL_RELATIVE_ALT, autocontinue: 1, param1: 0, param2: 0, param3: 0, param4: 0, lat: 50.451, lon: 30.518, alt: 30 },
+          { seq: 1, command: MavCmd.NAV_RALLY_POINT, frame: MavFrame.GLOBAL_RELATIVE_ALT, autocontinue: 1, param1: 0, param2: 0, param3: 0, param4: 0, lat: 50.455, lon: 30.53, alt: 30 },
+        ],
+        upload: null,
+      },
+    ],
+  ]);
 
-  function handleMissionRequestList() {
+  function handleMissionRequestList(missionType: MavMissionType) {
+    const list = missionLists.get(missionType);
     const count = new MissionCount();
-    count.count = missionItems.length;
-    count.missionType = MavMissionType.MISSION;
+    count.count = list?.items.length ?? 0;
+    count.missionType = missionType;
     send(count);
   }
 
   function handleMissionRequestInt(msg: MissionRequestInt) {
-    const item = missionItems.find((i) => i.seq === msg.seq);
+    const list = missionLists.get(msg.missionType);
+    const item = list?.items.find((i) => i.seq === msg.seq);
     if (!item) return;
     const itemMsg = new MissionItemInt();
     itemMsg.seq = item.seq;
@@ -828,30 +868,33 @@ export function startMockVehicle(
     itemMsg.x = Math.round(item.lat * 1e7);
     itemMsg.y = Math.round(item.lon * 1e7);
     itemMsg.z = item.alt;
-    itemMsg.missionType = MavMissionType.MISSION;
+    itemMsg.missionType = msg.missionType;
     send(itemMsg);
   }
 
   function handleMissionCount(msg: MissionCount) {
+    const list = missionLists.get(msg.missionType);
+    if (!list) return;
     if (msg.count === 0) {
-      missionItems = [];
-      missionUpload = null;
+      list.items = [];
+      list.upload = null;
       const ack = new MissionAck();
       ack.type = MavMissionResult.ACCEPTED;
-      ack.missionType = MavMissionType.MISSION;
+      ack.missionType = msg.missionType;
       send(ack);
       return;
     }
-    missionUpload = { expectedCount: msg.count, received: [] };
+    list.upload = { expectedCount: msg.count, received: [] };
     const req = new MissionRequestInt();
     req.seq = 0;
-    req.missionType = MavMissionType.MISSION;
+    req.missionType = msg.missionType;
     send(req);
   }
 
   function handleMissionItemIntFromGcs(msg: MissionItemInt) {
-    if (!missionUpload) return;
-    missionUpload.received.push({
+    const list = missionLists.get(msg.missionType);
+    if (!list?.upload) return;
+    list.upload.received.push({
       seq: msg.seq,
       command: msg.command,
       frame: msg.frame,
@@ -864,17 +907,17 @@ export function startMockVehicle(
       lon: msg.y / 1e7,
       alt: msg.z,
     });
-    if (msg.seq + 1 < missionUpload.expectedCount) {
+    if (msg.seq + 1 < list.upload.expectedCount) {
       const req = new MissionRequestInt();
       req.seq = msg.seq + 1;
-      req.missionType = MavMissionType.MISSION;
+      req.missionType = msg.missionType;
       send(req);
     } else {
-      missionItems = missionUpload.received;
-      missionUpload = null;
+      list.items = list.upload.received;
+      list.upload = null;
       const ack = new MissionAck();
       ack.type = MavMissionResult.ACCEPTED;
-      ack.missionType = MavMissionType.MISSION;
+      ack.missionType = msg.missionType;
       send(ack);
     }
   }
@@ -993,7 +1036,7 @@ export function startMockVehicle(
           handleLogRequestData(packet.message as LogRequestData);
           break;
         case MissionRequestList.MSG_ID:
-          handleMissionRequestList();
+          handleMissionRequestList((packet.message as MissionRequestList).missionType);
           break;
         case MissionRequestInt.MSG_ID:
           handleMissionRequestInt(packet.message as MissionRequestInt);

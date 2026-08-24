@@ -68,6 +68,8 @@ import { useMavlinkCompassCalStore } from "../../../stores/mavlinkCompassCalStor
 import { useMavlinkConnectionStore } from "../../../stores/mavlinkConnectionStore/mavlinkConnectionStore";
 import { useMavlinkDataflashLogStore } from "../../../stores/mavlinkDataflashLogStore/mavlinkDataflashLogStore";
 import { useMavlinkMissionStore } from "../../../stores/mavlinkMissionStore/mavlinkMissionStore";
+import { useMavlinkFenceStore } from "../../../stores/mavlinkMissionStore/mavlinkFenceStore";
+import { useMavlinkRallyStore } from "../../../stores/mavlinkMissionStore/mavlinkRallyStore";
 import { useMavlinkParamDefaultsStore } from "../../../stores/mavlinkParamDefaultsStore/mavlinkParamDefaultsStore";
 import { useMavlinkParameterStore } from "../../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import { useMavlinkRcCalStore } from "../../../stores/mavlinkRcCalStore/mavlinkRcCalStore";
@@ -481,6 +483,8 @@ afterEach(async () => {
   useMavlinkParamDefaultsStore.getState().reset();
   useMavlinkDataflashLogStore.getState().reset();
   useMavlinkMissionStore.getState().reset();
+  useMavlinkFenceStore.getState().reset();
+  useMavlinkRallyStore.getState().reset();
   cesiumViewerInstances.length = 0;
   cesiumClickHandlers.length = 0;
   useFileStore.getState().clearFile();
@@ -2664,6 +2668,127 @@ describe("ArduPilotSetupView", () => {
         expect(screen.queryByText("Надсилання місії...")).not.toBeInTheDocument();
       });
       expect(screen.queryByText(/MISSION_ACK/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe("fence and rally plan", () => {
+    async function connectAndOpenTab(tabName: string) {
+      const view = getView();
+      await view.clickConnect();
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
+      await view.user.click(screen.getByRole("tab", { name: tabName }));
+      return view;
+    }
+
+    function findSentMessages(invoked: ReturnType<typeof vi.fn>, msgId: number) {
+      return invoked.mock.calls.filter(([cmd, payload]) => {
+        if (cmd !== "send_bytes") return false;
+        const bytes = (payload as { bytes: number[] }).bytes;
+        return bytes[7] === msgId;
+      });
+    }
+
+    it("downloads a fence: MISSION_REQUEST_LIST/MISSION_ACK carry FENCE type, not MISSION", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenTab("Геозона");
+
+      await user.click(screen.getByRole("button", { name: "Завантажити з апарата" }));
+      const listReq = findSentMessages(invoked, MissionRequestList.MSG_ID);
+      expect(listReq).toHaveLength(1);
+      expect(decodeMessage(MissionRequestList, new Uint8Array((listReq[0]![1] as { bytes: number[] }).bytes.slice(10))).missionType).toBe(MavMissionType.FENCE);
+
+      const count = new MissionCount();
+      count.count = 1;
+      count.missionType = MavMissionType.FENCE;
+      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(count, { seq: 1, sysid: 1, compid: 1 })) });
+
+      await vi.waitFor(() => expect(findSentMessages(invoked, MissionRequestInt.MSG_ID)).toHaveLength(1));
+
+      const item0 = new MissionItemInt();
+      item0.seq = 0;
+      item0.command = MavCmd.NAV_FENCE_POLYGON_VERTEX_INCLUSION;
+      item0.frame = MavFrame.GLOBAL;
+      item0.autocontinue = 1;
+      item0.param1 = 1;
+      item0.x = Math.round(50.448 * 1e7);
+      item0.y = Math.round(30.52 * 1e7);
+      item0.missionType = MavMissionType.FENCE;
+      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(item0, { seq: 2, sysid: 1, compid: 1 })) });
+
+      await vi.waitFor(() => {
+        const ack = findSentMessages(invoked, MissionAck.MSG_ID);
+        expect(ack).toHaveLength(1);
+        expect(decodeMessage(MissionAck, new Uint8Array((ack[0]![1] as { bytes: number[] }).bytes.slice(10))).missionType).toBe(MavMissionType.FENCE);
+      });
+      expect(screen.getAllByRole("row")).toHaveLength(2); // header + 1 vertex
+    });
+
+    it("uploads a rally point: MISSION_COUNT/MISSION_ITEM_INT carry RALLY type, finishes on MISSION_ACK", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenTab("Точки повернення");
+
+      await user.click(screen.getByRole("button", { name: "Додати точку" }));
+      await user.click(screen.getByRole("button", { name: "Надіслати на апарат" }));
+
+      const countMsgs = findSentMessages(invoked, MissionCount.MSG_ID);
+      expect(countMsgs).toHaveLength(1);
+      expect(decodeMessage(MissionCount, new Uint8Array((countMsgs[0]![1] as { bytes: number[] }).bytes.slice(10))).missionType).toBe(MavMissionType.RALLY);
+
+      const req = new MissionRequestInt();
+      req.seq = 0;
+      req.missionType = MavMissionType.RALLY;
+      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(req, { seq: 1, sysid: 1, compid: 1 })) });
+
+      await vi.waitFor(() => {
+        const items = findSentMessages(invoked, MissionItemInt.MSG_ID);
+        expect(items.length).toBe(1);
+        const sent = decodeMessage(MissionItemInt, new Uint8Array((items[0]![1] as { bytes: number[] }).bytes.slice(10)));
+        expect(sent.command).toBe(MavCmd.NAV_RALLY_POINT);
+        expect(sent.missionType).toBe(MavMissionType.RALLY);
+      });
+
+      const ack = new MissionAck();
+      ack.type = MavMissionResult.ACCEPTED;
+      ack.missionType = MavMissionType.RALLY;
+      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(ack, { seq: 2, sysid: 1, compid: 1 })) });
+
+      await vi.waitFor(() => expect(screen.queryByText("Надсилання місії...")).not.toBeInTheDocument());
+    });
+
+    it("routes a stray MISSION-type MISSION_COUNT to the mission store, not the concurrent FENCE download", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenTab("Геозона");
+
+      await user.click(screen.getByRole("button", { name: "Завантажити з апарата" }));
+      expect(screen.getByText(/Завантаження місії/)).toBeInTheDocument();
+
+      // A stray MISSION-type MISSION_COUNT (e.g. a leftover reply from the separate Mission Plan
+      // tab) arrives while this FENCE download is in progress - must be routed to the mission
+      // store and answered as MISSION type, not mistaken for this FENCE download's own reply.
+      const strayCount = new MissionCount();
+      strayCount.count = 3;
+      strayCount.missionType = MavMissionType.MISSION;
+      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(strayCount, { seq: 1, sysid: 1, compid: 1 })) });
+
+      await vi.waitFor(() => {
+        const requests = findSentMessages(invoked, MissionRequestInt.MSG_ID);
+        expect(requests).toHaveLength(1);
+        expect(decodeMessage(MissionRequestInt, new Uint8Array((requests[0]![1] as { bytes: number[] }).bytes.slice(10))).missionType).toBe(MavMissionType.MISSION);
+      });
+      // The fence download itself is still waiting - unaffected by the stray MISSION-type reply.
+      expect(screen.getByText(/Завантаження місії/)).toBeInTheDocument();
+
+      const fenceCount = new MissionCount();
+      fenceCount.count = 0;
+      fenceCount.missionType = MavMissionType.FENCE;
+      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(fenceCount, { seq: 2, sysid: 1, compid: 1 })) });
+
+      await vi.waitFor(() => expect(screen.getByText(/Ще немає точок геозони/)).toBeInTheDocument());
     });
   });
 
