@@ -60,7 +60,13 @@
       "batteryConfig": "Battery Config",
       "pidTune": "PID Tune",
       "osdSetup": "OSD Setup",
-      "vtxSetup": "VTX Setup"
+      "vtxSetup": "VTX Setup",
+      "category": {
+        "planning": "Planning",
+        "diagnostics": "Diagnostics",
+        "calibration": "Calibration",
+        "setup": "Setup"
+      }
     },
     "comingSoon": {
       "pidTune": "PID tuning - coming in a future release."
