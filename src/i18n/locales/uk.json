@@ -47,6 +47,8 @@
       "serialPorts": "Послідовні порти",
       "dataflashLogs": "DataFlash Логи",
       "missionPlan": "План місії",
+      "fence": "Геозона",
+      "rally": "Точки повернення",
       "compassCal": "Калібрування компаса",
       "accelCal": "Калібрування акселерометра",
       "rcCal": "Калібрування RC",
@@ -402,6 +404,26 @@
       "pitch": "Тангаж (град)",
       "targetSeq": "Ціль №",
       "repeatCount": "Кількість повторів"
+    },
+    "fence": {
+      "heading": "Геозона",
+      "addVertex": "Додати вершину",
+      "empty": "Ще немає точок геозони - завантажте з апарата або додайте вершину.",
+      "pointsCount": "Точки геозони ({{count}})",
+      "fencePolygonVertexInclusion": "Вершина полігону (включення)",
+      "fencePolygonVertexExclusion": "Вершина полігону (виключення)",
+      "fenceCircleInclusion": "Коло (включення)",
+      "fenceCircleExclusion": "Коло (виключення)",
+      "fenceReturnPoint": "Точка повернення",
+      "vertexCount": "Кількість вершин",
+      "radius": "Радіус (м)"
+    },
+    "rally": {
+      "heading": "Точки повернення",
+      "addPoint": "Додати точку",
+      "empty": "Ще немає точок повернення - завантажте з апарата або додайте точку.",
+      "pointsCount": "Точки повернення ({{count}})",
+      "navRallyPoint": "Точка повернення"
     },
     "osdSetup": {
       "heading": "Налаштування OSD",

@@ -5,6 +5,7 @@ import {
   ChevronsRight,
   Cog,
   Compass,
+  Flag,
   Gauge,
   HardDrive,
   Joystick,
@@ -12,6 +13,7 @@ import {
   MonitorPlay,
   MoveDiagonal,
   Radio,
+  Shield,
   SlidersHorizontal,
   Video,
   Waypoints,
@@ -28,6 +30,8 @@ import { cn } from "@/lib/utils";
 export type ArduPilotSetupSection =
   | "telemetry"
   | "missionPlan"
+  | "fence"
+  | "rally"
   | "parameters"
   | "serialPorts"
   | "dataflashLogs"
@@ -45,6 +49,8 @@ export type ArduPilotSetupSection =
 const SECTIONS: readonly ArduPilotSetupSection[] = [
   "telemetry",
   "missionPlan",
+  "fence",
+  "rally",
   "parameters",
   "serialPorts",
   "dataflashLogs",
@@ -63,6 +69,8 @@ const SECTIONS: readonly ArduPilotSetupSection[] = [
 const SECTION_ICONS = {
   telemetry: Gauge,
   missionPlan: Waypoints,
+  fence: Shield,
+  rally: Flag,
   parameters: List,
   serialPorts: Cable,
   dataflashLogs: HardDrive,

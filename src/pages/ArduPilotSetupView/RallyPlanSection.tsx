@@ -1,5 +1,5 @@
 import { ChevronUp } from "lucide-react";
-import { useRef, useState, type ChangeEvent } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -8,17 +8,16 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { CESIUM_TOKEN_STORAGE_KEY } from "../../constants";
 import { MavCmd, MavFrame } from "../../mavlink/registry/registry";
-import { formatWaypointsFile, parseWaypointsFile } from "../../mavlink/missionFileCodec/missionFileCodec";
 import type { MissionItemEntry, MissionTransferPhase } from "../../stores/mavlinkMissionStore/types";
 import type { PositionTelemetry } from "../../stores/mavlinkTelemetryStore/types";
-import { commandConfig, MISSION_COMMANDS } from "./missionCommandLabels";
+import { RALLY_COMMANDS } from "./missionCommandLabels";
 import { useMissionMapViewer } from "./useMissionMapViewer";
 
 const DEFAULT_ALT_M = 50;
-const MARKER_COLOR = "#f59e0b";
-const PATH_COLOR = "#f59e0b";
+const MARKER_COLOR = "#3b82f6";
+const PATH_COLOR = "#3b82f6";
 
-interface MissionPlanSectionProps {
+interface RallyPlanSectionProps {
   items: MissionItemEntry[];
   downloadPhase: MissionTransferPhase;
   downloadCountExpected: number | null;
@@ -31,7 +30,13 @@ interface MissionPlanSectionProps {
   onSetItems: (items: MissionItemEntry[]) => void;
 }
 
-export function MissionPlanSection({
+/** Rally point editor - the same map-click-to-add-point / table-editor pattern as
+ *  MissionPlanSection/FencePlanSection (see useMissionMapViewer.ts), but rally points are
+ *  independent alternate-RTL locations, not a route, so unlike Mission there's no connecting
+ *  path line drawn between them. File save/load is deliberately left for a later pass (same
+ *  reasoning as FencePlanSection - see its comment); live download/upload to the vehicle is the
+ *  actual gap being closed here. */
+export function RallyPlanSection({
   items,
   downloadPhase,
   downloadCountExpected,
@@ -42,12 +47,10 @@ export function MissionPlanSection({
   onDownload,
   onUpload,
   onSetItems,
-}: MissionPlanSectionProps) {
+}: RallyPlanSectionProps) {
   const { t } = useTranslation();
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [token, setToken] = useState(() => localStorage.getItem(CESIUM_TOKEN_STORAGE_KEY) ?? "");
   const [tokenInput, setTokenInput] = useState("");
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(true);
 
   function saveToken() {
@@ -57,11 +60,11 @@ export function MissionPlanSection({
     setToken(trimmed);
   }
 
-  function addItem(lat: number, lon: number, alt: number) {
+  function addPoint(lat: number, lon: number, alt: number) {
     const seq = items.length;
     onSetItems([
       ...items,
-      { seq, command: MavCmd.NAV_WAYPOINT, frame: MavFrame.GLOBAL_RELATIVE_ALT, autocontinue: true, param1: 0, param2: 0, param3: 0, param4: 0, lat, lon, alt },
+      { seq, command: MavCmd.NAV_RALLY_POINT, frame: MavFrame.GLOBAL_RELATIVE_ALT, autocontinue: true, param1: 0, param2: 0, param3: 0, param4: 0, lat, lon, alt },
     ]);
   }
 
@@ -70,10 +73,10 @@ export function MissionPlanSection({
     items,
     markerColor: MARKER_COLOR,
     pathColor: PATH_COLOR,
-    pathStyle: "sequence",
+    pathStyle: "none",
     onMapClick: (lat, lon) => {
       const lastAlt = items.length > 0 ? items[items.length - 1]!.alt : DEFAULT_ALT_M;
-      addItem(lat, lon, lastAlt);
+      addPoint(lat, lon, lastAlt);
     },
   });
 
@@ -82,51 +85,19 @@ export function MissionPlanSection({
   }
 
   function deleteItem(seq: number) {
-    onSetItems(
-      items
-        .filter((i) => i.seq !== seq)
-        .map((i, index) => ({ ...i, seq: index })),
-    );
+    onSetItems(items.filter((i) => i.seq !== seq).map((i, index) => ({ ...i, seq: index })));
   }
 
-  function handleAddWaypoint() {
+  function handleAddPoint() {
     const last = items[items.length - 1];
     const lat = last?.lat ?? vehiclePosition?.lat ?? 0;
     const lon = last?.lon ?? vehiclePosition?.lon ?? 0;
     const alt = last?.alt ?? DEFAULT_ALT_M;
-    addItem(lat, lon, alt);
+    addPoint(lat, lon, alt);
   }
 
   function handleClearAll() {
     onSetItems([]);
-  }
-
-  function handleSaveFile() {
-    const blob = new Blob([formatWaypointsFile(items)], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "mission.waypoints";
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  function handleLoadFileClick() {
-    setLoadError(null);
-    fileInputRef.current?.click();
-  }
-
-  async function handleFileSelected(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    try {
-      const text = await file.text();
-      onSetItems(parseWaypointsFile(text));
-      setLoadError(null);
-    } catch (err) {
-      setLoadError(err instanceof Error ? err.message : String(err));
-    }
   }
 
   const downloading = downloadPhase === "active";
@@ -135,7 +106,7 @@ export function MissionPlanSection({
   return (
     <div className="flex h-full flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.missionPlan.heading")}</h3>
+        <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.rally.heading")}</h3>
         <div className="flex flex-wrap items-center gap-2">
           <Button type="button" size="sm" variant="outline" onClick={onDownload} disabled={downloading || uploading}>
             {t("ardupilotSetup.missionPlan.download")}
@@ -143,16 +114,9 @@ export function MissionPlanSection({
           <Button type="button" size="sm" variant="outline" onClick={onUpload} disabled={items.length === 0 || downloading || uploading}>
             {t("ardupilotSetup.missionPlan.upload")}
           </Button>
-          <Button type="button" size="sm" variant="ghost" onClick={handleAddWaypoint}>
-            {t("ardupilotSetup.missionPlan.addWaypoint")}
+          <Button type="button" size="sm" variant="ghost" onClick={handleAddPoint}>
+            {t("ardupilotSetup.rally.addPoint")}
           </Button>
-          <Button type="button" size="sm" variant="ghost" onClick={handleSaveFile} disabled={items.length === 0}>
-            {t("ardupilotSetup.missionPlan.saveFile")}
-          </Button>
-          <Button type="button" size="sm" variant="ghost" onClick={handleLoadFileClick}>
-            {t("ardupilotSetup.missionPlan.loadFile")}
-          </Button>
-          <input ref={fileInputRef} type="file" accept=".waypoints,.txt" className="hidden" onChange={(e) => void handleFileSelected(e)} />
           <Button type="button" size="sm" variant="ghost" onClick={handleClearAll} disabled={items.length === 0}>
             {t("ardupilotSetup.missionPlan.clearAll")}
           </Button>
@@ -171,14 +135,10 @@ export function MissionPlanSection({
       {uploadPhase === "error" && uploadError && (
         <Alert variant="destructive"><AlertDescription>{uploadError}</AlertDescription></Alert>
       )}
-      {loadError && <Alert variant="destructive"><AlertDescription>{loadError}</AlertDescription></Alert>}
 
-      {/* The map fills this whole area regardless of the drawer's state - the drawer only
-          overlays its bottom portion, sliding up/down over the map rather than pushing it down
-          in normal flow, so the map itself always gets the full remaining height. */}
       <div className="relative min-h-0 flex-1 overflow-hidden rounded-lg border border-border">
         {token ? (
-          <div ref={containerRef} data-testid="mission-map" className="absolute inset-0" />
+          <div ref={containerRef} data-testid="rally-map" className="absolute inset-0" />
         ) : (
           <div className="absolute inset-0 overflow-y-auto p-3">
             <Alert variant="info">
@@ -197,15 +157,6 @@ export function MissionPlanSection({
           </div>
         )}
 
-        {/* A bottom-sheet-style drawer - always mounted (so the slide is a real transition, not
-            a mount/unmount pop) and translated fully out of view except for its handle bar when
-            collapsed, leaving the map underneath at full height. A plain inline `transform`
-            style rather than a Tailwind translate-y-[...] utility: Tailwind v4 resolves
-            translate-y-* through a --tw-translate-y custom property feeding the standalone
-            `translate` CSS property, and this arbitrary calc() value wasn't taking visible
-            effect through that path when checked directly - switched to the plain `transform`
-            property instead, which transition-transform's transition-property list covers just
-            as well. */}
         <div
           className="absolute inset-x-0 bottom-0 z-10 flex max-h-[55%] flex-col rounded-t-lg border border-border bg-card shadow-lg transition-transform duration-300 ease-in-out"
           style={{ transform: drawerOpen ? "translateY(0)" : "translateY(calc(100% - 2.75rem))" }}
@@ -216,12 +167,12 @@ export function MissionPlanSection({
             aria-expanded={drawerOpen}
             className="flex h-11 shrink-0 items-center justify-between gap-2 rounded-t-lg px-3 py-2.5 text-xs font-bold tracking-wide uppercase transition-colors hover:bg-accent"
           >
-            <span>{t("ardupilotSetup.missionPlan.waypointsCount", { count: items.length })}</span>
+            <span>{t("ardupilotSetup.rally.pointsCount", { count: items.length })}</span>
             <ChevronUp className={cn("h-4 w-4 shrink-0 transition-transform duration-300", drawerOpen ? "rotate-0" : "rotate-180")} />
           </button>
           <div className="min-h-0 flex-1 overflow-y-auto border-t border-border">
             {items.length === 0 ? (
-              <p className="p-3 text-xs text-muted-foreground">{t("ardupilotSetup.missionPlan.empty")}</p>
+              <p className="p-3 text-xs text-muted-foreground">{t("ardupilotSetup.rally.empty")}</p>
             ) : (
               <Table>
                 <TableHeader>
@@ -231,17 +182,11 @@ export function MissionPlanSection({
                     <TableHead>{t("ardupilotSetup.missionPlan.lat")}</TableHead>
                     <TableHead>{t("ardupilotSetup.missionPlan.lon")}</TableHead>
                     <TableHead>{t("ardupilotSetup.missionPlan.alt")}</TableHead>
-                    <TableHead>{t("ardupilotSetup.missionPlan.param1")}</TableHead>
-                    <TableHead>{t("ardupilotSetup.missionPlan.param2")}</TableHead>
-                    <TableHead>{t("ardupilotSetup.missionPlan.param3")}</TableHead>
-                    <TableHead>{t("ardupilotSetup.missionPlan.param4")}</TableHead>
                     <TableHead />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {items.map((item) => {
-                    const config = commandConfig(item.command, MISSION_COMMANDS);
-                    return (
+                  {items.map((item) => (
                       <TableRow key={item.seq}>
                         <TableCell className="font-mono">{item.seq}</TableCell>
                         <TableCell>
@@ -250,78 +195,47 @@ export function MissionPlanSection({
                             value={item.command}
                             onChange={(e) => updateItem(item.seq, { command: Number(e.target.value) })}
                           >
-                            {!MISSION_COMMANDS.some((c) => c.command === item.command) && (
+                            {!RALLY_COMMANDS.some((c) => c.command === item.command) && (
                               <option value={item.command}>{t("ardupilotSetup.missionPlan.unknownCommand", { command: item.command })}</option>
                             )}
-                            {MISSION_COMMANDS.map((c) => (
+                            {RALLY_COMMANDS.map((c) => (
                               <option key={c.command} value={c.command}>
-                                {t(`ardupilotSetup.missionPlan.${c.labelKey}`)}
+                                {t(`ardupilotSetup.rally.${c.labelKey}`)}
                               </option>
                             ))}
                           </select>
                         </TableCell>
                         <TableCell>
-                          {config.usesPosition ? (
-                            <Input
-                              className="h-7 w-24 font-mono text-xs"
-                              type="number"
-                              value={item.lat}
-                              onChange={(e) => updateItem(item.seq, { lat: Number(e.target.value) })}
-                            />
-                          ) : (
-                            <span className="text-xs text-muted-foreground">-</span>
-                          )}
+                          <Input
+                            className="h-7 w-24 font-mono text-xs"
+                            type="number"
+                            value={item.lat}
+                            onChange={(e) => updateItem(item.seq, { lat: Number(e.target.value) })}
+                          />
                         </TableCell>
                         <TableCell>
-                          {config.usesPosition ? (
-                            <Input
-                              className="h-7 w-24 font-mono text-xs"
-                              type="number"
-                              value={item.lon}
-                              onChange={(e) => updateItem(item.seq, { lon: Number(e.target.value) })}
-                            />
-                          ) : (
-                            <span className="text-xs text-muted-foreground">-</span>
-                          )}
+                          <Input
+                            className="h-7 w-24 font-mono text-xs"
+                            type="number"
+                            value={item.lon}
+                            onChange={(e) => updateItem(item.seq, { lon: Number(e.target.value) })}
+                          />
                         </TableCell>
                         <TableCell>
-                          {(config.usesAltitude ?? config.usesPosition) ? (
-                            <Input
-                              className="h-7 w-20 font-mono text-xs"
-                              type="number"
-                              value={item.alt}
-                              onChange={(e) => updateItem(item.seq, { alt: Number(e.target.value) })}
-                            />
-                          ) : (
-                            <span className="text-xs text-muted-foreground">-</span>
-                          )}
+                          <Input
+                            className="h-7 w-20 font-mono text-xs"
+                            type="number"
+                            value={item.alt}
+                            onChange={(e) => updateItem(item.seq, { alt: Number(e.target.value) })}
+                          />
                         </TableCell>
-                        {(["param1", "param2", "param3", "param4"] as const).map((paramField, index) => {
-                          const paramLabelKey = config.paramLabelKeys[index];
-                          return (
-                            <TableCell key={paramField}>
-                              {paramLabelKey ? (
-                                <Input
-                                  className="h-7 w-20 font-mono text-xs"
-                                  type="number"
-                                  title={t(`ardupilotSetup.missionPlan.${paramLabelKey}`)}
-                                  value={item[paramField]}
-                                  onChange={(e) => updateItem(item.seq, { [paramField]: Number(e.target.value) })}
-                                />
-                              ) : (
-                                <span className="text-xs text-muted-foreground">-</span>
-                              )}
-                            </TableCell>
-                          );
-                        })}
                         <TableCell>
                           <Button type="button" size="sm" variant="ghost" onClick={() => deleteItem(item.seq)}>
                             {t("ardupilotSetup.missionPlan.deleteItem")}
                           </Button>
                         </TableCell>
                       </TableRow>
-                    );
-                  })}
+                  ))}
                 </TableBody>
               </Table>
             )}

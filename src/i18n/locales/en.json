@@ -47,6 +47,8 @@
       "serialPorts": "Serial Ports",
       "dataflashLogs": "DataFlash Logs",
       "missionPlan": "Mission Plan",
+      "fence": "Geofence",
+      "rally": "Rally Points",
       "compassCal": "Compass Cal",
       "accelCal": "Accel Cal",
       "rcCal": "RC Cal",
@@ -402,6 +404,26 @@
       "pitch": "Pitch (deg)",
       "targetSeq": "Target #",
       "repeatCount": "Repeat count"
+    },
+    "fence": {
+      "heading": "Geofence",
+      "addVertex": "Add vertex",
+      "empty": "No fence points yet - download from the vehicle or add a vertex.",
+      "pointsCount": "Fence points ({{count}})",
+      "fencePolygonVertexInclusion": "Polygon vertex (inclusion)",
+      "fencePolygonVertexExclusion": "Polygon vertex (exclusion)",
+      "fenceCircleInclusion": "Circle (inclusion)",
+      "fenceCircleExclusion": "Circle (exclusion)",
+      "fenceReturnPoint": "Return point",
+      "vertexCount": "Vertex count",
+      "radius": "Radius (m)"
+    },
+    "rally": {
+      "heading": "Rally Points",
+      "addPoint": "Add point",
+      "empty": "No rally points yet - download from the vehicle or add a point.",
+      "pointsCount": "Rally points ({{count}})",
+      "navRallyPoint": "Rally point"
     },
     "osdSetup": {
       "heading": "OSD Setup",
