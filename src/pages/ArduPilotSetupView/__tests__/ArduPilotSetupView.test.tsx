@@ -5,6 +5,7 @@ import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
 import { decodeMessage, encodePacket } from "../../../mavlink/codec/codec";
+import { MemInfo } from "mavlink-mappings/dist/lib/ardupilotmega";
 import { x25Crc } from "../../../mavlink/crc/crc";
 import { paramValueToWireBits, paramWireBitsToValue, readParamValueBits } from "../../../mavlink/paramValueCodec/paramValueCodec";
 import {
@@ -67,6 +68,7 @@ import { useMavlinkAccelCalStore } from "../../../stores/mavlinkAccelCalStore/ma
 import { useMavlinkCompassCalStore } from "../../../stores/mavlinkCompassCalStore/mavlinkCompassCalStore";
 import { useMavlinkConnectionStore } from "../../../stores/mavlinkConnectionStore/mavlinkConnectionStore";
 import { useMavlinkDataflashLogStore } from "../../../stores/mavlinkDataflashLogStore/mavlinkDataflashLogStore";
+import { useMavlinkInspectorStore } from "../../../stores/mavlinkInspectorStore/mavlinkInspectorStore";
 import { useMavlinkMissionStore } from "../../../stores/mavlinkMissionStore/mavlinkMissionStore";
 import { useMavlinkFenceStore } from "../../../stores/mavlinkMissionStore/mavlinkFenceStore";
 import { useMavlinkRallyStore } from "../../../stores/mavlinkMissionStore/mavlinkRallyStore";
@@ -485,6 +487,7 @@ afterEach(async () => {
   useMavlinkMissionStore.getState().reset();
   useMavlinkFenceStore.getState().reset();
   useMavlinkRallyStore.getState().reset();
+  useMavlinkInspectorStore.getState().reset();
   cesiumViewerInstances.length = 0;
   cesiumClickHandlers.length = 0;
   useFileStore.getState().clearFile();
@@ -2789,6 +2792,69 @@ describe("ArduPilotSetupView", () => {
       await emit(DATA_EVENT, { bytes: Array.from(encodePacket(fenceCount, { seq: 2, sysid: 1, compid: 1 })) });
 
       await vi.waitFor(() => expect(screen.getByText(/Ще немає точок геозони/)).toBeInTheDocument());
+    });
+  });
+
+  describe("mavlink inspector", () => {
+    async function connectAndOpenInspector() {
+      const view = getView();
+      await view.clickConnect();
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
+      await view.user.click(screen.getByRole("tab", { name: "Інспектор MAVLink" }));
+      return view;
+    }
+
+    it("lists HEARTBEAT after connecting, with no special-cased support needed for a message the app otherwise never handles", async () => {
+      mockBackend();
+      const { user } = await connectAndOpenInspector();
+      expect(await screen.findByText("HEARTBEAT")).toBeInTheDocument();
+
+      // MEMINFO isn't handled anywhere in ArduPilotSetupView.tsx's onData switch - if it shows up
+      // here too, the Inspector's generic decode-by-registry path (not per-message-type code) is
+      // really what's populating this list.
+      const mem = new MemInfo();
+      mem.brkval = 1000;
+      mem.freemem = 2000;
+      mem.freemem32 = 30000;
+      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(mem, { seq: 2, sysid: 1, compid: 1 })) });
+
+      expect(await screen.findByText("MEMINFO")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: /MEMINFO/ }));
+      expect(screen.getByText("brkval")).toBeInTheDocument();
+      expect(screen.getByText("1000")).toBeInTheDocument();
+      expect(screen.getByText("freemem32")).toBeInTheDocument();
+      expect(screen.getByText("30000")).toBeInTheDocument();
+    });
+
+    it("increments a message's count on every repeat arrival instead of adding a new row", async () => {
+      mockBackend();
+      await connectAndOpenInspector();
+      const mem = new MemInfo();
+      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(mem, { seq: 2, sysid: 1, compid: 1 })) });
+      await screen.findByText("MEMINFO");
+      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(mem, { seq: 3, sysid: 1, compid: 1 })) });
+
+      await vi.waitFor(() => {
+        const row = screen.getByText("MEMINFO").closest("tr")!;
+        expect(within(row).getByText("2")).toBeInTheDocument(); // count, not a second row
+      });
+      expect(screen.getAllByText("MEMINFO")).toHaveLength(1);
+    });
+
+    it("filters the message list to search results", async () => {
+      mockBackend();
+      const { user } = await connectAndOpenInspector();
+      await screen.findByText("HEARTBEAT");
+      const mem = new MemInfo();
+      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(mem, { seq: 2, sysid: 1, compid: 1 })) });
+      await screen.findByText("MEMINFO");
+
+      await user.type(screen.getByPlaceholderText("Фільтр за назвою повідомлення..."), "mem");
+      expect(screen.getByText("MEMINFO")).toBeInTheDocument();
+      expect(screen.queryByText("HEARTBEAT")).not.toBeInTheDocument();
     });
   });
 

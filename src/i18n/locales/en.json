@@ -49,6 +49,7 @@
       "missionPlan": "Mission Plan",
       "fence": "Geofence",
       "rally": "Rally Points",
+      "mavlinkInspector": "MAVLink Inspector",
       "compassCal": "Compass Cal",
       "accelCal": "Accel Cal",
       "rcCal": "RC Cal",
@@ -424,6 +425,17 @@
       "empty": "No rally points yet - download from the vehicle or add a point.",
       "pointsCount": "Rally points ({{count}})",
       "navRallyPoint": "Rally point"
+    },
+    "mavlinkInspector": {
+      "heading": "MAVLink Inspector",
+      "filterPlaceholder": "Filter by message name...",
+      "empty": "No messages received yet.",
+      "message": "Message",
+      "id": "ID",
+      "count": "Count",
+      "field": "Field",
+      "value": "Value",
+      "selectMessage": "Select a message to see its fields."
     },
     "osdSetup": {
       "heading": "OSD Setup",
