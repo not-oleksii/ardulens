@@ -269,6 +269,7 @@ function findCommandLongSend(invoked: ReturnType<typeof vi.fn>, mavCmd: number) 
 }
 
 const MAV_CMD_DO_SET_SERVO = 183;
+const MAV_CMD_DO_SET_RELAY = 181;
 const MAV_CMD_DO_MOTOR_TEST = 209;
 
 /** Finds the MOST RECENT sent DO_SET_SERVO (instance=channel) and returns its commanded pwm
@@ -284,6 +285,23 @@ function findSetServoPwm(invoked: ReturnType<typeof vi.fn>, channel: number): nu
     if (bytes[7] !== 76) return false;
     const view = new DataView(new Uint8Array(bytes).buffer);
     return view.getUint16(38, true) === MAV_CMD_DO_SET_SERVO && view.getFloat32(10, true) === channel;
+  });
+  const last = matches.at(-1);
+  if (!last) return undefined;
+  const bytes = (last[1] as { bytes: number[] }).bytes;
+  return new DataView(new Uint8Array(bytes).buffer).getFloat32(14, true);
+}
+
+/** Finds the MOST RECENT sent DO_SET_RELAY (instance=relay) and returns its commanded setting
+ *  (param2, 1=on/0=off), or undefined if no such send happened - same shape as
+ *  findSetServoPwm above. */
+function findSetRelay(invoked: ReturnType<typeof vi.fn>, instance: number): number | undefined {
+  const matches = invoked.mock.calls.filter(([cmd, payload]) => {
+    if (cmd !== "send_bytes") return false;
+    const bytes = (payload as { bytes: number[] }).bytes;
+    if (bytes[7] !== 76) return false;
+    const view = new DataView(new Uint8Array(bytes).buffer);
+    return view.getUint16(38, true) === MAV_CMD_DO_SET_RELAY && view.getFloat32(10, true) === instance;
   });
   const last = matches.at(-1);
   if (!last) return undefined;
@@ -3924,6 +3942,77 @@ describe("ArduPilotSetupView", () => {
         });
         expect(setMsgs.length).toBe(1);
       });
+    });
+  });
+
+  describe("servo/relay override", () => {
+    async function connectAndOpenServoRelay() {
+      const view = getView();
+      await view.clickConnect();
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
+      await view.user.click(screen.getByRole("tab", { name: "Серво/Реле" }));
+      return view;
+    }
+
+    it("dragging a servo slider sends DO_SET_SERVO with the exact same command path as the existing motor/servo test flow", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      await connectAndOpenServoRelay();
+
+      const sliders = screen.getAllByRole("slider");
+      fireEvent.change(sliders[4]!, { target: { value: "1750" } }); // channel 5
+
+      await vi.waitFor(() => expect(findSetServoPwm(invoked, 5)).toBe(1750));
+    });
+
+    it("clicking Release sends the channel back to 1500 and the app survives navigating away right after", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenServoRelay();
+
+      const sliders = screen.getAllByRole("slider");
+      fireEvent.change(sliders[0]!, { target: { value: "1900" } }); // channel 1
+      await vi.waitFor(() => expect(findSetServoPwm(invoked, 1)).toBe(1900));
+
+      const rows = screen.getAllByRole("row");
+      const row1 = rows.find((r) => within(r).queryByText("1"))!;
+      await user.click(within(row1).getByRole("button", { name: "Відпустити" }));
+      expect(findSetServoPwm(invoked, 1)).toBe(1500);
+
+      // Navigating away must not crash - this exercises the section's own unmount cleanup.
+      // "Серво/Реле" itself stays in the DOM regardless (it's also the sidebar tab's own
+      // label), so check the panel's own content (its sliders) is gone instead.
+      await user.click(screen.getByRole("tab", { name: "Телеметрія" }));
+      expect(screen.queryAllByRole("slider")).toHaveLength(0);
+    });
+
+    it("navigating away releases every servo channel touched but not yet explicitly released", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenServoRelay();
+
+      const sliders = screen.getAllByRole("slider");
+      fireEvent.change(sliders[1]!, { target: { value: "1600" } }); // channel 2, never released by hand
+      await vi.waitFor(() => expect(findSetServoPwm(invoked, 2)).toBe(1600));
+
+      await user.click(screen.getByRole("tab", { name: "Телеметрія" }));
+
+      await vi.waitFor(() => expect(findSetServoPwm(invoked, 2)).toBe(1500));
+    });
+
+    it("toggling a relay sends DO_SET_RELAY with the matching instance and on/off setting", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenServoRelay();
+
+      const relay1Row = screen.getByText("Реле 1").closest("div")!;
+      await user.click(within(relay1Row).getByRole("button"));
+      await vi.waitFor(() => expect(findSetRelay(invoked, 1)).toBe(1));
+
+      await user.click(within(relay1Row).getByRole("button"));
+      await vi.waitFor(() => expect(findSetRelay(invoked, 1)).toBe(0));
     });
   });
 

@@ -8,6 +8,7 @@ import { BatteryConfigSection } from "./BatteryConfigSection";
 import { CompassCalSection } from "./CompassCalSection";
 import { EscCalSection } from "./EscCalSection";
 import { MotorsServosSection } from "./MotorsServosSection";
+import { ServoRelaySection } from "./ServoRelaySection";
 import { ParametersPanel } from "./ParametersPanel";
 import { PidTuneSection } from "./PidTuneSection";
 import { RcCalSection } from "./RcCalSection";
@@ -46,6 +47,7 @@ import {
   DoMotorTestCommand,
   DoRepositionCommand,
   DoSetHomeCommand,
+  DoSetRelayCommand,
   DoSetServoCommand,
   DoStartMagCalCommand,
   EkfStatusReport,
@@ -1508,6 +1510,14 @@ export function ArduPilotSetupView() {
     sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
   }
 
+  function handleSetRelay(instance: number, on: boolean) {
+    if (!vehicle) return;
+    const cmd = new DoSetRelayCommand(vehicle.sysid, vehicle.compid);
+    cmd.instance = instance;
+    cmd.setting = on ? 1 : 0;
+    sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+  }
+
   // Reboots the flight controller - needed for RebootRequired params (e.g. FRAME_CLASS/
   // FRAME_TYPE) to actually take effect; PARAM_SET itself already wrote the new value to the
   // vehicle's persistent storage immediately, so there's no separate "save" step, only this.
@@ -1783,6 +1793,8 @@ export function ArduPilotSetupView() {
             />
           ) : activeSection === "mavlinkInspector" ? (
             <MavlinkInspectorSection entries={inspectorEntries} />
+          ) : activeSection === "servoRelay" ? (
+            <ServoRelaySection servoOutputs={servoOutputs} onSetServoPwm={handleSetServoPwm} onSetRelay={handleSetRelay} />
           ) : activeSection === "compassCal" ? (
             <CompassCalSection
               progress={compassCalProgress}

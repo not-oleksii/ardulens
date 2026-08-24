@@ -33,6 +33,13 @@ export { PreflightRebootShutdownCommand, RebootShutdownAction } from "mavlink-ma
 // vehicle's actual live per-channel PWM back, so the test's effect can be confirmed rather
 // than just trusted.
 export { DoSetServoCommand, ServoOutputRaw } from "mavlink-mappings/dist/lib/common";
+// DO_SET_RELAY (COMMAND_LONG wrapper, MAV_CMD 181) toggles one relay output - `instance`
+// (param1) is the relay number, `setting` (param2) is 1=on/0=off (other values are hardware-
+// dependent per MAVLink's own common.xml, not used here). Unlike SERVO_OUTPUT_RAW for servos,
+// there's no live relay-state telemetry wired up in this app (RELAY_STATUS exists in the
+// MAVLink spec but isn't requested/decoded anywhere here) - the Servo/Relay panel's relay state
+// is optimistic (what we last sent), not read back from the vehicle.
+export { DoSetRelayCommand } from "mavlink-mappings/dist/lib/common";
 // Live-map guided commands (all COMMAND_LONG wrappers, MAV_CMD real values confirmed against
 // MAVLink's own common.xml): DO_REPOSITION (192) sends the vehicle to a point while in/entering
 // GUIDED mode - its `bitmask` field's CHANGE_MODE bit (see MavDoRepositionFlags) makes the
