@@ -12,6 +12,7 @@ import {
   List,
   MonitorPlay,
   MoveDiagonal,
+  Radar,
   Radio,
   Shield,
   SlidersHorizontal,
@@ -32,6 +33,7 @@ export type ArduPilotSetupSection =
   | "missionPlan"
   | "fence"
   | "rally"
+  | "mavlinkInspector"
   | "parameters"
   | "serialPorts"
   | "dataflashLogs"
@@ -51,6 +53,7 @@ const SECTIONS: readonly ArduPilotSetupSection[] = [
   "missionPlan",
   "fence",
   "rally",
+  "mavlinkInspector",
   "parameters",
   "serialPorts",
   "dataflashLogs",
@@ -71,6 +74,7 @@ const SECTION_ICONS = {
   missionPlan: Waypoints,
   fence: Shield,
   rally: Flag,
+  mavlinkInspector: Radar,
   parameters: List,
   serialPorts: Cable,
   dataflashLogs: HardDrive,

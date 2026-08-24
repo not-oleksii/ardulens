@@ -18,6 +18,7 @@ import { DataflashLogsSection } from "./DataflashLogsSection";
 import { MissionPlanSection } from "./MissionPlanSection";
 import { FencePlanSection } from "./FencePlanSection";
 import { RallyPlanSection } from "./RallyPlanSection";
+import { MavlinkInspectorSection } from "./MavlinkInspectorSection";
 import { SerialPortsSection } from "./SerialPortsSection";
 import { TelemetrySection } from "./TelemetrySection";
 import { VehicleStatusBar } from "./VehicleStatusBar";
@@ -87,6 +88,7 @@ import {
   RcChannels,
   RebootShutdownAction,
   RequestDataStream,
+  MAVLINK_REGISTRY,
   ServoOutputRaw,
   SetMode,
   StatusText,
@@ -111,6 +113,7 @@ import { useMavlinkAccelCalStore } from "../../stores/mavlinkAccelCalStore/mavli
 import { useMavlinkCompassCalStore } from "../../stores/mavlinkCompassCalStore/mavlinkCompassCalStore";
 import { useMavlinkConnectionStore } from "../../stores/mavlinkConnectionStore/mavlinkConnectionStore";
 import { useMavlinkDataflashLogStore } from "../../stores/mavlinkDataflashLogStore/mavlinkDataflashLogStore";
+import { useMavlinkInspectorStore } from "../../stores/mavlinkInspectorStore/mavlinkInspectorStore";
 import { useMavlinkMissionStore } from "../../stores/mavlinkMissionStore/mavlinkMissionStore";
 import { useMavlinkFenceStore } from "../../stores/mavlinkMissionStore/mavlinkFenceStore";
 import { useMavlinkRallyStore } from "../../stores/mavlinkMissionStore/mavlinkRallyStore";
@@ -271,6 +274,7 @@ export function ArduPilotSetupView() {
   const mission = useMissionListBinding(useMavlinkMissionStore);
   const fence = useMissionListBinding(useMavlinkFenceStore);
   const rally = useMissionListBinding(useMavlinkRallyStore);
+  const inspectorEntries = useMavlinkInspectorStore((s) => s.entries);
   const compassCalProgress = useMavlinkCompassCalStore((s) => s.progress);
   const compassCalReports = useMavlinkCompassCalStore((s) => s.reports);
   const compassCalLastCommandAck = useMavlinkCompassCalStore((s) => s.lastCommandAck);
@@ -470,6 +474,13 @@ export function ArduPilotSetupView() {
         if (packet.msgId !== Heartbeat.MSG_ID && vehicleRef.current && packet.sysid !== vehicleRef.current.sysid) {
           continue;
         }
+        // The Inspector records EVERY message type generically, not just the ones this switch
+        // has a case for - framer.ts already decodes every packet via MAVLINK_REGISTRY before it
+        // ever reaches here (see that file's own comment), so no per-message-type code is needed
+        // to support a message the rest of this switch doesn't otherwise handle.
+        useMavlinkInspectorStore
+          .getState()
+          .recordPacket(packet.msgId, MAVLINK_REGISTRY[packet.msgId]?.MSG_NAME ?? `UNKNOWN_${packet.msgId}`, packet.message, now);
         switch (packet.msgId) {
           case Heartbeat.MSG_ID: {
             const hb = packet.message as Heartbeat;
@@ -915,6 +926,7 @@ export function ArduPilotSetupView() {
         useMavlinkMissionStore.getState().reset();
         useMavlinkFenceStore.getState().reset();
         useMavlinkRallyStore.getState().reset();
+        useMavlinkInspectorStore.getState().reset();
         pendingParamsRef.current.clear();
         pendingParamCountRef.current = null;
         ftpSessionRef.current = null;
@@ -939,6 +951,7 @@ export function ArduPilotSetupView() {
         useMavlinkMissionStore.getState().reset();
         useMavlinkFenceStore.getState().reset();
         useMavlinkRallyStore.getState().reset();
+        useMavlinkInspectorStore.getState().reset();
         pendingParamsRef.current.clear();
         pendingParamCountRef.current = null;
         ftpSessionRef.current = null;
@@ -1053,6 +1066,17 @@ export function ArduPilotSetupView() {
     const id = window.setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
     return () => window.clearInterval(id);
   }, [status, addBytesSent]);
+
+  // Recomputes every Inspector entry's Hz once a second from its count delta since the previous
+  // tick (see mavlinkInspectorStore.ts's own comment) - runs for the whole connected session, not
+  // just while the Inspector panel is open, so its rates read correctly the moment it's opened.
+  useEffect(() => {
+    if (status !== "connected") return;
+    const id = window.setInterval(() => {
+      useMavlinkInspectorStore.getState().tickRates();
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [status]);
 
   // Ask the vehicle to start streaming telemetry once we know who it is (its sysid/compid,
   // learned from its own heartbeat) - ArduPilot doesn't push ATTITUDE/VFR_HUD/SYS_STATUS/etc.
@@ -1754,6 +1778,8 @@ export function ArduPilotSetupView() {
               onUpload={() => handleUploadFor(MavMissionType.RALLY, useMavlinkRallyStore, rallyUploadRef, rally.items)}
               onSetItems={rally.setItems}
             />
+          ) : activeSection === "mavlinkInspector" ? (
+            <MavlinkInspectorSection entries={inspectorEntries} />
           ) : activeSection === "compassCal" ? (
             <CompassCalSection
               progress={compassCalProgress}
