@@ -60,7 +60,13 @@
       "batteryConfig": "Налаштування батареї",
       "pidTune": "Налаштування PID",
       "osdSetup": "Налаштування OSD",
-      "vtxSetup": "Налаштування VTX"
+      "vtxSetup": "Налаштування VTX",
+      "category": {
+        "planning": "Планування",
+        "diagnostics": "Діагностика",
+        "calibration": "Калібрування",
+        "setup": "Налаштування"
+      }
     },
     "comingSoon": {
       "pidTune": "Налаштування PID - у наступному релізі."
