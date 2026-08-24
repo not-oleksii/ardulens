@@ -19,6 +19,7 @@ import { MissionPlanSection } from "./MissionPlanSection";
 import { FencePlanSection } from "./FencePlanSection";
 import { RallyPlanSection } from "./RallyPlanSection";
 import { MavlinkInspectorSection } from "./MavlinkInspectorSection";
+import { ParameterTreeSection } from "./ParameterTreeSection";
 import { SerialPortsSection } from "./SerialPortsSection";
 import { TelemetrySection } from "./TelemetrySection";
 import { VehicleStatusBar } from "./VehicleStatusBar";
@@ -1725,6 +1726,8 @@ export function ArduPilotSetupView() {
               onSetParam={handleSetParam}
               onLoadParamDefaults={handleLoadParamDefaults}
             />
+          ) : activeSection === "parameterTree" ? (
+            <ParameterTreeSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoadParameters={handleLoadParameters} onSetParam={handleSetParam} />
           ) : activeSection === "serialPorts" ? (
             <SerialPortsSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoad={handleLoadParameters} onSetParam={handleSetParam} />
           ) : activeSection === "dataflashLogs" ? (
