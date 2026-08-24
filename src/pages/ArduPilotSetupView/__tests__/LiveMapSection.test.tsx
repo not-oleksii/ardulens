@@ -227,51 +227,86 @@ describe("LiveMapSection", () => {
     expect(onTakeoff).toHaveBeenCalledTimes(1); // still just the one call from above
   });
 
-  it("Fly to here arms on click, sends the clicked lat/lon on the next map click, then disarms", async () => {
+  it("right-click opens a popup with Fly-to-here/Set-home-here at the clicked point", async () => {
     localStorage.setItem(TOKEN_STORAGE_KEY, "test-token");
-    const { user, onFlyToHere, getLastViewer } = getView(null);
+    getView(null);
 
-    const flyToButton = screen.getByRole("button", { name: "Летіти сюди" });
-    await user.click(flyToButton);
-    expect(screen.getByText("Натисніть на карту, щоб надіслати команду.")).toBeInTheDocument();
-
-    const viewer = getLastViewer()!;
+    const viewer = viewerInstances.at(-1)!;
     const { Cartesian3 } = await import("cesium");
     viewer.camera.pickEllipsoid.mockReturnValue(Cartesian3.fromDegrees(31, 52, 0));
-    // The handler is invoked directly (not through a real DOM event testing-library would wrap
-    // in act() itself), but it does trigger a React state update (disarming afterward) - act()
-    // ensures that's flushed before the DOM assertions below run.
     act(() => {
-      registeredClickHandlers[0]!({ position: {} });
+      registeredClickHandlers[0]!({ position: { x: 120, y: 80 } });
     });
+
+    expect(screen.getByRole("button", { name: "Летіти сюди" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Встановити дім тут" })).toBeInTheDocument();
+  });
+
+  it("Fly to here sends the right-clicked lat/lon and drops a target marker + track line, then closes the popup", async () => {
+    localStorage.setItem(TOKEN_STORAGE_KEY, "test-token");
+    const { user, onFlyToHere } = getView(null);
+
+    const viewer = viewerInstances.at(-1)!;
+    const { Cartesian3 } = await import("cesium");
+    viewer.camera.pickEllipsoid.mockReturnValue(Cartesian3.fromDegrees(31, 52, 0));
+    const entitiesBefore = viewer.entities.add.mock.calls.length;
+    act(() => {
+      registeredClickHandlers[0]!({ position: { x: 120, y: 80 } });
+    });
+
+    await user.click(screen.getByRole("button", { name: "Летіти сюди" }));
 
     expect(onFlyToHere).toHaveBeenCalledTimes(1);
     const [lat, lon] = onFlyToHere.mock.calls[0]!;
     expect(lat).toBeCloseTo(52, 4);
     expect(lon).toBeCloseTo(31, 4);
-    // One-shot - the prompt is gone and a second click sends nothing more.
-    expect(screen.queryByText("Натисніть на карту, щоб надіслати команду.")).not.toBeInTheDocument();
-    act(() => {
-      registeredClickHandlers[0]!({ position: {} });
-    });
-    expect(onFlyToHere).toHaveBeenCalledTimes(1);
+    // Target marker + track-line entity both added.
+    expect(viewer.entities.add.mock.calls.length).toBe(entitiesBefore + 2);
+    expect(screen.queryByRole("button", { name: "Летіти сюди" })).not.toBeInTheDocument();
   });
 
-  it("Set home here arms independently of Fly to here - only the most recently armed action fires", async () => {
+  it("Set home here sends the right-clicked lat/lon and drops a home marker", async () => {
     localStorage.setItem(TOKEN_STORAGE_KEY, "test-token");
-    const { user, onFlyToHere, onSetHomeHere, getLastViewer } = getView(null);
+    const { user, onSetHomeHere, onFlyToHere } = getView(null);
 
-    await user.click(screen.getByRole("button", { name: "Летіти сюди" }));
-    await user.click(screen.getByRole("button", { name: "Встановити дім тут" })); // re-arms to setHome instead
-
-    const viewer = getLastViewer()!;
+    const viewer = viewerInstances.at(-1)!;
     const { Cartesian3 } = await import("cesium");
     viewer.camera.pickEllipsoid.mockReturnValue(Cartesian3.fromDegrees(31, 52, 0));
     act(() => {
-      registeredClickHandlers[0]!({ position: {} });
+      registeredClickHandlers[0]!({ position: { x: 120, y: 80 } });
     });
+
+    await user.click(screen.getByRole("button", { name: "Встановити дім тут" }));
 
     expect(onSetHomeHere).toHaveBeenCalledTimes(1);
     expect(onFlyToHere).not.toHaveBeenCalled();
+    const [lat, lon] = onSetHomeHere.mock.calls[0]!;
+    expect(lat).toBeCloseTo(52, 4);
+    expect(lon).toBeCloseTo(31, 4);
+  });
+
+  it("Escape closes the popup without sending any command", async () => {
+    localStorage.setItem(TOKEN_STORAGE_KEY, "test-token");
+    const { user, onFlyToHere, onSetHomeHere } = getView(null);
+
+    const viewer = viewerInstances.at(-1)!;
+    const { Cartesian3 } = await import("cesium");
+    viewer.camera.pickEllipsoid.mockReturnValue(Cartesian3.fromDegrees(31, 52, 0));
+    act(() => {
+      registeredClickHandlers[0]!({ position: { x: 120, y: 80 } });
+    });
+    expect(screen.getByRole("button", { name: "Летіти сюди" })).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+
+    expect(screen.queryByRole("button", { name: "Летіти сюди" })).not.toBeInTheDocument();
+    expect(onFlyToHere).not.toHaveBeenCalled();
+    expect(onSetHomeHere).not.toHaveBeenCalled();
+  });
+
+  it("does not render a heading label over the connected map", () => {
+    localStorage.setItem(TOKEN_STORAGE_KEY, "test-token");
+    getView(null);
+    expect(screen.queryByText("Карта")).not.toBeInTheDocument();
   });
 });

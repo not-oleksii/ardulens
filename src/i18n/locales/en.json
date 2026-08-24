@@ -250,7 +250,7 @@
       "takeoffAltitude": "Takeoff altitude (m)",
       "takeoff": "Takeoff",
       "rtl": "RTL",
-      "clickToConfirm": "Click a point on the map to send the command."
+      "rightClickHint": "Right-click the map to fly to or set home at a point."
     },
     "parameters": {
       "heading": "Parameters",

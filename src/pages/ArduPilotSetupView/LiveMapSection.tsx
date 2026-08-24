@@ -5,6 +5,8 @@ import {
   Color,
   ConstantPositionProperty,
   ConstantProperty,
+  Entity,
+  HeightReference,
   Ion,
   Math as CesiumMath,
   ScreenSpaceEventHandler,
@@ -23,8 +25,6 @@ import { CESIUM_TOKEN_STORAGE_KEY } from "../../constants";
 import type { PositionTelemetry } from "../../stores/mavlinkTelemetryStore/types";
 import { TokenlessPositionRadar } from "./TokenlessPositionRadar";
 
-type MapClickAction = "flyTo" | "setHome" | null;
-
 // Identical arrow icon to CesiumMapView's ARROW_ICON - rotation=0 points north, paired with
 // alignedAxis: UNIT_Z below.
 const ARROW_SVG = encodeURIComponent(
@@ -33,6 +33,25 @@ const ARROW_SVG = encodeURIComponent(
     "</svg>",
 );
 const ARROW_ICON = `data:image/svg+xml,${ARROW_SVG}`;
+// A target/crosshair icon for the last "Fly to here" command, and its track line - amber,
+// matching MissionPlanSection's own waypoint/path color for visual consistency between this
+// app's two "commanded destination" markers.
+const FLY_TO_SVG = encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 26 26">' +
+    '<circle cx="13" cy="13" r="9" fill="none" stroke="#f59e0b" stroke-width="3"/>' +
+    '<circle cx="13" cy="13" r="3" fill="#f59e0b"/>' +
+    "</svg>",
+);
+const FLY_TO_ICON = `data:image/svg+xml,${FLY_TO_SVG}`;
+const FLY_TO_LINE_COLOR = Color.fromCssColorString("#f59e0b");
+// A house icon for the last "Set home here" command - green, a common real-GCS convention for
+// the home/RTL-return point.
+const HOME_SVG = encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 26 26">' +
+    '<path d="M13 3 L23 12 H19 V23 H7 V12 H3 Z" fill="#22c55e" stroke="black" stroke-width="1.5" stroke-linejoin="round"/>' +
+    "</svg>",
+);
+const HOME_ICON = `data:image/svg+xml,${HOME_SVG}`;
 const TRAIL_COLOR = Color.fromCssColorString("#3b82f6");
 // Camera height above the vehicle on first fix / Recenter, in meters.
 const FOLLOW_HEIGHT_M = 300;
@@ -49,12 +68,30 @@ interface LiveMapSectionProps {
   onRtl: () => void;
 }
 
+interface ContextMenuState {
+  /** Screen-space pixel coords (relative to the map container) - where the menu is drawn. */
+  x: number;
+  y: number;
+  /** The right-clicked point's real lat/lon - where a chosen command is sent. */
+  lat: number;
+  lon: number;
+}
+
 export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHere, onSetHomeHere, onTakeoff, onRtl }: LiveMapSectionProps) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
   const markerRef = useRef<ReturnType<Viewer["entities"]["add"]> | null>(null);
   const trailRef = useRef<Cartesian3[]>([]);
+  // The vehicle's own current position, mirrored outside React state so the Fly-to-here track
+  // line's CallbackProperty (below) can read a live value without re-subscribing per tick.
+  const vehicleCartesianRef = useRef<Cartesian3 | null>(null);
+  // The last "Fly to here"/"Set home here" target, and the entities showing them - null until
+  // the corresponding command has actually been sent at least once.
+  const flyToTargetRef = useRef<Cartesian3 | null>(null);
+  const flyToMarkerRef = useRef<Entity | null>(null);
+  const flyToLineRef = useRef<Entity | null>(null);
+  const homeMarkerRef = useRef<Entity | null>(null);
   // ArduPilot's relative altitude is relative to home ground, not the WGS84 ellipsoid - sampled
   // once from the real terrain at the first fix (same technique as CesiumMapView's absHeight,
   // just live instead of computed once over a whole track) so the marker sits on the ground
@@ -63,23 +100,37 @@ export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHer
   const hasFlownRef = useRef(false);
   const [token, setToken] = useState(() => localStorage.getItem(CESIUM_TOKEN_STORAGE_KEY) ?? "");
   const [tokenInput, setTokenInput] = useState("");
-  // Which guided command the NEXT map click sends, if any - a one-shot "arm" toggled by the
-  // Fly-to-here/Set-home buttons below, rather than every click doing something (real GCS's use
-  // a right-click context menu for this; a single-click-arm toggle is this app's equivalent for
-  // a touch/left-click-only map).
-  const [clickAction, setClickAction] = useState<MapClickAction>(null);
-  const clickActionRef = useRef(clickAction);
   const [takeoffAltInput, setTakeoffAltInput] = useState("10");
-  // Mirrors clickAction/onFlyToHere/onSetHomeHere for the map-click handler's closure below,
-  // which is set up once per Cesium viewer lifetime (see the token-keyed effect), not per
-  // render - same pattern as MissionPlanSection's itemsRef.
+  // A right-click-triggered popup with "Fly to here"/"Set home here" - the real-GCS convention
+  // this app's map now follows, rather than a left-click-arms-then-click toggle.
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  // Mirrors onFlyToHere/onSetHomeHere for the map-click handler's closure below, which is set up
+  // once per Cesium viewer lifetime (see the token-keyed effect), not per render - same pattern
+  // as MissionPlanSection's itemsRef.
   const onFlyToHereRef = useRef(onFlyToHere);
   const onSetHomeHereRef = useRef(onSetHomeHere);
   useEffect(() => {
-    clickActionRef.current = clickAction;
     onFlyToHereRef.current = onFlyToHere;
     onSetHomeHereRef.current = onSetHomeHere;
-  }, [clickAction, onFlyToHere, onSetHomeHere]);
+  }, [onFlyToHere, onSetHomeHere]);
+
+  // Closes the context menu on Escape or a click anywhere else - a real click (left button),
+  // since a right-click that opens a NEW menu doesn't fire the DOM's own "click" event at all.
+  useEffect(() => {
+    if (!contextMenu) return;
+    function close() {
+      setContextMenu(null);
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setContextMenu(null);
+    }
+    window.addEventListener("click", close);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [contextMenu]);
 
   useEffect(() => {
     if (token) Ion.defaultAccessToken = token;
@@ -116,19 +167,22 @@ export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHer
     });
     viewerRef.current = viewer;
 
+    // Right-click opens the "Fly to here"/"Set home here" popup at the clicked point - the same
+    // interaction real GCS's use, rather than competing with Cesium's own left-click-drag camera
+    // rotation. A plain right-click (no drag) is a distinct ScreenSpaceEventType from Cesium's
+    // right-drag-to-zoom camera gesture, so this doesn't fight the default camera controls.
     const handler = new ScreenSpaceEventHandler(viewer.scene.canvas);
     handler.setInputAction((movement: ScreenSpaceEventHandler.PositionedEvent) => {
-      const action = clickActionRef.current;
-      if (!action) return;
       const cartesian = viewer.camera.pickEllipsoid(movement.position, viewer.scene.globe.ellipsoid);
       if (!cartesian) return;
       const carto = Cartographic.fromCartesian(cartesian);
-      const lat = CesiumMath.toDegrees(carto.latitude);
-      const lon = CesiumMath.toDegrees(carto.longitude);
-      if (action === "flyTo") onFlyToHereRef.current(lat, lon);
-      else onSetHomeHereRef.current(lat, lon);
-      setClickAction(null); // one-shot - back to a plain map click doing nothing
-    }, ScreenSpaceEventType.LEFT_CLICK);
+      setContextMenu({
+        x: movement.position.x,
+        y: movement.position.y,
+        lat: CesiumMath.toDegrees(carto.latitude),
+        lon: CesiumMath.toDegrees(carto.longitude),
+      });
+    }, ScreenSpaceEventType.RIGHT_CLICK);
 
     return () => {
       handler.destroy();
@@ -136,6 +190,11 @@ export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHer
       viewerRef.current = null;
       markerRef.current = null;
       trailRef.current = [];
+      vehicleCartesianRef.current = null;
+      flyToTargetRef.current = null;
+      flyToMarkerRef.current = null;
+      flyToLineRef.current = null;
+      homeMarkerRef.current = null;
       homeGroundHeightRef.current = null;
       hasFlownRef.current = false;
     };
@@ -166,6 +225,7 @@ export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHer
       }
       const alt = homeGroundHeightRef.current + position!.relativeAltM;
       const cartesian = Cartesian3.fromDegrees(position!.lon, position!.lat, alt);
+      vehicleCartesianRef.current = cartesian;
       trailRef.current.push(cartesian);
 
       const rotation = headingDeg !== undefined ? -(headingDeg * (Math.PI / 180)) : 0;
@@ -232,44 +292,85 @@ export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHer
     onTakeoff(alt);
   }
 
+  // Marks the last "Fly to here" target with a crosshair icon and a live track line back to the
+  // vehicle's current position - at the vehicle's own current altitude, matching what
+  // handleFlyToHere (ArduPilotSetupView.tsx) actually commands (DO_REPOSITION keeps the current
+  // relative altitude), not the ground.
+  function placeFlyToTarget(lat: number, lon: number) {
+    const viewer = viewerRef.current;
+    if (!viewer) return;
+    const alt = (homeGroundHeightRef.current ?? 0) + (position?.relativeAltM ?? 0);
+    const cartesian = Cartesian3.fromDegrees(lon, lat, alt);
+    flyToTargetRef.current = cartesian;
+    if (!flyToMarkerRef.current) {
+      flyToMarkerRef.current = viewer.entities.add({
+        position: cartesian,
+        billboard: { image: FLY_TO_ICON, width: 24, height: 24 },
+      });
+      flyToLineRef.current = viewer.entities.add({
+        polyline: {
+          positions: new CallbackProperty(() => {
+            const target = flyToTargetRef.current;
+            const vehicle = vehicleCartesianRef.current;
+            return target && vehicle ? [vehicle, target] : [];
+          }, false),
+          width: 2,
+          material: FLY_TO_LINE_COLOR,
+        },
+      });
+    } else {
+      flyToMarkerRef.current.position = new ConstantPositionProperty(cartesian);
+    }
+  }
+
+  // Marks the last "Set home here" point with a house icon, clamped to the real terrain height
+  // (a home point is a ground reference, not an airborne target like the fly-to one above).
+  function placeHomeTarget(lat: number, lon: number) {
+    const viewer = viewerRef.current;
+    if (!viewer) return;
+    const cartesian = Cartesian3.fromDegrees(lon, lat);
+    if (!homeMarkerRef.current) {
+      homeMarkerRef.current = viewer.entities.add({
+        position: cartesian,
+        billboard: { image: HOME_ICON, width: 22, height: 22, heightReference: HeightReference.CLAMP_TO_GROUND },
+      });
+    } else {
+      homeMarkerRef.current.position = new ConstantPositionProperty(cartesian);
+    }
+  }
+
+  function handleFlyToOption() {
+    if (!contextMenu) return;
+    onFlyToHereRef.current(contextMenu.lat, contextMenu.lon);
+    placeFlyToTarget(contextMenu.lat, contextMenu.lon);
+    setContextMenu(null);
+  }
+
+  function handleSetHomeOption() {
+    if (!contextMenu) return;
+    onSetHomeHereRef.current(contextMenu.lat, contextMenu.lon);
+    placeHomeTarget(contextMenu.lat, contextMenu.lon);
+    setContextMenu(null);
+  }
+
   return (
-    // The header/actions bar and "no fix" note float on top of the map instead of sitting above
-    // it in normal flow, so the map itself fills this whole panel and its top edge lines up with
-    // the PFD's in the sibling column, rather than starting lower because of the header's own
-    // height. Everything floating is one flex-col block (not several independently-positioned
-    // absolute elements at fixed offsets) so it grows naturally as the action row wraps, instead
-    // of a fixed-offset sibling overlapping it on narrower panels.
-    <div className="relative h-full">
+    // The actions bar and "no fix" note float on top of the map instead of sitting above it in
+    // normal flow, so the map itself fills this whole panel and its top edge lines up with the
+    // PFD's in the sibling column, rather than starting lower because of the bar's own height.
+    // onContextMenu is suppressed here so a right-click opens this app's own Fly-to/Set-home
+    // popup instead of the browser's native context menu.
+    <div className="relative h-full" onContextMenu={(e) => e.preventDefault()}>
       <div ref={containerRef} data-testid="live-map" className="absolute inset-0 rounded-lg border border-border" />
       <div className="absolute inset-x-0 top-0 z-10 flex flex-col gap-1.5 rounded-t-lg bg-card/90 px-3 py-2 shadow-sm backdrop-blur-sm">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.map.heading")}</h3>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" variant="outline" onClick={recenter} disabled={!position}>
-              {t("ardupilotSetup.map.recenter")}
-            </Button>
-            <Button type="button" size="sm" variant="ghost" onClick={clearToken}>
-              {t("map.token.clear")}
-            </Button>
-          </div>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button type="button" size="sm" variant="outline" onClick={recenter} disabled={!position}>
+            {t("ardupilotSetup.map.recenter")}
+          </Button>
+          <Button type="button" size="sm" variant="ghost" onClick={clearToken}>
+            {t("map.token.clear")}
+          </Button>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant={clickAction === "flyTo" ? "default" : "outline"}
-            onClick={() => setClickAction((a) => (a === "flyTo" ? null : "flyTo"))}
-          >
-            {t("ardupilotSetup.map.flyToHere")}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={clickAction === "setHome" ? "default" : "outline"}
-            onClick={() => setClickAction((a) => (a === "setHome" ? null : "setHome"))}
-          >
-            {t("ardupilotSetup.map.setHomeHere")}
-          </Button>
           <div className="flex items-center gap-1">
             <Input
               type="number"
@@ -287,10 +388,34 @@ export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHer
               {t("ardupilotSetup.map.rtl")}
             </Button>
           )}
+          <p className="text-xs text-muted-foreground">{t("ardupilotSetup.map.rightClickHint")}</p>
         </div>
-        {clickAction && <p className="text-xs text-muted-foreground">{t("ardupilotSetup.map.clickToConfirm")}</p>}
         {!position && <p className="text-xs text-muted-foreground">{t("ardupilotSetup.map.noFix")}</p>}
       </div>
+      {contextMenu && (
+        <div
+          className="absolute z-20 flex flex-col overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-lg"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          // Stop the popup's own clicks from bubbling to the window listener that closes it -
+          // that listener is what makes the two option buttons below work at all.
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="px-3 py-1.5 text-left text-xs whitespace-nowrap hover:bg-accent"
+            onClick={handleFlyToOption}
+          >
+            {t("ardupilotSetup.map.flyToHere")}
+          </button>
+          <button
+            type="button"
+            className="px-3 py-1.5 text-left text-xs whitespace-nowrap hover:bg-accent"
+            onClick={handleSetHomeOption}
+          >
+            {t("ardupilotSetup.map.setHomeHere")}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

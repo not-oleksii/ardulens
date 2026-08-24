@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { emit } from "@tauri-apps/api/event";
 import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
@@ -2714,16 +2714,18 @@ describe("ArduPilotSetupView", () => {
       expect(decodeMessage(NavTakeoffCommand, new Uint8Array(bytes.slice(10))).altitude).toBe(25);
     });
 
-    it("Fly to here arms on click and sends DO_REPOSITION (with the CHANGE_MODE bit) for the clicked point", async () => {
+    it("right-click, then Fly to here sends DO_REPOSITION (with the CHANGE_MODE bit) for the clicked point", async () => {
       const invoked = vi.fn();
       mockBackend(invoked);
       const { user } = await connectWithCesiumTokenSet();
 
-      await user.click(screen.getByRole("button", { name: "Летіти сюди" }));
       const viewer = cesiumViewerInstances.at(-1)!;
       const { Cartesian3 } = await import("cesium");
       viewer.camera.pickEllipsoid.mockReturnValue(Cartesian3.fromDegrees(31, 52, 0));
-      cesiumClickHandlers[0]!({ position: {} });
+      act(() => {
+        cesiumClickHandlers[0]!({ position: { x: 100, y: 80 } });
+      });
+      await user.click(screen.getByRole("button", { name: "Летіти сюди" }));
 
       await vi.waitFor(() => expect(findSentMessages(invoked, DoRepositionCommand.MSG_ID)).toHaveLength(1));
       const bytes = (findSentMessages(invoked, DoRepositionCommand.MSG_ID)[0]![1] as { bytes: number[] }).bytes;
@@ -2733,16 +2735,18 @@ describe("ArduPilotSetupView", () => {
       expect(sent.longitude).toBeCloseTo(31, 4);
     });
 
-    it("Set home here sends DO_SET_HOME for the clicked point", async () => {
+    it("right-click, then Set home here sends DO_SET_HOME for the clicked point", async () => {
       const invoked = vi.fn();
       mockBackend(invoked);
       const { user } = await connectWithCesiumTokenSet();
 
-      await user.click(screen.getByRole("button", { name: "Встановити дім тут" }));
       const viewer = cesiumViewerInstances.at(-1)!;
       const { Cartesian3 } = await import("cesium");
       viewer.camera.pickEllipsoid.mockReturnValue(Cartesian3.fromDegrees(31, 52, 0));
-      cesiumClickHandlers[0]!({ position: {} });
+      act(() => {
+        cesiumClickHandlers[0]!({ position: { x: 100, y: 80 } });
+      });
+      await user.click(screen.getByRole("button", { name: "Встановити дім тут" }));
 
       await vi.waitFor(() => expect(findSentMessages(invoked, DoSetHomeCommand.MSG_ID)).toHaveLength(1));
       const bytes = (findSentMessages(invoked, DoSetHomeCommand.MSG_ID)[0]![1] as { bytes: number[] }).bytes;
@@ -2750,6 +2754,12 @@ describe("ArduPilotSetupView", () => {
       expect(sent.useCurrent).toBe(0);
       expect(sent.latitude).toBeCloseTo(52, 4);
       expect(sent.longitude).toBeCloseTo(31, 4);
+    });
+
+    it("does not render a 'Map' heading label over the connected map", async () => {
+      mockBackend();
+      await connectWithCesiumTokenSet();
+      expect(screen.queryByText("Карта")).not.toBeInTheDocument();
     });
   });
 
