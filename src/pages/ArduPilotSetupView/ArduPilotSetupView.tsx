@@ -22,6 +22,7 @@ import { VehicleStatusBar } from "./VehicleStatusBar";
 import { decodeMessage, encodePacket } from "../../mavlink/codec/codec";
 import { VERIFIED_FRAME_PRESETS } from "../../mavlink/frameDiagrams/frameDiagrams";
 import { MavlinkFramer } from "../../mavlink/framer/framer";
+import { rtlModeNumber } from "../../mavlink/labels/labels";
 import {
   decodeFtpNakError,
   decodeFtpPayload,
@@ -39,6 +40,8 @@ import {
   DoAcceptMagCalCommand,
   DoCancelMagCalCommand,
   DoMotorTestCommand,
+  DoRepositionCommand,
+  DoSetHomeCommand,
   DoSetServoCommand,
   DoStartMagCalCommand,
   EkfStatusReport,
@@ -56,6 +59,7 @@ import {
   MavAutopilot,
   MavCmd,
   MavDataStream,
+  MavDoRepositionFlags,
   MavFtpErr,
   MavFtpOpcode,
   MavMissionResult,
@@ -71,6 +75,7 @@ import {
   MissionRequestInt,
   MissionRequestList,
   MotorTestThrottleType,
+  NavTakeoffCommand,
   ParamRequestList,
   ParamRequestRead,
   ParamSet,
@@ -1505,6 +1510,61 @@ export function ArduPilotSetupView() {
     sendGcsPacket(encodePacket(msg, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
   }
 
+  // Sends the vehicle to a clicked map point in GUIDED mode - MavDoRepositionFlags.CHANGE_MODE
+  // makes it switch to GUIDED itself (see registry.ts's DO_REPOSITION comment), no separate
+  // SET_MODE needed first. Keeps the vehicle's current relative altitude rather than exposing a
+  // separate altitude control here - "fly here at the same height" matches how real GCS's
+  // default this action.
+  function handleFlyToHere(lat: number, lon: number) {
+    if (!vehicle) return;
+    const cmd = new DoRepositionCommand(vehicle.sysid, vehicle.compid);
+    cmd.speed = -1; // no change
+    cmd.bitmask = MavDoRepositionFlags.CHANGE_MODE;
+    cmd.radius = 0;
+    cmd.yaw = NaN; // use the current yaw mode
+    cmd.latitude = lat;
+    cmd.longitude = lon;
+    cmd.altitude = position?.relativeAltM ?? 0;
+    sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+  }
+
+  // DO_SET_HOME's altitude is the absolute (MSL) altitude of the new home point, unlike
+  // handleFlyToHere's relative one above - VFR_HUD.alt is documented as MSL, GLOBAL_POSITION_INT's
+  // relative_alt (this app's `position.relativeAltM`) is relative to home, so the two handlers
+  // deliberately read from different telemetry fields.
+  function handleSetHomeHere(lat: number, lon: number) {
+    if (!vehicle) return;
+    const cmd = new DoSetHomeCommand(vehicle.sysid, vehicle.compid);
+    cmd.useCurrent = 0; // use the specified location, not the vehicle's current position
+    cmd.roll = 0;
+    cmd.pitch = 0;
+    cmd.yaw = NaN;
+    cmd.latitude = lat;
+    cmd.longitude = lon;
+    cmd.altitude = vfrHud?.altitudeM ?? 0;
+    sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+  }
+
+  // ArduCopter takes off straight up from its current position - lat/lon are Plane/VTOL-only
+  // fields here, left at 0 (ignored by Copter firmware).
+  function handleTakeoff(altitudeM: number) {
+    if (!vehicle) return;
+    const cmd = new NavTakeoffCommand(vehicle.sysid, vehicle.compid);
+    cmd.pitch = 0;
+    cmd.yaw = NaN;
+    cmd.latitude = 0;
+    cmd.longitude = 0;
+    cmd.altitude = altitudeM;
+    sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+  }
+
+  function handleRtl() {
+    if (!vehicle) return;
+    const mode = rtlModeNumber(vehicle.type);
+    if (mode === null) return;
+    handleSetMode(mode);
+  }
+
   const isConnected = status === "connected";
 
   // Downloads the FULL parameter list once per connection (not per tab/section) - fetching
@@ -1596,7 +1656,12 @@ export function ArduPilotSetupView() {
               ekf={ekf}
               vibration={vibration}
               statusTextMessages={statusTextMessages}
+              rtlModeNumber={vehicle ? rtlModeNumber(vehicle.type) : null}
               onNavigateToSection={setActiveSection}
+              onFlyToHere={handleFlyToHere}
+              onSetHomeHere={handleSetHomeHere}
+              onTakeoff={handleTakeoff}
+              onRtl={handleRtl}
             />
           ) : activeSection === "parameters" ? (
             <ParametersPanel

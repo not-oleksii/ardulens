@@ -13,8 +13,8 @@ const { MockViewer, MockScreenSpaceEventHandler, viewerInstances, registeredClic
   const registeredClickHandlers: Array<(movement: { position: unknown }) => void> = [];
   class MockViewer {
     entities = { add: vi.fn(), removeAll: vi.fn() };
-    camera = { pickEllipsoid: vi.fn() };
-    scene = { canvas: {}, globe: { ellipsoid: {} } };
+    camera = { pickEllipsoid: vi.fn(), getPickRay: vi.fn() };
+    scene = { canvas: {}, globe: { ellipsoid: {}, pick: vi.fn() } };
     destroy = vi.fn();
     constructor() {
       viewerInstances.push(this);

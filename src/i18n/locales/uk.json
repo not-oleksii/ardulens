@@ -244,7 +244,13 @@
       "recenter": "Центрувати",
       "noFix": "Очікування GPS-фіксації...",
       "radarLabel": "Позиція відносно старту (без карти - не задано токен Cesium ion)",
-      "distanceFromStart": "{{meters}} м від старту"
+      "distanceFromStart": "{{meters}} м від старту",
+      "flyToHere": "Летіти сюди",
+      "setHomeHere": "Встановити дім тут",
+      "takeoffAltitude": "Висота зльоту (м)",
+      "takeoff": "Зліт",
+      "rtl": "RTL",
+      "rightClickHint": "Клацніть правою кнопкою на карті, щоб летіти туди або встановити дім."
     },
     "parameters": {
       "heading": "Параметри",

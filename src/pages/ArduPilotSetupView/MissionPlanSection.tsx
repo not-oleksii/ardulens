@@ -1,12 +1,10 @@
 import {
   Cartesian2,
   Cartesian3,
-  Cartographic,
   Color,
   HeightReference,
   Ion,
   LabelStyle,
-  Math as CesiumMath,
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
   Terrain,
@@ -27,6 +25,7 @@ import { MavCmd, MavFrame } from "../../mavlink/registry/registry";
 import { formatWaypointsFile, parseWaypointsFile } from "../../mavlink/missionFileCodec/missionFileCodec";
 import type { MissionItemEntry, MissionTransferPhase } from "../../stores/mavlinkMissionStore/types";
 import type { PositionTelemetry } from "../../stores/mavlinkTelemetryStore/types";
+import { pickLatLon } from "./cesiumPicking";
 import { missionCommandConfig, MISSION_COMMANDS } from "./missionCommandLabels";
 
 const DEFAULT_ALT_M = 50;
@@ -115,14 +114,11 @@ export function MissionPlanSection({
 
     const handler = new ScreenSpaceEventHandler(viewer.scene.canvas);
     handler.setInputAction((movement: ScreenSpaceEventHandler.PositionedEvent) => {
-      const cartesian = viewer.camera.pickEllipsoid(movement.position, viewer.scene.globe.ellipsoid);
-      if (!cartesian) return;
-      const carto = Cartographic.fromCartesian(cartesian);
-      const lat = CesiumMath.toDegrees(carto.latitude);
-      const lon = CesiumMath.toDegrees(carto.longitude);
+      const picked = pickLatLon(viewer, movement.position);
+      if (!picked) return;
       const current = itemsRef.current;
       const lastAlt = current.length > 0 ? current[current.length - 1]!.alt : DEFAULT_ALT_M;
-      addItem(lat, lon, lastAlt);
+      addItem(picked.lat, picked.lon, lastAlt);
     }, ScreenSpaceEventType.LEFT_CLICK);
 
     return () => {
