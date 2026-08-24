@@ -60,6 +60,7 @@
       "motorsSetup": "Motors Setup",
       "batteryConfig": "Battery Config",
       "pidTune": "PID Tune",
+      "liveTuning": "Live Tuning",
       "osdSetup": "OSD Setup",
       "vtxSetup": "VTX Setup",
       "category": {
@@ -70,7 +71,8 @@
       }
     },
     "comingSoon": {
-      "pidTune": "PID tuning - coming in a future release."
+      "pidTune": "PID tuning - coming in a future release.",
+      "liveTuning": "Transmitter live tuning (RCx_OPTION=219) is currently only supported for ArduCopter."
     },
     "onboarding": {
       "title": "New vehicle?",
@@ -332,6 +334,21 @@
       "to": "To",
       "cancel": "Cancel",
       "confirmSave": "Send changes"
+    },
+    "liveTuning": {
+      "heading": "Live Tuning",
+      "description": "Assign a transmitter channel (RCx_OPTION = 219 \"Transmitter Tuning\") to a single parameter so it can be dialed in live during flight across the TUNE_MIN..TUNE_MAX range.",
+      "load": "Load tuning parameters",
+      "notLoaded": "Tuning parameters not loaded yet.",
+      "channelHeading": "Transmitter channel",
+      "channelNone": "Not assigned",
+      "channelOption": "Channel {{channel}}",
+      "paramHeading": "Tuned parameter",
+      "min": "Min",
+      "max": "Max",
+      "liveHeading": "Live value",
+      "noChannel": "Assign a transmitter channel above to see the live value.",
+      "derivedValue": "Current value"
     },
     "batteryConfig": {
       "heading": "Battery Config",

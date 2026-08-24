@@ -24,6 +24,7 @@ import {
   SlidersHorizontal,
   ToggleRight,
   Video,
+  Waves,
   Waypoints,
   Wrench,
   Zap,
@@ -56,6 +57,7 @@ export type ArduPilotSetupSection =
   | "motorsSetup"
   | "batteryConfig"
   | "pidTune"
+  | "liveTuning"
   | "osdSetup"
   | "vtxSetup";
 
@@ -78,6 +80,7 @@ const SECTION_ICONS = {
   motorsSetup: Cog,
   batteryConfig: BatteryMedium,
   pidTune: SlidersHorizontal,
+  liveTuning: Waves,
   osdSetup: MonitorPlay,
   vtxSetup: Video,
 } as const satisfies Record<ArduPilotSetupSection, LucideIcon>;
@@ -97,7 +100,7 @@ const CATEGORIES: readonly CategoryDef[] = [
   { key: "planning", icon: Map, sections: ["missionPlan", "fence", "rally"] },
   { key: "diagnostics", icon: Activity, sections: ["mavlinkInspector", "parameters", "parameterTree", "dataflashLogs", "serialPorts", "servoRelay"] },
   { key: "calibration", icon: Wrench, sections: ["compassCal", "accelCal", "rcCal", "escCal"] },
-  { key: "setup", icon: Settings2, sections: ["rcSetup", "motorsSetup", "batteryConfig", "pidTune", "osdSetup", "vtxSetup"] },
+  { key: "setup", icon: Settings2, sections: ["rcSetup", "motorsSetup", "batteryConfig", "pidTune", "liveTuning", "osdSetup", "vtxSetup"] },
 ];
 
 function categoryKeyFor(section: ArduPilotSetupSection): string | null {
