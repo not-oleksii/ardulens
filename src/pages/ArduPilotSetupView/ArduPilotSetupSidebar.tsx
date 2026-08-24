@@ -10,6 +10,7 @@ import {
   HardDrive,
   Joystick,
   List,
+  ListTree,
   MonitorPlay,
   MoveDiagonal,
   Radar,
@@ -35,6 +36,7 @@ export type ArduPilotSetupSection =
   | "rally"
   | "mavlinkInspector"
   | "parameters"
+  | "parameterTree"
   | "serialPorts"
   | "dataflashLogs"
   | "compassCal"
@@ -55,6 +57,7 @@ const SECTIONS: readonly ArduPilotSetupSection[] = [
   "rally",
   "mavlinkInspector",
   "parameters",
+  "parameterTree",
   "serialPorts",
   "dataflashLogs",
   "compassCal",
@@ -76,6 +79,7 @@ const SECTION_ICONS = {
   rally: Flag,
   mavlinkInspector: Radar,
   parameters: List,
+  parameterTree: ListTree,
   serialPorts: Cable,
   dataflashLogs: HardDrive,
   compassCal: Compass,

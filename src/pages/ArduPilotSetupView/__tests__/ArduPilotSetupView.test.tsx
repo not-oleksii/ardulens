@@ -3867,6 +3867,66 @@ describe("ArduPilotSetupView", () => {
 
   });
 
+  describe("parameter tree", () => {
+    async function connectAndOpenParameterTree() {
+      const view = getView();
+      await view.clickConnect();
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
+      await view.user.click(screen.getByRole("tab", { name: "Дерево параметрів" }));
+      return view;
+    }
+
+    it("shares the same live parameter store as the flat list - loading here uses the same PARAM_REQUEST_LIST flow", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenParameterTree();
+
+      await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
+      await vi.waitFor(() => {
+        const listRequest = invoked.mock.calls.find(([cmd, payload]) => {
+          if (cmd !== "send_bytes") return false;
+          const bytes = (payload as { bytes: number[] }).bytes;
+          return bytes[7] === ParamRequestList.MSG_ID;
+        });
+        expect(listRequest).toBeDefined();
+      });
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("ATC_ACCEL_P_MAX", 1, MavParamType.REAL32, 0, 1, 1) });
+      expect(await screen.findByText("ATC")).toBeInTheDocument();
+    });
+
+    it("drills into a real multi-level tree and edits the selected leaf's value", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectAndOpenParameterTree();
+      await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("ATC_ACCEL_P_MAX", 5, MavParamType.REAL32, 0, 1, 1) });
+      await screen.findByText("ATC");
+
+      await user.click(screen.getByText("ATC"));
+      await user.click(await screen.findByText("ACCEL"));
+      await user.click(await screen.findByText("P"));
+      await user.click(await screen.findByText("MAX"));
+
+      expect(screen.getByRole("heading", { name: "ATC_ACCEL_P_MAX" })).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "5" }));
+      const input = screen.getByDisplayValue("5");
+      await user.clear(input);
+      await user.type(input, "8{Enter}");
+
+      await vi.waitFor(() => {
+        const setMsgs = invoked.mock.calls.filter(([cmd, payload]) => {
+          if (cmd !== "send_bytes") return false;
+          const bytes = (payload as { bytes: number[] }).bytes;
+          return bytes[7] === ParamSet.MSG_ID;
+        });
+        expect(setMsgs.length).toBe(1);
+      });
+    });
+  });
+
   describe("compass calibration", () => {
     async function connectAndOpenCompassCal() {
       const view = getView();

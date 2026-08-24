@@ -50,6 +50,7 @@
       "fence": "Geofence",
       "rally": "Rally Points",
       "mavlinkInspector": "MAVLink Inspector",
+      "parameterTree": "Parameter Tree",
       "compassCal": "Compass Cal",
       "accelCal": "Accel Cal",
       "rcCal": "RC Cal",
@@ -436,6 +437,10 @@
       "field": "Field",
       "value": "Value",
       "selectMessage": "Select a message to see its fields."
+    },
+    "parameterTree": {
+      "heading": "Parameter Tree",
+      "selectParam": "Select a parameter to see its details."
     },
     "osdSetup": {
       "heading": "OSD Setup",
