@@ -51,6 +51,7 @@
       "rally": "Rally Points",
       "mavlinkInspector": "MAVLink Inspector",
       "parameterTree": "Parameter Tree",
+      "servoRelay": "Servo/Relay",
       "compassCal": "Compass Cal",
       "accelCal": "Accel Cal",
       "rcCal": "RC Cal",
@@ -146,6 +147,17 @@
         "identifyRestart": "Restart Identification",
         "manualHeading": "Manual Test & Reverse"
       }
+    },
+    "servoRelay": {
+      "heading": "Servo/Relay",
+      "safetyWarning": "These overrides apply immediately and persist until released - remove propellers and ensure control surfaces are clear before testing.",
+      "servosHeading": "Servos",
+      "relaysHeading": "Relays",
+      "override": "Override",
+      "release": "Release",
+      "relayLabel": "Relay {{instance}}",
+      "on": "ON",
+      "off": "OFF"
     },
     "compassCal": {
       "heading": "Compass Calibration",

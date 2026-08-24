@@ -22,6 +22,7 @@ import {
   Settings2,
   Shield,
   SlidersHorizontal,
+  ToggleRight,
   Video,
   Waypoints,
   Wrench,
@@ -46,6 +47,7 @@ export type ArduPilotSetupSection =
   | "parameterTree"
   | "serialPorts"
   | "dataflashLogs"
+  | "servoRelay"
   | "compassCal"
   | "accelCal"
   | "rcCal"
@@ -67,6 +69,7 @@ const SECTION_ICONS = {
   parameterTree: ListTree,
   serialPorts: Cable,
   dataflashLogs: HardDrive,
+  servoRelay: ToggleRight,
   compassCal: Compass,
   accelCal: MoveDiagonal,
   rcCal: Joystick,
@@ -92,7 +95,7 @@ interface CategoryDef {
 // rows by default instead of 18 flat icons.
 const CATEGORIES: readonly CategoryDef[] = [
   { key: "planning", icon: Map, sections: ["missionPlan", "fence", "rally"] },
-  { key: "diagnostics", icon: Activity, sections: ["mavlinkInspector", "parameters", "parameterTree", "dataflashLogs", "serialPorts"] },
+  { key: "diagnostics", icon: Activity, sections: ["mavlinkInspector", "parameters", "parameterTree", "dataflashLogs", "serialPorts", "servoRelay"] },
   { key: "calibration", icon: Wrench, sections: ["compassCal", "accelCal", "rcCal", "escCal"] },
   { key: "setup", icon: Settings2, sections: ["rcSetup", "motorsSetup", "batteryConfig", "pidTune", "osdSetup", "vtxSetup"] },
 ];
