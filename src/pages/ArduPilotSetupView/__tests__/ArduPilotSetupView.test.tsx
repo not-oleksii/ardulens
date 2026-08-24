@@ -104,8 +104,8 @@ const { MockCesiumViewer, MockScreenSpaceEventHandler, cesiumViewerInstances, ce
   const cesiumClickHandlers: Array<(movement: { position: unknown }) => void> = [];
   class MockCesiumViewer {
     entities = { add: vi.fn(), remove: vi.fn() };
-    camera = { flyTo: vi.fn(), pickEllipsoid: vi.fn() };
-    scene = { canvas: {}, globe: { ellipsoid: {} } };
+    camera = { flyTo: vi.fn(), pickEllipsoid: vi.fn(), getPickRay: vi.fn() };
+    scene = { canvas: {}, globe: { ellipsoid: {}, pick: vi.fn() } };
     terrainProvider = {};
     destroy = vi.fn();
     constructor() {

@@ -24,8 +24,8 @@ const { MockViewer, MockScreenSpaceEventHandler, viewerInstances, registeredClic
       add: vi.fn((opts: Record<string, unknown>) => new MockEntity(opts)),
       remove: vi.fn(),
     };
-    camera = { flyTo: vi.fn(), pickEllipsoid: vi.fn() };
-    scene = { canvas: {}, globe: { ellipsoid: {} } };
+    camera = { flyTo: vi.fn(), pickEllipsoid: vi.fn(), getPickRay: vi.fn() };
+    scene = { canvas: {}, globe: { ellipsoid: {}, pick: vi.fn() } };
     terrainProvider = {};
     destroy = vi.fn();
     constructor() {

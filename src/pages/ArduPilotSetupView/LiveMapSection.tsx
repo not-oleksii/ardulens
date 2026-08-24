@@ -8,7 +8,6 @@ import {
   Entity,
   HeightReference,
   Ion,
-  Math as CesiumMath,
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
   Terrain,
@@ -23,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CESIUM_TOKEN_STORAGE_KEY } from "../../constants";
 import type { PositionTelemetry } from "../../stores/mavlinkTelemetryStore/types";
+import { pickLatLon } from "./cesiumPicking";
 import { TokenlessPositionRadar } from "./TokenlessPositionRadar";
 
 // Identical arrow icon to CesiumMapView's ARROW_ICON - rotation=0 points north, paired with
@@ -173,15 +173,9 @@ export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHer
     // right-drag-to-zoom camera gesture, so this doesn't fight the default camera controls.
     const handler = new ScreenSpaceEventHandler(viewer.scene.canvas);
     handler.setInputAction((movement: ScreenSpaceEventHandler.PositionedEvent) => {
-      const cartesian = viewer.camera.pickEllipsoid(movement.position, viewer.scene.globe.ellipsoid);
-      if (!cartesian) return;
-      const carto = Cartographic.fromCartesian(cartesian);
-      setContextMenu({
-        x: movement.position.x,
-        y: movement.position.y,
-        lat: CesiumMath.toDegrees(carto.latitude),
-        lon: CesiumMath.toDegrees(carto.longitude),
-      });
+      const picked = pickLatLon(viewer, movement.position);
+      if (!picked) return;
+      setContextMenu({ x: movement.position.x, y: movement.position.y, lat: picked.lat, lon: picked.lon });
     }, ScreenSpaceEventType.RIGHT_CLICK);
 
     return () => {
@@ -394,7 +388,11 @@ export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHer
       </div>
       {contextMenu && (
         <div
-          className="absolute z-20 flex flex-col overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-lg"
+          // bg-card/text-card-foreground, not bg-popover/text-popover-foreground - this theme
+          // never defines a --popover token (only Dialog's own --card one), so bg-popover here
+          // silently resolved to no background at all, leaving the menu nearly invisible over
+          // the map.
+          className="absolute z-20 flex flex-col overflow-hidden rounded-md border border-border bg-card text-card-foreground shadow-lg"
           style={{ left: contextMenu.x, top: contextMenu.y }}
           // Stop the popup's own clicks from bubbling to the window listener that closes it -
           // that listener is what makes the two option buttons below work at all.
