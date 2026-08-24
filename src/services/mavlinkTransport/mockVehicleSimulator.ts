@@ -450,6 +450,16 @@ export function startMockVehicle(
       params.set(`ATC_RAT_${axis}_FF`, { value: ff, type: MavParamType.REAL32, index: params.size });
       params.set(`ATC_ANG_${axis}_P`, { value: 4.5, type: MavParamType.REAL32, index: params.size });
     }
+    // TUNE/TUNE_MIN/TUNE_MAX - Copter-only CH6/transmitter-tuning params (see
+    // LiveTuningSection.tsx). Default TUNE=1 ("Stab Roll/Pitch kP", the same gain
+    // ATC_ANG_RLL_P/ATC_ANG_PIT_P default to 4.5 above) with an arbitrary but plausible demo
+    // range around that default - unlike ATC_RAT_*/ATC_ANG_* above, ArduPilot ships no factory
+    // default for TUNE_MIN/TUNE_MAX at all (it's pilot-configured per gain), so there's no real
+    // stock value to seed here, same "varied demo, not the real default" caveat as
+    // demoFlightModes below.
+    params.set("TUNE", { value: 1, type: MavParamType.INT8, index: params.size });
+    params.set("TUNE_MIN", { value: 3, type: MavParamType.REAL32, index: params.size });
+    params.set("TUNE_MAX", { value: 6, type: MavParamType.REAL32, index: params.size });
   } else if (vehicleFolderForMavType(vehicleType) === "ArduPlane") {
     // Rate + angle-loop-shaping gains for the PID Tune tab - real ArduPlane stock defaults,
     // confirmed by reading the AC_PID::Defaults{} constructor args and AP_GROUPINFO tables in

@@ -309,6 +309,24 @@ function findSetRelay(invoked: ReturnType<typeof vi.fn>, instance: number): numb
   return new DataView(new Uint8Array(bytes).buffer).getFloat32(14, true);
 }
 
+/** Finds the MOST RECENT sent PARAM_SET for a given param name and returns its decoded value
+ *  (using the SET's own paramType, same "raw bits, not the float field" reasoning as
+ *  buildParamValueBytes above), or undefined if no such send happened. */
+function findParamSetValue(invoked: ReturnType<typeof vi.fn>, name: string): number | undefined {
+  const matches = invoked.mock.calls.filter(([cmd, payload]) => {
+    if (cmd !== "send_bytes") return false;
+    const bytes = (payload as { bytes: number[] }).bytes;
+    if (bytes[7] !== ParamSet.MSG_ID) return false;
+    return decodeMessage(ParamSet, new Uint8Array(bytes.slice(10))).paramId === name;
+  });
+  const last = matches.at(-1);
+  if (!last) return undefined;
+  const bytes = (last[1] as { bytes: number[] }).bytes;
+  const payload = new Uint8Array(bytes.slice(10));
+  const decoded = decodeMessage(ParamSet, payload);
+  return paramWireBitsToValue(readParamValueBits(payload), decoded.paramType);
+}
+
 /** Finds the MOST RECENT sent DO_MOTOR_TEST (instance=motor) and returns its commanded
  *  throttle percent (param3), or undefined if no such send happened - same "most recent"
  *  reasoning as findSetServoPwm above (a press-and-hold sends throttle=10 then throttle=0). */
@@ -417,6 +435,7 @@ function getView() {
   const getRcSetupNavButton = () => screen.getByRole("tab", { name: "Налаштування RC" });
   const getMotorsNavButton = () => screen.getByRole("tab", { name: "Налаштування моторів" });
   const getPidTuneNavButton = () => screen.getByRole("tab", { name: "Налаштування PID" });
+  const getLiveTuningNavButton = () => screen.getByRole("tab", { name: "Тюнінг наживо" });
 
   const clickSerialMode = () => user.click(getSerialModeButton());
   const clickUdpMode = () => user.click(getUdpModeButton());
@@ -432,6 +451,7 @@ function getView() {
   const clickRcCalNav = () => user.click(getRcCalNavButton());
   const clickRcSetupNav = () => user.click(getRcSetupNavButton());
   const clickMotorsNav = () => user.click(getMotorsNavButton());
+  const clickLiveTuningNav = () => user.click(getLiveTuningNavButton());
 
   return {
     user,
@@ -456,6 +476,7 @@ function getView() {
     getRcSetupNavButton,
     getMotorsNavButton,
     getPidTuneNavButton,
+    getLiveTuningNavButton,
     clickSerialMode,
     clickUdpMode,
     clickRefreshPorts,
@@ -470,6 +491,7 @@ function getView() {
     clickRcCalNav,
     clickRcSetupNav,
     clickMotorsNav,
+    clickLiveTuningNav,
   };
 }
 
@@ -2068,6 +2090,86 @@ describe("ArduPilotSetupView", () => {
       useMavlinkParamDefaultsStore.getState().setDone({ ATC_RAT_RLL_P: 0.135 });
 
       expect(await screen.findByLabelText("Змінено від стандартного (0.135)")).toBeInTheDocument();
+    });
+  });
+
+  describe("live tuning (Copter)", () => {
+    async function connectCopterAndOpenLiveTuning() {
+      const view = getView();
+      await view.clickConnect();
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() }); // QUADROTOR
+      await view.user.click(view.getLiveTuningNavButton());
+      return view;
+    }
+
+    it("shows a Load button and not-loaded message for a connected Copter", async () => {
+      mockBackend();
+      await connectCopterAndOpenLiveTuning();
+      expect(screen.getByRole("button", { name: "Завантажити параметри тюнінгу" })).toBeInTheDocument();
+      expect(screen.getByText("Параметри тюнінгу ще не завантажено.")).toBeInTheDocument();
+    });
+
+    it("shows a coming-soon message instead, for a connected Plane", async () => {
+      mockBackend();
+      const view = getView();
+      await view.clickConnect();
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit(DATA_EVENT, { bytes: samplePlaneHeartbeatBytes() });
+      await view.user.click(view.getLiveTuningNavButton());
+      expect(screen.queryByRole("button", { name: "Завантажити параметри тюнінгу" })).not.toBeInTheDocument();
+    });
+
+    it("assigning a transmitter channel sends RCx_OPTION=219 via PARAM_SET", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectCopterAndOpenLiveTuning();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("TUNE", 1, MavParamType.INT8, 0, 4, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("TUNE_MIN", 0, MavParamType.REAL32, 1, 4, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("TUNE_MAX", 1, MavParamType.REAL32, 2, 4, 3) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("RC6_OPTION", 0, MavParamType.INT16, 3, 4, 4) });
+      await screen.findByText("Stab Roll/Pitch kP");
+
+      await user.selectOptions(screen.getByLabelText("Канал передавача"), "6");
+
+      expect(findParamSetValue(invoked, "RC6_OPTION")).toBe(219);
+    });
+
+    it("derives the live tuned value from the assigned channel's RC_CHANNELS PWM", async () => {
+      mockBackend();
+      await connectCopterAndOpenLiveTuning();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("TUNE", 1, MavParamType.INT8, 0, 6, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("TUNE_MIN", 0, MavParamType.REAL32, 1, 6, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("TUNE_MAX", 2, MavParamType.REAL32, 2, 6, 3) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("RC6_OPTION", 219, MavParamType.INT16, 3, 6, 4) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("RC6_MIN", 1000, MavParamType.INT16, 4, 6, 5) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("RC6_MAX", 2000, MavParamType.INT16, 5, 6, 6) });
+
+      await emit(DATA_EVENT, { bytes: buildRcChannelsBytes({ 6: 1500 }, 8, 7) }); // channel midpoint -> midpoint of [0,2] = 1
+
+      expect(await screen.findByText("1.000")).toBeInTheDocument();
+    });
+
+    it("editing TUNE_MIN commits via PARAM_SET on Enter", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectCopterAndOpenLiveTuning();
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("TUNE", 1, MavParamType.INT8, 0, 3, 1) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("TUNE_MIN", 0, MavParamType.REAL32, 1, 3, 2) });
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("TUNE_MAX", 1, MavParamType.REAL32, 2, 3, 3) });
+      const minButton = await screen.findByRole("button", { name: "0" });
+
+      await user.click(minButton);
+      const input = screen.getByDisplayValue("0");
+      await user.clear(input);
+      await user.type(input, "0.5{Enter}");
+
+      expect(findParamSetValue(invoked, "TUNE_MIN")).toBe(0.5);
     });
   });
 

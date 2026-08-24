@@ -9,6 +9,7 @@ import { CompassCalSection } from "./CompassCalSection";
 import { EscCalSection } from "./EscCalSection";
 import { MotorsServosSection } from "./MotorsServosSection";
 import { ServoRelaySection } from "./ServoRelaySection";
+import { LiveTuningSection } from "./LiveTuningSection";
 import { ParametersPanel } from "./ParametersPanel";
 import { PidTuneSection } from "./PidTuneSection";
 import { RcCalSection } from "./RcCalSection";
@@ -1858,6 +1859,13 @@ export function ArduPilotSetupView() {
             />
           ) : activeSection === "pidTune" ? (
             <PidTuneSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoad={handleLoadParameters} onSetParam={handleSetParam} />
+          ) : activeSection === "liveTuning" ? (
+            <LiveTuningSection
+              vehicleType={vehicle?.type ?? MavType.GENERIC}
+              live={rcCalLive}
+              onLoad={handleLoadParameters}
+              onSetParam={handleSetParam}
+            />
           ) : activeSection === "osdSetup" ? (
             <OsdSetupSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoad={handleLoadParameters} onSetParam={handleSetParam} />
           ) : activeSection === "vtxSetup" ? (
