@@ -1,4 +1,5 @@
 import {
+  Camera,
   ChevronsLeft,
   ChevronsRight,
   FileText,
@@ -23,6 +24,7 @@ const TAB_ICONS = {
   logs: FileText,
   graphs: LineChart,
   map: Map,
+  geotag: Camera,
   parameters: Settings2,
   advisor: Stethoscope,
   compare: GitCompare,

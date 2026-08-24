@@ -1,6 +1,7 @@
 import * as Comlink from "comlink";
 import { runAdvisors } from "../../analysis/advisors/registry/registry";
 import { buildFlightMapDataFromBin } from "../../analysis/flight-map/fromBin";
+import { extractCamGeoTags } from "../../analysis/geotag/geotag";
 import { computeRow } from "../../analysis/metrics/metrics";
 import { buildRawLog } from "../../analysis/raw-log/raw-log";
 import { extractParamsFromBin } from "../../parameters/dataflash-params/dataflash-params";
@@ -23,6 +24,7 @@ const localApi: AsyncCoreWorkerApi = {
   parseParamFile: (...args) => Promise.resolve(parseParamFile(...args)),
   buildRawLog: (...args) => Promise.resolve(buildRawLog(...args)),
   buildFlightMapDataFromBin: (...args) => Promise.resolve(buildFlightMapDataFromBin(...args)),
+  extractCamGeoTags: (...args) => Promise.resolve(extractCamGeoTags(...args)),
 };
 
 let client: AsyncCoreWorkerApi | null = null;
