@@ -1,6 +1,7 @@
 import { Route, Routes } from "react-router";
 import { GlobalDropOverlay } from "./components/GlobalDropOverlay/GlobalDropOverlay";
 import { Sidebar } from "./components/Sidebar/Sidebar";
+import { Toaster } from "./components/ui/toaster";
 import { ArduPilotSetupView } from "./pages/ArduPilotSetupView/ArduPilotSetupView";
 import { AdvisorView } from "./pages/AdvisorView/AdvisorView";
 import { CesiumMapView } from "./pages/CesiumMapView/CesiumMapView";
@@ -46,10 +47,13 @@ function LogViewerRoot() {
 
 function App() {
   return (
-    <Routes>
-      <Route path="/" element={<LogViewerRoot />} />
-      <Route path="/ardupilot-setup" element={<ArduPilotSetupView />} />
-    </Routes>
+    <>
+      <Routes>
+        <Route path="/" element={<LogViewerRoot />} />
+        <Route path="/ardupilot-setup" element={<ArduPilotSetupView />} />
+      </Routes>
+      <Toaster />
+    </>
   );
 }
 

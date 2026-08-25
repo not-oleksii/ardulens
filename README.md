@@ -45,6 +45,10 @@ There are two ways to run ArduLens, and which one you need depends on what you'r
     Homebrew (macOS) or apt/dnf/pacman (Linux); falls back to a manual-install message if
     none of those are available.
   - Or manually: `npm install && npm run tauri dev` (after installing Node.js + Rust yourself)
+- **Design system** - a Storybook catalog of ArduLens's design tokens (color/type/motion) and
+  UI components, for design/UX work independent of the app itself.
+  - Windows: `run-storybook.bat`
+  - Or manually: `npm install && npm run storybook` - opens `http://localhost:6006`
 
 ## Available scripts
 
@@ -59,6 +63,8 @@ There are two ways to run ArduLens, and which one you need depends on what you'r
 | `npm run test:coverage` | Runs tests with coverage                                    |
 | `npm run lint`          | Lints the codebase                                          |
 | `npm run tauri`         | Runs a Tauri CLI command (e.g. `npm run tauri dev`) for the desktop build |
+| `npm run storybook`     | Starts the design system catalog (`http://localhost:6006`)  |
+| `npm run build-storybook` | Builds a static, deployable copy of the Storybook catalog |
 
 ## Project structure
 

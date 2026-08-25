@@ -42,8 +42,13 @@ function DialogContent({
         data-slot="dialog-content"
         className={cn(
           "ardulens-glass fixed top-1/2 left-1/2 z-50 grid w-full max-w-lg gap-4 rounded-lg border p-6 text-card-foreground shadow-lg outline-none",
-          "data-[state=open]:animate-[ardulens-zoom-in_var(--ardulens-motion-base)_var(--ardulens-ease-out)]",
-          "data-[state=closed]:animate-[ardulens-zoom-out_var(--ardulens-motion-fast)_var(--ardulens-ease-out)]",
+          // `forwards` is required: without it, once the animation finishes, `transform`
+          // reverts to unset (animation-fill-mode defaults to `none`) - since centering here
+          // relies entirely on the keyframe's own translate(-50%,-50%) (no separate static
+          // Tailwind translate utility backing it up), losing that mid-animation visibly
+          // snaps the dialog away from center a moment after it opens.
+          "data-[state=open]:animate-[ardulens-zoom-in_var(--ardulens-motion-base)_var(--ardulens-ease-out)_forwards]",
+          "data-[state=closed]:animate-[ardulens-zoom-out_var(--ardulens-motion-fast)_var(--ardulens-ease-out)_forwards]",
           className,
         )}
         {...props}

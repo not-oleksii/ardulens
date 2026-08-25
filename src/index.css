@@ -158,10 +158,11 @@
   --font-osd: var(--font-osd);
 }
 
-/* Enter/exit keyframes for overlay surfaces (Dialog/Popover/Select/Drawer), applied via
+/* Enter/exit keyframes for Radix-based overlay surfaces (Dialog/Popover/Select), applied via
    Tailwind v4's arbitrary animate-[name_duration_easing] syntax keyed to Radix's own
    data-state attribute - no animation plugin/dependency needed. Kept to opacity+transform only
-   (GPU-cheap, no layout thrash). */
+   (GPU-cheap, no layout thrash). Drawer/Toast use a plain inline-style transition instead (see
+   their own components) since they aren't built on Radix. */
 @keyframes ardulens-fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -185,14 +186,6 @@
 @keyframes ardulens-pop-out {
   from { opacity: 1; transform: scale(1) translateY(0); }
   to { opacity: 0; transform: scale(0.96) translateY(2px); }
-}
-@keyframes ardulens-slide-in-bottom {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
-}
-@keyframes ardulens-slide-out-bottom {
-  from { transform: translateY(0); }
-  to { transform: translateY(100%); }
 }
 
 /* "Matte glass" material - see the --ardulens-glass-* tokens above. A hand-written class
