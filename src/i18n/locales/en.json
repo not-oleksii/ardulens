@@ -160,7 +160,9 @@
       "release": "Release",
       "relayLabel": "Relay {{instance}}",
       "on": "ON",
-      "off": "OFF"
+      "off": "OFF",
+      "relaySentOn": "Relay {{instance}}: ON command sent",
+      "relaySentOff": "Relay {{instance}}: OFF command sent"
     },
     "compassCal": {
       "heading": "Compass Calibration",
@@ -325,7 +327,8 @@
       "from": "From",
       "to": "To",
       "cancel": "Cancel",
-      "confirmSave": "Send changes"
+      "confirmSave": "Send changes",
+      "setTimeout": "Parameter {{name}} wasn't confirmed by the vehicle - the change may not have been received."
     },
     "unsavedChanges": {
       "title": "Unsaved parameter changes",
@@ -666,7 +669,7 @@
       "portPlaceholder": "No ports found - plug in a device and refresh",
       "refreshPorts": "Refresh ports",
       "autoConnect": "Auto-detect",
-      "autoConnectScanning": "Scanning {{port}} @ {{baud}}...",
+      "autoConnectScanning": "Scanning {{port}} @ {{baud}}... ({{index}} of {{total}})",
       "autoConnectFailed": "No ArduPilot heartbeat found on any port",
       "baudLabel": "Baud rate",
       "udpPortLabel": "Listen port",
@@ -692,6 +695,13 @@
       "statusConnecting": "Connecting...",
       "statusConnected": "Connected: {{detail}}",
       "statusError": "Connection error: {{message}}",
+      "remediation": {
+        "permissionDenied": "The port is either held by another program or your account doesn't have access to it.",
+        "portBusy": "Another program (a different GCS, a serial monitor, etc.) already has this port open - close it and try again.",
+        "portNotFound": "Port not found - the device may have been unplugged. Click \"Refresh ports\" and try again.",
+        "connectionRefused": "Nothing is listening on that address/port - check that the vehicle is configured to send MAVLink there.",
+        "timedOut": "The connection timed out - check the cable/link and the selected baud rate."
+      },
       "bytesReceived": "Received",
       "bytesSent": "Sent",
       "bytesUnit": "{{count}} B"
@@ -710,6 +720,8 @@
       "confirmModeTitle": "Change flight mode?",
       "confirmModeDescription": "The vehicle will switch to {{mode}} mode. Make sure this is the mode you meant to select.",
       "confirmMode": "Change mode",
+      "modeChangeConfirmed": "Mode changed to {{mode}}",
+      "modeChangeTimeout": "Mode change to {{mode}} wasn't confirmed - the command may not have been received.",
       "mode": "Mode",
       "types": {
         "generic": "Generic",

@@ -5,6 +5,7 @@ import {
   GpsFixType,
   MagCalStatus,
   MavAutopilot,
+  MavCmd,
   MavResult,
   MavState,
   MavSysStatusSensor,
@@ -135,6 +136,17 @@ const MAV_RESULT_KEYS: Partial<Record<MavResult, string>> = {
 export function mavResultLabel(t: Translate, result: MavResult): string {
   const key = MAV_RESULT_KEYS[result];
   return key ? t(`ardupilotSetup.compassCal.result.${key}`) : t("ardupilotSetup.compassCal.result.unknown", { value: result });
+}
+
+/** Labels the 3 commands `flightCommandAck` (mavlinkVehicleStore) ever carries, reusing the
+ *  same action names LiveMapSection's own buttons/menu items already use rather than inventing
+ *  new copy for the same action - shared between that inline rejection banner and Wave 3's
+ *  toast feedback for the same event. */
+export function flightCommandLabel(t: Translate, command: MavCmd): string {
+  if (command === MavCmd.NAV_TAKEOFF) return t("ardupilotSetup.map.takeoff");
+  if (command === MavCmd.DO_REPOSITION) return t("ardupilotSetup.map.flyToHere");
+  if (command === MavCmd.DO_SET_HOME) return t("ardupilotSetup.map.setHomeHere");
+  return String(command);
 }
 
 const ACCELCAL_POS_KEYS: Partial<Record<number, string>> = {

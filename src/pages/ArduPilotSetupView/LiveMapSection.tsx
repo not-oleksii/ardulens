@@ -24,7 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { CESIUM_TOKEN_STORAGE_KEY } from "../../constants";
-import { mavResultLabel } from "../../mavlink/labels/labels";
+import { flightCommandLabel, mavResultLabel } from "../../mavlink/labels/labels";
 import { MavCmd, MavResult } from "../../mavlink/registry/registry";
 import { useMavlinkLiveMapStore } from "../../stores/mavlinkLiveMapStore/mavlinkLiveMapStore";
 import type { PositionTelemetry } from "../../stores/mavlinkTelemetryStore/types";
@@ -97,16 +97,6 @@ interface LiveMapSectionProps {
   onSetHomeHere: (lat: number, lon: number) => void;
   onTakeoff: (altitudeM: number) => void;
   onRtl: () => void;
-}
-
-// The three commands flightCommandAck ever carries, labeled with the same action names this
-// section's own buttons/menu items already use rather than inventing new copy for the same
-// action.
-function flightCommandLabel(t: (key: string) => string, command: MavCmd): string {
-  if (command === MavCmd.NAV_TAKEOFF) return t("ardupilotSetup.map.takeoff");
-  if (command === MavCmd.DO_REPOSITION) return t("ardupilotSetup.map.flyToHere");
-  if (command === MavCmd.DO_SET_HOME) return t("ardupilotSetup.map.setHomeHere");
-  return String(command);
 }
 
 interface ContextMenuState {
