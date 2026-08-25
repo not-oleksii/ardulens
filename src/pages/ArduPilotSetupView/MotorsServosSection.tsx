@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { MavParamType, type MavType } from "../../mavlink/registry/registry";
 import { fetchParamDocs, vehicleFolderForMavType, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
+import { useUnsavedChangesStore } from "../../stores/unsavedChangesStore/unsavedChangesStore";
 import { ComingSoonSection } from "./ComingSoonSection";
 import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
 import { MotorsCopterSection } from "./MotorsCopterSection";
@@ -72,6 +74,12 @@ export function MotorsServosSection({
   const [docs, setDocs] = useState<ParamDocsMap | null>(null);
   const [editingCell, setEditingCell] = useState<{ channel: number; field: EditableField } | null>(null);
   const [editingValue, setEditingValue] = useState("");
+  // Min/Trim/Max/Reverse/Function edits stage here (same shape/semantics as ParametersPanel's
+  // own pendingChanges) instead of sending immediately - unified in Wave 2 of the UI/UX audit.
+  // The hold-to-test button below is NOT staged - that's a live test command, not config, and
+  // must stay instant per the same audit's own safety-critical-controls note.
+  const [pendingChanges, setPendingChanges] = useState<Record<string, number>>({});
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const vehicleFolder = vehicleFolderForMavType(vehicleType);
   const isPlane = vehicleFolder === "ArduPlane";
   const isCopter = vehicleFolder === "ArduCopter";
@@ -90,6 +98,20 @@ export function MotorsServosSection({
       cancelled = true;
     };
   }, [isPlane, vehicleFolder]);
+
+  const pendingEntries = Object.entries(pendingChanges);
+  const hasPendingChanges = pendingEntries.length > 0;
+
+  // Switching sidebar sections unmounts this component - same guard ParametersPanel/
+  // ParameterTreeSection/MotorsCopterSection already use so staged edits are never silently
+  // dropped. No-ops entirely on the Copter path (returns MotorsCopterSection below, which wires
+  // its own separate instance of this same guard for its own pendingChanges) - otherwise this
+  // effect's cleanup would race with and clobber MotorsCopterSection's own `setUnsaved(true)`.
+  useEffect(() => {
+    if (isCopter) return;
+    useUnsavedChangesStore.getState().setUnsaved(hasPendingChanges);
+    return () => useUnsavedChangesStore.getState().setUnsaved(false);
+  }, [hasPendingChanges, isCopter]);
 
   if (isCopter) {
     return (
@@ -139,6 +161,31 @@ export function MotorsServosSection({
 
   const functionValues = docs?.SERVO1_FUNCTION?.values;
 
+  function stageParam(name: string, value: number, original: number) {
+    setPendingChanges((prev) => {
+      const next = { ...prev };
+      if (value === original) delete next[name]; // editing back to the original un-stages it
+      else next[name] = value;
+      return next;
+    });
+  }
+
+  function handleResetAll() {
+    setPendingChanges({});
+  }
+
+  function handleConfirmSaveAll() {
+    for (const [name, value] of pendingEntries) {
+      // Matches each field's own original fallback type (REVERSED is INT8, everything else -
+      // MIN/TRIM/MAX/FUNCTION - is INT16) for the rare case the store doesn't have this param's
+      // real type yet.
+      const type = params[name]?.type ?? (name.endsWith("_REVERSED") ? MavParamType.INT8 : MavParamType.INT16);
+      onSetFrameParam(name, value, type);
+    }
+    setPendingChanges({});
+    setConfirmOpen(false);
+  }
+
   function startEdit(channel: number, field: EditableField, currentValue: number) {
     setEditingCell({ channel, field });
     setEditingValue(String(currentValue));
@@ -151,15 +198,14 @@ export function MotorsServosSection({
     const parsed = Number(editingValue);
     if (!Number.isFinite(parsed)) return;
     const name = `SERVO${channel}_${field}`;
-    const type = params[name]?.type ?? MavParamType.INT16;
-    onSetFrameParam(name, parsed, type);
+    stageParam(name, parsed, params[name]?.value ?? parsed);
   }
 
   // Nudges Min/Trim/Max by arrow key instead of requiring a full retype for every adjustment -
-  // 1us per press, 10us with Shift for coarser moves. Commits immediately on each press (rather
-  // than waiting for blur/Enter) so a held-down surface visibly moves in real time, the same way
-  // a transmitter's own trim buttons behave, clamped to the same 900-2100us PWM range the live
-  // output bar above already assumes.
+  // 1us per press, 10us with Shift for coarser moves. Stages on each press (same as typing +
+  // Enter) rather than sending immediately - unified in Wave 2 of the UI/UX audit with every
+  // other param-edit path in this app; clamped to the same 900-2100us PWM range the live output
+  // bar above already assumes.
   function nudgeEditingValue(channel: number, field: EditableField, direction: 1 | -1, coarse: boolean) {
     const name = `SERVO${channel}_${field}`;
     const current = Number(editingValue);
@@ -167,13 +213,13 @@ export function MotorsServosSection({
     const step = coarse ? 10 : 1;
     const next = Math.min(SCALE_MAX, Math.max(SCALE_MIN, base + direction * step));
     setEditingValue(String(next));
-    const type = params[name]?.type ?? MavParamType.INT16;
-    onSetFrameParam(name, next, type);
+    stageParam(name, next, params[name]?.value ?? next);
   }
 
   function editableNumberCell(channel: number, field: EditableField, value: number) {
     const isEditing = editingCell?.channel === channel && editingCell.field === field;
     const name = `SERVO${channel}_${field}`;
+    const shownValue = pendingChanges[name] ?? value;
     if (isEditing) {
       return (
         <Input
@@ -196,10 +242,14 @@ export function MotorsServosSection({
     }
     return (
       <span className="flex items-center gap-1.5">
-        <button type="button" className="font-mono text-xs hover:underline" onClick={() => startEdit(channel, field, value)}>
-          {value}
+        <button type="button" className="font-mono text-xs hover:underline" onClick={() => startEdit(channel, field, shownValue)}>
+          {shownValue}
         </button>
-        <ModifiedFromDefaultDot name={name} value={value} />
+        {pendingChanges[name] !== undefined ? (
+          <span className="text-xs text-primary">{t("ardupilotSetup.parameters.modified")}</span>
+        ) : (
+          <ModifiedFromDefaultDot name={name} value={shownValue} />
+        )}
       </span>
     );
   }
@@ -208,9 +258,21 @@ export function MotorsServosSection({
     <div className="flex h-full flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.motorsServos.heading")}</h3>
-        <Button type="button" size="sm" variant="outline" onClick={onLoad}>
-          {t("ardupilotSetup.motorsServos.load")}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button type="button" size="sm" variant="outline" onClick={onLoad}>
+            {t("ardupilotSetup.motorsServos.load")}
+          </Button>
+          {hasPendingChanges && (
+            <>
+              <Button type="button" size="sm" variant="ghost" onClick={handleResetAll}>
+                {t("ardupilotSetup.parameters.reset")}
+              </Button>
+              <Button type="button" size="sm" onClick={() => setConfirmOpen(true)}>
+                {t("ardupilotSetup.parameters.saveAll", { count: pendingEntries.length })}
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       <Alert variant="warning" className="shrink-0">
@@ -244,6 +306,8 @@ export function MotorsServosSection({
                 const color = colorForRcChannel(channel);
                 const functionName = `SERVO${channel}_FUNCTION`;
                 const reversedName = `SERVO${channel}_REVERSED`;
+                const shownReversed = pendingChanges[reversedName] ?? reversed;
+                const shownFunctionCode = pendingChanges[functionName] ?? functionCode;
                 return (
                   <TableRow key={channel}>
                     <TableCell className="font-mono" style={{ color }}>
@@ -268,10 +332,14 @@ export function MotorsServosSection({
                       <span className="flex items-center gap-1.5">
                         <input
                           type="checkbox"
-                          checked={reversed !== 0}
-                          onChange={(e) => onSetFrameParam(reversedName, e.target.checked ? 1 : 0, params[reversedName]?.type ?? MavParamType.INT8)}
+                          checked={shownReversed !== 0}
+                          onChange={(e) => stageParam(reversedName, e.target.checked ? 1 : 0, reversed)}
                         />
-                        <ModifiedFromDefaultDot name={reversedName} value={reversed} />
+                        {pendingChanges[reversedName] !== undefined ? (
+                          <span className="text-xs text-primary">{t("ardupilotSetup.parameters.modified")}</span>
+                        ) : (
+                          <ModifiedFromDefaultDot name={reversedName} value={shownReversed} />
+                        )}
                       </span>
                     </TableCell>
                     <TableCell>
@@ -279,12 +347,10 @@ export function MotorsServosSection({
                         {functionValues ? (
                           <select
                             className="rounded-md border border-border bg-background px-2 py-1 text-xs"
-                            value={functionCode}
-                            onChange={(e) =>
-                              onSetFrameParam(functionName, Number(e.target.value), params[functionName]?.type ?? MavParamType.INT16)
-                            }
+                            value={shownFunctionCode}
+                            onChange={(e) => stageParam(functionName, Number(e.target.value), functionCode)}
                           >
-                            {!(functionCode in functionValues) && <option value={functionCode}>{functionCode}</option>}
+                            {!(shownFunctionCode in functionValues) && <option value={shownFunctionCode}>{shownFunctionCode}</option>}
                             {Object.entries(functionValues).map(([code, label]) => (
                               <option key={code} value={code}>
                                 {label}
@@ -292,9 +358,13 @@ export function MotorsServosSection({
                             ))}
                           </select>
                         ) : (
-                          <span className="font-mono text-xs">{functionCode}</span>
+                          <span className="font-mono text-xs">{shownFunctionCode}</span>
                         )}
-                        <ModifiedFromDefaultDot name={functionName} value={functionCode} />
+                        {pendingChanges[functionName] !== undefined ? (
+                          <span className="text-xs text-primary">{t("ardupilotSetup.parameters.modified")}</span>
+                        ) : (
+                          <ModifiedFromDefaultDot name={functionName} value={shownFunctionCode} />
+                        )}
                       </span>
                     </TableCell>
                     <TableCell>{editableNumberCell(channel, "MIN", min)}</TableCell>
@@ -328,6 +398,45 @@ export function MotorsServosSection({
           </Table>
         </div>
       )}
+
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("ardupilotSetup.parameters.confirmTitle")}</DialogTitle>
+            <DialogDescription>
+              {t("ardupilotSetup.parameters.confirmDescription", { count: pendingEntries.length })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-80 overflow-y-auto rounded-md border border-border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("ardupilotSetup.parameters.name")}</TableHead>
+                  <TableHead>{t("ardupilotSetup.parameters.from")}</TableHead>
+                  <TableHead>{t("ardupilotSetup.parameters.to")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pendingEntries.map(([name, value]) => (
+                  <TableRow key={name}>
+                    <TableCell className="font-mono">{name}</TableCell>
+                    <TableCell className="font-mono">{params[name]?.value}</TableCell>
+                    <TableCell className="font-mono">{value}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmOpen(false)}>
+              {t("ardupilotSetup.parameters.cancel")}
+            </Button>
+            <Button type="button" onClick={handleConfirmSaveAll}>
+              {t("ardupilotSetup.parameters.confirmSave")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
