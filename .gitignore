@@ -37,3 +37,6 @@ Thumbs.db
 # Env
 .env
 .env.local
+
+*storybook.log
+storybook-static

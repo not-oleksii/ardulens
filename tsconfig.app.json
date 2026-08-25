@@ -31,5 +31,13 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  /* Storybook story/doc files are compiled by Storybook's own Vite/esbuild toolchain (see
+     .storybook/main.ts), not by this project's tsc -b build - they don't ship in `vite build`'s
+     output, so there's no reason to hold them to this project's own strict build. (A real OOM was
+     hit adding the first batch of *.stories.tsx files, but confirmed via NODE_OPTIONS=
+     --max-old-space-size to be this constrained machine's available memory, not a story-file-
+     specific type-inference bug - this exclusion is kept anyway as the right scope, not as the
+     fix for that.) */
+  "exclude": ["src/**/*.stories.tsx", "src/design-system/**"]
 }

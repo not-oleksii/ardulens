@@ -23,6 +23,7 @@ import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { isFlightMapData, isFlightMapError, isFlightMapInfo, type FlightMapResult } from "../../analysis/flight-map/types";
 import type { TrackPoint } from "../../analysis/flight-map/types";
@@ -522,25 +523,24 @@ export function CesiumMapView() {
             <h3 className="text-sm font-medium">{t("map.legend.heading")}</h3>
             <ul className="flex flex-col gap-2 text-sm">
               <li className="flex items-center gap-2">
-                <input type="checkbox" id="show-gcs" checked={showGcsTrack} onChange={toggleGcsTrackVisible} />
+                <Checkbox id="show-gcs" checked={showGcsTrack} onCheckedChange={toggleGcsTrackVisible} />
                 <span aria-hidden className="h-3 w-3 shrink-0 rounded-sm" style={{ background: "#3b82f6" }} />
                 <label htmlFor="show-gcs" className="flex-1">
                   {t("map.legend.gcsTrack")}
                 </label>
               </li>
               <li className="flex items-center gap-2">
-                <input type="checkbox" id="show-gps" checked={showGpsTrack} onChange={toggleGpsTrackVisible} />
+                <Checkbox id="show-gps" checked={showGpsTrack} onCheckedChange={toggleGpsTrackVisible} />
                 <span aria-hidden className="h-3 w-3 shrink-0 rounded-sm" style={{ background: "#ef4444" }} />
                 <label htmlFor="show-gps" className="flex-1">
                   {t("map.legend.gpsTrack")}
                 </label>
               </li>
               <li className="flex items-center gap-2">
-                <input
-                  type="checkbox"
+                <Checkbox
                   id="show-cleaned"
                   checked={showCleanedTrack}
-                  onChange={toggleCleanedTrackVisible}
+                  onCheckedChange={toggleCleanedTrackVisible}
                 />
                 <span aria-hidden className="h-3 w-3 shrink-0 rounded-sm" style={{ background: "#22c55e" }} />
                 <label htmlFor="show-cleaned" className="flex-1">
@@ -548,7 +548,7 @@ export function CesiumMapView() {
                 </label>
               </li>
               <li className="flex items-center gap-2">
-                <input type="checkbox" id="show-gps-loss" checked={showGpsLoss} onChange={toggleGpsLossVisible} />
+                <Checkbox id="show-gps-loss" checked={showGpsLoss} onCheckedChange={toggleGpsLossVisible} />
                 <span aria-hidden className="flex shrink-0 gap-0.5">
                   <span className="h-3 w-3 rounded-full" style={{ background: "#f97316" }} />
                   <span className="h-3 w-3 rounded-full" style={{ background: "#22c55e" }} />
@@ -558,11 +558,10 @@ export function CesiumMapView() {
                 </label>
               </li>
               <li className="flex items-center gap-2">
-                <input
-                  type="checkbox"
+                <Checkbox
                   id="show-current"
                   checked={showCurrentPosition}
-                  onChange={toggleCurrentPositionVisible}
+                  onCheckedChange={toggleCurrentPositionVisible}
                 />
                 <span
                   aria-hidden

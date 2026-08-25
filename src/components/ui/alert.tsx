@@ -1,5 +1,6 @@
 import { cva, type VariantProps } from "class-variance-authority";
-import type * as React from "react";
+import { CheckCircle2, Info, OctagonAlert, TriangleAlert } from "lucide-react";
+import * as React from "react";
 import { cn } from "@/lib/utils";
 
 const alertVariants = cva(
@@ -9,9 +10,10 @@ const alertVariants = cva(
       variant: {
         default: "bg-card text-card-foreground border-border",
         destructive: "text-destructive bg-destructive/10 border-destructive/30 [&>svg]:text-destructive",
-        info: "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300 [&>svg]:text-sky-600 dark:[&>svg]:text-sky-400",
+        good: "border-ardulens-status-good/30 bg-ardulens-status-good/10 text-ardulens-status-good [&>svg]:text-ardulens-status-good",
+        info: "border-ardulens-status-info/30 bg-ardulens-status-info/10 text-ardulens-status-info [&>svg]:text-ardulens-status-info",
         warning:
-          "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300 [&>svg]:text-amber-600 dark:[&>svg]:text-amber-400",
+          "border-ardulens-status-warning/30 bg-ardulens-status-warning/10 text-ardulens-status-warning [&>svg]:text-ardulens-status-warning",
       },
     },
     defaultVariants: {
@@ -20,13 +22,33 @@ const alertVariants = cva(
   },
 );
 
+// Each semantic variant gets its own outlined lucide icon (lucide's whole set is stroke-based,
+// never filled) so severity reads from SHAPE as well as color - an octagon for destructive
+// specifically reads as "stop" even before the red registers, distinct from warning's triangle
+// and info's circle. "default" (neutral) intentionally has no auto-icon - it's a plain banner,
+// not a severity signal. Callers can still pass their own icon child to override this.
+const VARIANT_ICON = {
+  destructive: OctagonAlert,
+  good: CheckCircle2,
+  info: Info,
+  warning: TriangleAlert,
+} as const;
+
 function Alert({
   className,
   variant,
+  children,
   ...props
 }: React.ComponentProps<"div"> & VariantProps<typeof alertVariants>) {
+  const AutoIcon = variant && variant in VARIANT_ICON ? VARIANT_ICON[variant as keyof typeof VARIANT_ICON] : null;
+  const hasExplicitIcon = React.Children.toArray(children).some(
+    (child) => React.isValidElement(child) && child.type !== AlertTitle && child.type !== AlertDescription,
+  );
   return (
-    <div data-slot="alert" role="alert" className={cn(alertVariants({ variant }), className)} {...props} />
+    <div data-slot="alert" role="alert" className={cn(alertVariants({ variant }), className)} {...props}>
+      {!hasExplicitIcon && AutoIcon && <AutoIcon aria-hidden />}
+      {children}
+    </div>
   );
 }
 

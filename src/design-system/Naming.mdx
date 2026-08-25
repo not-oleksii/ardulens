@@ -1,0 +1,69 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="Foundations/Naming convention" />
+
+# Naming convention
+
+Every ArduLens-specific design token and hand-written class is prefixed **`ardulens-`**, so it
+reads as app-specific everywhere it appears — in JSX, in `src/index.css`, and in devtools —
+distinct from shadcn/Radix's own generic tokens (`--primary`, `--border`, `--radius`, ...), which
+stay unprefixed. Renaming those would ripple through every existing shadcn-derived component for
+no real benefit; the prefix is reserved for things this app actually owns.
+
+## Two shapes, same prefix
+
+**1. Design tokens** (CSS custom properties) — prefixed `--ardulens-*`, and mirrored into
+Tailwind's `@theme inline` block so they're also usable as ordinary utility classes:
+
+```css
+/* src/index.css */
+--ardulens-status-good: #16a34a;
+--ardulens-status-warning: #b45309;
+--ardulens-status-info: #0369a1;
+--ardulens-motion-fast: 120ms;
+--ardulens-glass-blur: 20px;
+```
+
+```css
+/* mirrored into @theme inline - Tailwind auto-generates the utility classes */
+--color-ardulens-status-good: var(--ardulens-status-good);
+```
+
+```tsx
+// used exactly like any other Tailwind color utility
+<Badge className="bg-ardulens-status-good/15 text-ardulens-status-good" variant="good" />
+```
+
+**2. Hand-written CSS classes**, for anything that can't be expressed as a single Tailwind color
+utility (a multi-property material like glass, not just a color):
+
+```css
+/* src/index.css */
+.ardulens-glass {
+  background: var(--ardulens-glass-bg);
+  backdrop-filter: blur(var(--ardulens-glass-blur));
+}
+```
+
+```tsx
+<DialogContent className="ardulens-glass ...">
+```
+
+## What does *not* get the prefix
+
+- shadcn's own base tokens (`--background`, `--primary`, `--border`, `--radius`, ...) — unprefixed,
+  unchanged.
+- Tailwind's own built-in utilities (`flex`, `rounded-lg`, `animate-pulse`) — not ArduLens's to
+  namespace.
+- Component *names* themselves (`Alert`, `Badge`, `Drawer`) — React component names are already
+  scoped by their module path (`@/components/ui/badge`); the prefix is for CSS-level names that
+  land in the global stylesheet/class namespace, where collisions are actually possible.
+
+## Adding a new token
+
+1. Define it at `:root` (and `.dark` if it needs a dark-mode value) with the `--ardulens-` prefix.
+2. If it's a plain color, mirror it into `@theme inline` as `--color-ardulens-<name>` so Tailwind
+   generates `bg-/text-/border-ardulens-<name>` utilities for free.
+3. If it's a material (glass, a gradient, anything multi-property), write a `.ardulens-<name>`
+   class by hand instead.
+4. Document it on the relevant [Foundations](/?path=/docs/foundations-color--docs) page.

@@ -1,12 +1,17 @@
 import type * as React from "react";
 import { cn } from "@/lib/utils";
 
-function Card({ className, ...props }: React.ComponentProps<"div">) {
+/** `glass` is opt-in, not the default: Card is this app's primary page-shell container (every
+ *  page wraps its content in one), not an overlay - defaulting it to a translucent surface
+ *  would change the baseline look of every existing page at once. Use it deliberately for a
+ *  card that genuinely floats over other content (e.g. an elevated panel over the map). */
+function Card({ className, glass = false, ...props }: React.ComponentProps<"div"> & { glass?: boolean }) {
   return (
     <div
       data-slot="card"
       className={cn(
-        "flex flex-col gap-4 rounded-lg border border-border bg-card text-card-foreground p-5",
+        "flex flex-col gap-4 rounded-lg border p-5 text-card-foreground",
+        glass ? "ardulens-glass" : "border-border bg-card",
         className,
       )}
       {...props}

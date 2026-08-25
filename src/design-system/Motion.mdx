@@ -1,0 +1,59 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="Foundations/Motion" />
+
+# Motion
+
+Three durations, one easing curve — reserved for interface **chrome**: reveals, hovers, section
+transitions, overlay enter/exit. Never applied to live telemetry numbers or safety-critical
+controls (arm/disarm, motor/servo/relay override, calibration), which stay instant by design. All
+motion respects `prefers-reduced-motion` (enforced globally in `src/index.css`).
+
+<div style={{ display: "flex", gap: 40, border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", background: "var(--card)", padding: "20px 24px", flexWrap: "wrap", marginBottom: 24 }}>
+  {[["Fast", "120ms", "hover states, button press"], ["Base", "200ms", "reveals, overlay enter/exit"], ["Slow", "320ms", "drawer slide, section transitions"]].map(([label, value, use]) => (
+    <div key={label}>
+      <div style={{ fontSize: 11, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>{label}</div>
+      <div style={{ fontFamily: "var(--font-mono)", fontSize: 18 }}>{value}</div>
+      <div style={{ fontSize: 11, color: "var(--muted-foreground)", marginTop: 2 }}>{use}</div>
+    </div>
+  ))}
+</div>
+
+Easing: `cubic-bezier(0.16, 1, 0.3, 1)` (ease-out-expo) — fast start, gentle settle. Applied via
+`--ardulens-ease-out`.
+
+## Where motion is reserved for state, not decoration
+
+<table>
+  <thead><tr><th style={{textAlign: "left"}}>Do animate</th><th style={{textAlign: "left"}}>Never animate</th></tr></thead>
+  <tbody>
+    <tr><td>Dialog/Popover/Select/HoverCard enter-exit</td><td>Live telemetry readouts (altitude, speed, voltage)</td></tr>
+    <tr><td>Drawer slide (bottom-sheet)</td><td>Arm/disarm state changes</td></tr>
+    <tr><td>Section/tab switch fade</td><td>Motor/servo/relay override sliders</td></tr>
+    <tr><td>Skeleton pulse while loading</td><td>Calibration progress indicators</td></tr>
+    <tr><td>Button hover/press</td><td>PFD gauge needles</td></tr>
+  </tbody>
+</table>
+
+## Keyframes
+
+Hand-rolled in `src/index.css` (no animation dependency), applied via Tailwind v4's arbitrary
+`animate-[name_duration_easing]` syntax keyed to Radix's `data-state` attribute:
+
+```css
+@keyframes ardulens-zoom-in {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
+  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+```
+
+```tsx
+className={cn(
+  "data-[state=open]:animate-[ardulens-zoom-in_var(--ardulens-motion-base)_var(--ardulens-ease-out)]",
+  "data-[state=closed]:animate-[ardulens-zoom-out_var(--ardulens-motion-fast)_var(--ardulens-ease-out)]",
+)}
+```
+
+See [Components/Dialog](/?path=/docs/components-dialog-modal--docs),
+[Components/Popover](/?path=/docs/components-popover--docs), and
+[Components/Drawer](/?path=/docs/components-drawer--docs) for it in use.

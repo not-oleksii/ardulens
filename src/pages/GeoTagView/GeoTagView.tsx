@@ -208,7 +208,7 @@ export function GeoTagView() {
             )}
 
             {writeResult && (
-              <Alert variant={writeResult.failed.length === 0 ? "default" : "warning"}>
+              <Alert variant={writeResult.failed.length === 0 ? "good" : "warning"}>
                 <AlertDescription>
                   <p>{t("geotag.done", { succeeded: writeResult.succeeded, total: writeResult.succeeded + writeResult.failed.length, folder: `${folderPath}/${GEOTAGGED_SUBFOLDER}` })}</p>
                   {writeResult.failed.length > 0 && (

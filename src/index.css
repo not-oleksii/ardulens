@@ -1,10 +1,10 @@
 @import "tailwindcss";
 
-/* Fonts for the ArduPilot Setup cockpit theme only - self-hosted so the app keeps working
-   fully offline. Only the weights actually used are imported (400/700 for UI text, 400 for
-   the monospace telemetry values - PT Mono only ships weight 400). Share Tech Mono is a
-   digital-display-style monospace used only for the OSD Setup layout preview's chip labels
-   (see OsdScreenLayout.tsx and its --font-osd variable below) - real OSD hardware (MAX7456,
+/* ArduLens's app-wide typefaces - self-hosted so the app keeps working fully offline. Only
+   the weights actually used are imported (400/700 for UI text, 400 for the monospace
+   numeric/telemetry values - PT Mono only ships weight 400). Share Tech Mono is a digital-
+   display-style monospace used only for the OSD Setup layout preview's chip labels (see
+   OsdScreenLayout.tsx and its --font-osd variable below) - real OSD hardware (MAX7456,
    Betaflight/INAV canvas fonts, Walksnail/HD digital fonts) all render a bold, blocky, high-
    contrast monospace, not this app's normal UI font, so using the same UI font there would
    look convincingly wrong even with the correct grid/resolution.  */
@@ -44,8 +44,45 @@
   --ring: #aa3bff;
   --radius: 0.5rem;
 
-  --font-sans: system-ui, "Segoe UI", Roboto, sans-serif;
-  --font-mono: ui-monospace, Consolas, monospace;
+  --font-sans: "Exo 2", system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "PT Mono", ui-monospace, Consolas, monospace;
+  --font-osd: "Share Tech Mono", ui-monospace, Consolas, monospace;
+
+  /* ArduLens-specific tokens below are prefixed --ardulens-* to keep them visually distinct
+     from shadcn's own generic tokens above (--primary, --border, etc., which stay unprefixed -
+     renaming those would ripple through every existing shadcn-derived component for no
+     benefit). Each is also exposed as a Tailwind utility of the same name further down (e.g.
+     --ardulens-status-good -> bg-ardulens-status-good / text-ardulens-status-good / border-
+     ardulens-status-good), so it reads as ArduLens-specific everywhere it's used, including in
+     devtools. Reserved for STATE, never reused as a general-purpose accent color - see the
+     "iconography"/"status" pages in the Storybook design system for how each is meant to be
+     used. --ardulens-status-critical does not exist on purpose: it reuses --destructive, since
+     this app already has exactly one red and duplicating it would just invite drift between
+     the two over time. */
+  --ardulens-status-good: #16a34a;
+  --ardulens-status-good-foreground: #ffffff;
+  --ardulens-status-warning: #b45309;
+  --ardulens-status-warning-foreground: #ffffff;
+  --ardulens-status-info: #0369a1;
+  --ardulens-status-info-foreground: #ffffff;
+
+  /* Motion - interface chrome only (reveals, hovers, section transitions). Never applied to
+     live telemetry numbers or safety-critical controls (arm/disarm, motor/servo/relay
+     override, calibration) - those must stay instant, see the Storybook "Motion" foundations
+     page for the full rationale. */
+  --ardulens-motion-fast: 120ms;
+  --ardulens-motion-base: 200ms;
+  --ardulens-motion-slow: 320ms;
+  --ardulens-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* "Matte glass" material for elevated/overlay surfaces (Card, Dialog, Popover, Select,
+     Drawer) that would otherwise sit on a flat or fully transparent background - a
+     semi-opaque tint of --card plus a blurred backdrop, applied via the .ardulens-glass class
+     rather than a single Tailwind color utility (backdrop-filter + layered background isn't
+     expressible as one utility). */
+  --ardulens-glass-bg: color-mix(in oklab, var(--card) 72%, transparent);
+  --ardulens-glass-border: color-mix(in oklab, var(--border) 65%, transparent);
+  --ardulens-glass-blur: 20px;
 }
 
 /* Applied by themeStore.ts (via useThemeStore's initial applyDomClass() call, imported at the
@@ -73,22 +110,16 @@
   --destructive: #f87171;
   --destructive-foreground: #16171d;
   --ring: #c084fc;
-}
 
-/* ArduPilot Setup uses the app's normal colors (same CSS variables as Logs/Graphs/Map -
-   light or dark following the OS, no separate palette) - only the typeface differs, to keep
-   telemetry numbers visually distinct as instrument-style readouts. Not chained off the base
-   --font-sans/--font-mono via var(): Tailwind's own
-   `@theme inline { --font-sans: var(--font-sans); }` is genuinely self-referential at :root
-   (no parent to inherit from there), which makes it a real cycle and its computed value the
-   CSS "guaranteed-invalid value." That invalid value inherits down the tree, so extending it
-   here with `var(--font-sans)` as a fallback would itself resolve to invalid and silently
-   fail to apply. Hardcoding the full stack sidesteps that. */
-.ardupilot-setup-theme {
-  --font-sans: "Exo 2", system-ui, "Segoe UI", Roboto, sans-serif;
-  --font-mono: "PT Mono", ui-monospace, Consolas, monospace;
-  --font-osd: "Share Tech Mono", ui-monospace, Consolas, monospace;
-  font-family: var(--font-sans);
+  --ardulens-status-good: #4ade80;
+  --ardulens-status-good-foreground: #0b1a10;
+  --ardulens-status-warning: #fbbf24;
+  --ardulens-status-warning-foreground: #221a03;
+  --ardulens-status-info: #38bdf8;
+  --ardulens-status-info-foreground: #041a24;
+
+  --ardulens-glass-bg: color-mix(in oklab, var(--card) 60%, transparent);
+  --ardulens-glass-border: color-mix(in oklab, var(--border) 70%, transparent);
 }
 
 @theme inline {
@@ -110,6 +141,13 @@
   --color-destructive-foreground: var(--destructive-foreground);
   --color-ring: var(--ring);
 
+  --color-ardulens-status-good: var(--ardulens-status-good);
+  --color-ardulens-status-good-foreground: var(--ardulens-status-good-foreground);
+  --color-ardulens-status-warning: var(--ardulens-status-warning);
+  --color-ardulens-status-warning-foreground: var(--ardulens-status-warning-foreground);
+  --color-ardulens-status-info: var(--ardulens-status-info);
+  --color-ardulens-status-info-foreground: var(--ardulens-status-info-foreground);
+
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -120,8 +158,76 @@
   --font-osd: var(--font-osd);
 }
 
-* {
-  border-color: var(--border);
+/* Enter/exit keyframes for overlay surfaces (Dialog/Popover/Select/Drawer), applied via
+   Tailwind v4's arbitrary animate-[name_duration_easing] syntax keyed to Radix's own
+   data-state attribute - no animation plugin/dependency needed. Kept to opacity+transform only
+   (GPU-cheap, no layout thrash). */
+@keyframes ardulens-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes ardulens-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes ardulens-zoom-in {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+@keyframes ardulens-zoom-out {
+  from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  to { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
+}
+@keyframes ardulens-pop-in {
+  from { opacity: 0; transform: scale(0.96) translateY(2px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes ardulens-pop-out {
+  from { opacity: 1; transform: scale(1) translateY(0); }
+  to { opacity: 0; transform: scale(0.96) translateY(2px); }
+}
+@keyframes ardulens-slide-in-bottom {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+@keyframes ardulens-slide-out-bottom {
+  from { transform: translateY(0); }
+  to { transform: translateY(100%); }
+}
+
+/* "Matte glass" material - see the --ardulens-glass-* tokens above. A hand-written class
+   (not a Tailwind-generated utility) since backdrop-filter + a layered background isn't
+   expressible as a single color token; used by Card/Dialog/Popover/Select/Drawer instead of a
+   flat or fully transparent surface. */
+.ardulens-glass {
+  background: var(--ardulens-glass-bg);
+  border-color: var(--ardulens-glass-border);
+  backdrop-filter: blur(var(--ardulens-glass-blur));
+  -webkit-backdrop-filter: blur(var(--ardulens-glass-blur));
+}
+
+/* Global reduced-motion guard - shortens every CSS animation/transition to effectively instant
+   rather than disabling motion selectively per component, so no future component can silently
+   forget to respect this preference. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Tailwind v4's own recommended default-border-color reset - MUST be wrapped in @layer base:
+   unlayered CSS always wins over ANY @layer (including utilities) regardless of source order or
+   specificity, so an unlayered `* { border-color: ... }` would silently override every colored
+   border-* utility class in the app (border-destructive, border-ardulens-status-good, etc.),
+   defeating them entirely while looking like they "should" work. Confirmed via a real Storybook
+   render (Alert's variant borders computed to plain --border gray on every variant until this
+   was wrapped) - not a hypothetical, a real bug this exact rule was causing app-wide before now. */
+@layer base {
+  * {
+    border-color: var(--border);
+  }
 }
 
 body {

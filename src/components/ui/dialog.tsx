@@ -19,7 +19,12 @@ function DialogOverlay({ className, ...props }: React.ComponentProps<typeof Dial
   return (
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
-      className={cn("fixed inset-0 z-50 bg-black/50", className)}
+      className={cn(
+        "fixed inset-0 z-50 bg-black/50",
+        "data-[state=open]:animate-[ardulens-fade-in_var(--ardulens-motion-base)_var(--ardulens-ease-out)]",
+        "data-[state=closed]:animate-[ardulens-fade-out_var(--ardulens-motion-fast)_var(--ardulens-ease-out)]",
+        className,
+      )}
       {...props}
     />
   );
@@ -36,7 +41,9 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border border-border bg-card p-6 text-card-foreground shadow-lg outline-none",
+          "ardulens-glass fixed top-1/2 left-1/2 z-50 grid w-full max-w-lg gap-4 rounded-lg border p-6 text-card-foreground shadow-lg outline-none",
+          "data-[state=open]:animate-[ardulens-zoom-in_var(--ardulens-motion-base)_var(--ardulens-ease-out)]",
+          "data-[state=closed]:animate-[ardulens-zoom-out_var(--ardulens-motion-fast)_var(--ardulens-ease-out)]",
           className,
         )}
         {...props}

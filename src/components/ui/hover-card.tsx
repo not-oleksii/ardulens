@@ -23,7 +23,9 @@ function HoverCardContent({
         align={align}
         sideOffset={sideOffset}
         className={cn(
-          "z-50 w-72 rounded-md border border-border bg-card p-3 text-sm text-card-foreground shadow-md outline-none",
+          "ardulens-glass z-50 w-72 rounded-md border p-3 text-sm text-card-foreground shadow-md outline-none",
+          "data-[state=open]:animate-[ardulens-pop-in_var(--ardulens-motion-fast)_var(--ardulens-ease-out)]",
+          "data-[state=closed]:animate-[ardulens-pop-out_var(--ardulens-motion-fast)_var(--ardulens-ease-out)]",
           className,
         )}
         {...props}
