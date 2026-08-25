@@ -79,6 +79,7 @@ import { useMavlinkCompassCalStore } from "../../../stores/mavlinkCompassCalStor
 import { useMavlinkConnectionStore } from "../../../stores/mavlinkConnectionStore/mavlinkConnectionStore";
 import { useMavlinkDataflashLogStore } from "../../../stores/mavlinkDataflashLogStore/mavlinkDataflashLogStore";
 import { useMavlinkInspectorStore } from "../../../stores/mavlinkInspectorStore/mavlinkInspectorStore";
+import { useMavlinkLiveMapStore } from "../../../stores/mavlinkLiveMapStore/mavlinkLiveMapStore";
 import { useMavlinkMissionStore } from "../../../stores/mavlinkMissionStore/mavlinkMissionStore";
 import { useMavlinkFenceStore } from "../../../stores/mavlinkMissionStore/mavlinkFenceStore";
 import { useMavlinkRallyStore } from "../../../stores/mavlinkMissionStore/mavlinkRallyStore";
@@ -118,7 +119,7 @@ const { MockCesiumViewer, MockScreenSpaceEventHandler, cesiumViewerInstances, ce
   const cesiumClickHandlers: Array<(movement: { position: unknown }) => void> = [];
   class MockCesiumViewer {
     entities = { add: vi.fn(), remove: vi.fn() };
-    camera = { flyTo: vi.fn(), pickEllipsoid: vi.fn(), getPickRay: vi.fn() };
+    camera = { flyTo: vi.fn(), setView: vi.fn(), pickEllipsoid: vi.fn(), getPickRay: vi.fn() };
     scene = { canvas: {}, globe: { ellipsoid: {}, pick: vi.fn() } };
     terrainProvider = {};
     destroy = vi.fn();
@@ -538,6 +539,7 @@ afterEach(async () => {
   useMavlinkFenceStore.getState().reset();
   useMavlinkRallyStore.getState().reset();
   useMavlinkInspectorStore.getState().reset();
+  useMavlinkLiveMapStore.getState().reset();
   cesiumViewerInstances.length = 0;
   cesiumClickHandlers.length = 0;
   useFileStore.getState().clearFile();

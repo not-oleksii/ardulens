@@ -28,7 +28,7 @@
     "title": "ArduLens",
     "description": "Drop a .skylog or .bin file to get a summarized flight table, graphs, automated flight-health advisories, and a 3D flight map - everything runs locally, nothing leaves your computer.",
     "drop": {
-      "title": "Drop a log: .skylog / .bin",
+      "title": "Drop a log: .skylog / .bin / .tlog",
       "subtitle": "or click to choose a file",
       "reading": "Reading file...",
       "parsing": "Parsing file...",

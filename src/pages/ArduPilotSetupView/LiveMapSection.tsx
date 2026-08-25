@@ -23,6 +23,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CESIUM_TOKEN_STORAGE_KEY } from "../../constants";
+import { useMavlinkLiveMapStore } from "../../stores/mavlinkLiveMapStore/mavlinkLiveMapStore";
 import type { PositionTelemetry } from "../../stores/mavlinkTelemetryStore/types";
 import { pickLatLon } from "./cesiumPicking";
 import { TokenlessPositionRadar } from "./TokenlessPositionRadar";
@@ -251,6 +252,16 @@ export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHer
         const [sample] = await sampleTerrainMostDetailed(viewer!.terrainProvider, [Cartographic.fromDegrees(position!.lon, position!.lat)]);
         if (cancelled) return;
         homeGroundHeightRef.current = sample?.height ?? 0;
+
+        // Restores the last "Fly to here"/"Set home here" targets from the shared store (see
+        // mavlinkLiveMapStore.ts) the moment ground height - and therefore correct marker
+        // altitude - is known, so switching away from this tab and back (which unmounts and
+        // remounts this whole component) doesn't silently drop them, unlike before this store
+        // existed. Done here rather than in the viewer-creation effect below since it needs
+        // homeGroundHeightRef to already be resolved.
+        const { flyToTarget, homeTarget } = useMavlinkLiveMapStore.getState();
+        if (flyToTarget) placeFlyToTarget(flyToTarget.lat, flyToTarget.lon, flyToTarget.altitudeM);
+        if (homeTarget) placeHomeTarget(homeTarget.lat, homeTarget.lon);
       }
       const alt = homeGroundHeightRef.current + position!.relativeAltM;
       const cartesian = Cartesian3.fromDegrees(position!.lon, position!.lat, alt);
@@ -281,7 +292,19 @@ export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHer
 
       if (!hasFlownRef.current) {
         hasFlownRef.current = true;
-        viewer!.camera.flyTo({ destination: Cartesian3.fromDegrees(position!.lon, position!.lat, alt + FOLLOW_HEIGHT_M) });
+        const destination = Cartesian3.fromDegrees(position!.lon, position!.lat, alt + FOLLOW_HEIGHT_M);
+        // The FIRST time ever this connection, animate in (matches this section's original,
+        // still-useful "camera swoops to the vehicle" first-fix behavior). Every later mount
+        // (switching sidebar sections away from Telemetry and back, which unmounts and
+        // remounts this whole component) instead snaps the camera straight there with no
+        // animation - an actual re-animated fly-to on every trip back read as the view
+        // "resetting," even though the vehicle's real position hadn't gone anywhere.
+        const { hasFlownOnce, setHasFlownOnce } = useMavlinkLiveMapStore.getState();
+        if (hasFlownOnce) viewer!.camera.setView({ destination });
+        else {
+          viewer!.camera.flyTo({ destination });
+          setHasFlownOnce();
+        }
       }
     }
 
@@ -289,6 +312,13 @@ export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHer
     return () => {
       cancelled = true;
     };
+    // placeFlyToTarget/placeHomeTarget intentionally excluded: they're plain function
+    // declarations (a fresh reference every render), and only ever called here once, the
+    // first time homeGroundHeightRef.current resolves (guarded above, not by this array) -
+    // adding them would re-run this whole effect (including the terrain sample + camera
+    // logic) on every unrelated re-render instead of only when the vehicle's actual position/
+    // heading changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [position, headingDeg, t]);
 
   if (!token) {
@@ -381,6 +411,10 @@ export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHer
     if (!Number.isFinite(alt)) return;
     onFlyToHereRef.current(contextMenu.lat, contextMenu.lon, alt);
     placeFlyToTarget(contextMenu.lat, contextMenu.lon, alt);
+    // Persisted outside this component (see mavlinkLiveMapStore.ts) so switching to a
+    // different sidebar section and back - which unmounts and remounts this whole component -
+    // restores this marker instead of silently dropping it.
+    useMavlinkLiveMapStore.getState().setFlyToTarget({ lat: contextMenu.lat, lon: contextMenu.lon, altitudeM: alt });
     setContextMenu(null);
   }
 
@@ -388,6 +422,7 @@ export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHer
     if (!contextMenu) return;
     onSetHomeHereRef.current(contextMenu.lat, contextMenu.lon);
     placeHomeTarget(contextMenu.lat, contextMenu.lon);
+    useMavlinkLiveMapStore.getState().setHomeTarget({ lat: contextMenu.lat, lon: contextMenu.lon });
     setContextMenu(null);
   }
 
@@ -459,7 +494,7 @@ export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHer
               value={flyToAltInput}
               onChange={(e) => setFlyToAltInput(e.target.value)}
               onClick={(e) => e.stopPropagation()}
-              className="h-6 w-14 font-mono text-xs"
+              className="h-6 w-20 font-mono text-xs"
               aria-label={t("ardupilotSetup.map.flyToAltitude")}
             />
             <button

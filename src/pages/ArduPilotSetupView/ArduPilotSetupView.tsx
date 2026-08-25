@@ -124,6 +124,7 @@ import { useMavlinkCompassCalStore } from "../../stores/mavlinkCompassCalStore/m
 import { useMavlinkConnectionStore } from "../../stores/mavlinkConnectionStore/mavlinkConnectionStore";
 import { useMavlinkDataflashLogStore } from "../../stores/mavlinkDataflashLogStore/mavlinkDataflashLogStore";
 import { useMavlinkInspectorStore } from "../../stores/mavlinkInspectorStore/mavlinkInspectorStore";
+import { useMavlinkLiveMapStore } from "../../stores/mavlinkLiveMapStore/mavlinkLiveMapStore";
 import { useMavlinkMissionStore } from "../../stores/mavlinkMissionStore/mavlinkMissionStore";
 import { useMavlinkFenceStore } from "../../stores/mavlinkMissionStore/mavlinkFenceStore";
 import { useMavlinkRallyStore } from "../../stores/mavlinkMissionStore/mavlinkRallyStore";
@@ -963,6 +964,7 @@ export function ArduPilotSetupView() {
         useMavlinkFenceStore.getState().reset();
         useMavlinkRallyStore.getState().reset();
         useMavlinkInspectorStore.getState().reset();
+        useMavlinkLiveMapStore.getState().reset();
         pendingParamsRef.current.clear();
         pendingParamCountRef.current = null;
         ftpSessionRef.current = null;
@@ -989,6 +991,7 @@ export function ArduPilotSetupView() {
         useMavlinkFenceStore.getState().reset();
         useMavlinkRallyStore.getState().reset();
         useMavlinkInspectorStore.getState().reset();
+        useMavlinkLiveMapStore.getState().reset();
         pendingParamsRef.current.clear();
         pendingParamCountRef.current = null;
         ftpSessionRef.current = null;
