@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PrimaryFlightDisplay } from "../../components/PrimaryFlightDisplay/PrimaryFlightDisplay";
 import { flightModeLabel, gpsFixTypeLabel } from "../../mavlink/labels/labels";
+import type { MavCmd, MavResult } from "../../mavlink/registry/registry";
 import { MavSeverity } from "../../mavlink/registry/registry";
 import type { StatusTextEntry } from "../../stores/mavlinkStatusTextStore/types";
 import type {
@@ -62,6 +63,7 @@ interface TelemetrySectionProps {
   vibration: VibrationTelemetry | null;
   statusTextMessages: StatusTextEntry[];
   rtlModeNumber: number | null;
+  flightCommandAck: { command: MavCmd; result: MavResult } | null;
   onNavigateToSection: (section: ArduPilotSetupSection) => void;
   onFlyToHere: (lat: number, lon: number, altitudeM: number) => void;
   onSetHomeHere: (lat: number, lon: number) => void;
@@ -82,6 +84,7 @@ export function TelemetrySection({
   vibration,
   statusTextMessages,
   rtlModeNumber,
+  flightCommandAck,
   onNavigateToSection,
   onFlyToHere,
   onSetHomeHere,
@@ -213,6 +216,7 @@ export function TelemetrySection({
             position={position}
             headingDeg={vfrHud?.headingDeg}
             rtlModeNumber={rtlModeNumber}
+            flightCommandAck={flightCommandAck}
             onFlyToHere={onFlyToHere}
             onSetHomeHere={onSetHomeHere}
             onTakeoff={onTakeoff}

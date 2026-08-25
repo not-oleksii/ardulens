@@ -131,17 +131,27 @@ export function GraphsView() {
     );
   }, [rawLog]);
 
+  // Real bug fix: the parameter tree/filter already show each param's friendly `label` (e.g.
+  // "Desired Roll Rate"), but the series list and chart legend were falling back to the raw
+  // series `key` (e.g. "RATE.RDes") instead - built once per rawLog rather than re-scanning
+  // categories per series.
+  const paramLabelByKey = useMemo(() => {
+    const map = new Map<string, string>();
+    if (rawLog) for (const category of rawLog.categories) for (const p of category.params) map.set(p.key, p.label);
+    return map;
+  }, [rawLog]);
+
   const series: TimelineSeriesInput[] = useMemo(() => {
     if (!rawLog) return [];
     return selectedKeys
       .filter((key) => rawLog.series[key])
       .map((key, i) => ({
         key,
-        label: key,
+        label: paramLabelByKey.get(key) ?? key,
         color: SERIES_COLORS[i % SERIES_COLORS.length]!,
         data: rawLog.series[key]!,
       }));
-  }, [rawLog, selectedKeys]);
+  }, [rawLog, selectedKeys, paramLabelByKey]);
 
   return (
     <Card>

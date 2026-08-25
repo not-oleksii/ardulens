@@ -643,6 +643,7 @@ describe("ArduPilotSetupView", () => {
 
       const select = await screen.findByLabelText("Режим");
       await user.selectOptions(select, "11"); // RTL
+      await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Змінити режим" }));
 
       // A real round trip, not just the browser's own optimistic selection: this is a
       // controlled <select> bound to vehicle.customMode, so it only settles on "11" once the
@@ -3018,6 +3019,7 @@ describe("ArduPilotSetupView", () => {
       const { user } = await connectWithCesiumTokenSet();
 
       await user.click(screen.getByRole("button", { name: "RTL" }));
+      await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "RTL" }));
 
       await vi.waitFor(() => expect(findSentMessages(invoked, SetMode.MSG_ID)).toHaveLength(1));
       const bytes = (findSentMessages(invoked, SetMode.MSG_ID)[0]![1] as { bytes: number[] }).bytes;
@@ -3033,10 +3035,23 @@ describe("ArduPilotSetupView", () => {
       await user.clear(altInput);
       await user.type(altInput, "25");
       await user.click(screen.getByRole("button", { name: "Зліт" }));
+      await user.click(screen.getByRole("button", { name: "Злетіти" }));
 
       await vi.waitFor(() => expect(findSentMessages(invoked, NavTakeoffCommand.MSG_ID)).toHaveLength(1));
       const bytes = (findSentMessages(invoked, NavTakeoffCommand.MSG_ID)[0]![1] as { bytes: number[] }).bytes;
       expect(decodeMessage(NavTakeoffCommand, new Uint8Array(bytes.slice(10))).altitude).toBe(25);
+    });
+
+    it("shows a rejection message when the vehicle NACKs a Takeoff command", async () => {
+      mockBackend(vi.fn());
+      const { user } = await connectWithCesiumTokenSet();
+
+      await user.click(screen.getByRole("button", { name: "Зліт" }));
+      await user.click(screen.getByRole("button", { name: "Злетіти" }));
+
+      await emit(DATA_EVENT, { bytes: buildCommandAckBytes(MavCmd.NAV_TAKEOFF, MavResult.DENIED, 1) });
+
+      expect(await screen.findByText("Команду «Зліт» відхилено: Відхилено")).toBeInTheDocument();
     });
 
     it("right-click, then Fly to here sends DO_REPOSITION (with the CHANGE_MODE bit) for the clicked point", async () => {
@@ -3883,6 +3898,61 @@ describe("ArduPilotSetupView", () => {
       expect(screen.queryByText("змінено")).not.toBeInTheDocument();
     });
 
+    it("warns before switching sections with unsaved staged edits, and 'Stay' keeps the edit", async () => {
+      mockBackend();
+      const { user, clickTelemetryNav } = await connectWithVehicle();
+      await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 1, 1) });
+      await screen.findByText("ARSPD_USE");
+      await user.click(screen.getByText("1"));
+      const input = screen.getByDisplayValue("1");
+      await user.clear(input);
+      await user.type(input, "5{Enter}");
+      expect(await screen.findByText("5")).toBeInTheDocument();
+
+      await clickTelemetryNav();
+
+      const dialog = await screen.findByRole("dialog");
+      expect(within(dialog).getByText("Незбережені зміни параметрів")).toBeInTheDocument();
+      // Still on Parameters - the staged edit is still visible underneath the dialog.
+      expect(screen.getByText("ARSPD_USE")).toBeInTheDocument();
+
+      await user.click(within(dialog).getByRole("button", { name: "Залишитися" }));
+
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(screen.getByText("ARSPD_USE")).toBeInTheDocument();
+      expect(screen.getByText("5")).toBeInTheDocument(); // edit survived
+    });
+
+    it("'Discard changes and switch' actually switches sections and drops the staged edit", async () => {
+      mockBackend();
+      const { user, clickTelemetryNav } = await connectWithVehicle();
+      await user.click(screen.getByRole("button", { name: "Завантажити параметри" }));
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("ARSPD_USE", 1, MavParamType.INT8, 0, 1, 1) });
+      await screen.findByText("ARSPD_USE");
+      await user.click(screen.getByText("1"));
+      const input = screen.getByDisplayValue("1");
+      await user.clear(input);
+      await user.type(input, "5{Enter}");
+      await screen.findByText("5");
+
+      await clickTelemetryNav();
+      const dialog = await screen.findByRole("dialog");
+      await user.click(within(dialog).getByRole("button", { name: "Скасувати зміни й перейти" }));
+
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(screen.queryByText("ARSPD_USE")).not.toBeInTheDocument(); // Parameters section unmounted
+    });
+
+    it("switching sections with no staged edits never shows the unsaved-changes dialog", async () => {
+      mockBackend();
+      const { clickTelemetryNav } = await connectWithVehicle();
+
+      await clickTelemetryNav();
+
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
     it("Reset discards a staged edit without sending anything", async () => {
       const invoked = vi.fn();
       mockBackend(invoked);
@@ -4080,6 +4150,12 @@ describe("ArduPilotSetupView", () => {
       const input = screen.getByDisplayValue("5");
       await user.clear(input);
       await user.type(input, "8{Enter}");
+
+      // Stages, doesn't send yet (Wave 2 of the UI/UX audit unified this with the flat List
+      // view's own stage+confirm model) - "Save all" and the confirm dialog are what actually
+      // send it.
+      await user.click(screen.getByRole("button", { name: "Зберегти все (1)" }));
+      await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Надіслати зміни" }));
 
       await vi.waitFor(() => {
         const setMsgs = invoked.mock.calls.filter(([cmd, payload]) => {

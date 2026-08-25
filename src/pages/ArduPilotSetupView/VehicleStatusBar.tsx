@@ -42,6 +42,13 @@ const LOW_BATTERY_PERCENT = 20;
 export function VehicleStatusBar({ vehicle, battery, gps, armCommandAck, onArm, onDisarm, onSetMode }: VehicleStatusBarProps) {
   const { t } = useTranslation();
   const [confirmArmOpen, setConfirmArmOpen] = useState(false);
+  // A misclick on an adjacent dropdown option can send an airborne vehicle into RTL/LAND/AUTO
+  // with no undo - a real risk even though (unlike arming) a mode change alone never spins a
+  // motor, so this still gets the same confirm-before-send treatment as Arm. Holds the picked
+  // value only until confirmed; the <select> itself stays showing the vehicle's actual current
+  // mode below (its `value` derives from `vehicle.customMode`, not this) until the change is
+  // confirmed and takes effect on the vehicle's own next heartbeat.
+  const [pendingMode, setPendingMode] = useState<number | null>(null);
   if (!vehicle) return null;
 
   const isLowBattery = battery?.remainingPercent !== null && (battery?.remainingPercent ?? 100) < LOW_BATTERY_PERCENT;
@@ -59,6 +66,12 @@ export function VehicleStatusBar({ vehicle, battery, gps, armCommandAck, onArm, 
   function confirmArm() {
     setConfirmArmOpen(false);
     onArm();
+  }
+
+  function confirmModeChange() {
+    if (pendingMode === null) return;
+    onSetMode(pendingMode);
+    setPendingMode(null);
   }
 
   return (
@@ -89,7 +102,7 @@ export function VehicleStatusBar({ vehicle, battery, gps, armCommandAck, onArm, 
         {modeNames ? (
           <select
             value={vehicle.customMode in modeNames ? vehicle.customMode : ""}
-            onChange={(e) => onSetMode(Number(e.target.value))}
+            onChange={(e) => setPendingMode(Number(e.target.value))}
             aria-label={t("ardupilotSetup.vehicle.mode")}
             className="rounded-md border border-border bg-background px-1.5 py-0.5 font-mono text-xs font-semibold"
           >
@@ -146,6 +159,27 @@ export function VehicleStatusBar({ vehicle, battery, gps, armCommandAck, onArm, 
             </Button>
             <Button type="button" variant="destructive" onClick={confirmArm}>
               {t("ardupilotSetup.vehicle.confirmArm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={pendingMode !== null} onOpenChange={(open) => !open && setPendingMode(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("ardupilotSetup.vehicle.confirmModeTitle")}</DialogTitle>
+            <DialogDescription>
+              {t("ardupilotSetup.vehicle.confirmModeDescription", {
+                mode: pendingMode !== null ? (modeNames?.[pendingMode] ?? pendingMode) : "",
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setPendingMode(null)}>
+              {t("ardupilotSetup.vehicle.cancel")}
+            </Button>
+            <Button type="button" variant="destructive" onClick={confirmModeChange}>
+              {t("ardupilotSetup.vehicle.confirmMode")}
             </Button>
           </DialogFooter>
         </DialogContent>

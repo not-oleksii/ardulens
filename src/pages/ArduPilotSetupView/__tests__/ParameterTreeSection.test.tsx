@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MavParamType, MavType } from "../../../mavlink/registry/registry";
@@ -90,7 +90,7 @@ describe("ParameterTreeSection", () => {
     expect(screen.getByText("7")).toBeInTheDocument();
   });
 
-  it("editing the selected param's value commits via onSetParam on Enter", async () => {
+  it("editing the selected param's value stages it (Enter) rather than sending immediately, and Save all + confirm actually sends it", async () => {
     seedParams([["SIMPLE", 7]]);
     const { user, onSetParam } = getView();
     await user.click(screen.getByText("SIMPLE"));
@@ -100,7 +100,59 @@ describe("ParameterTreeSection", () => {
     await user.clear(input);
     await user.type(input, "9{Enter}");
 
+    expect(onSetParam).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "9" })).toBeInTheDocument();
+    expect(screen.getByText("змінено")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Зберегти все (1)" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("SIMPLE")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Надіслати зміни" }));
+
     expect(onSetParam).toHaveBeenCalledWith("SIMPLE", 9, MavParamType.REAL32);
+    expect(screen.queryByRole("button", { name: /Зберегти все/ })).not.toBeInTheDocument();
+  });
+
+  it("Reset clears a staged edit without ever calling onSetParam", async () => {
+    seedParams([["SIMPLE", 7]]);
+    const { user, onSetParam } = getView();
+    await user.click(screen.getByText("SIMPLE"));
+    await user.click(screen.getByRole("button", { name: "7" }));
+    await user.type(screen.getByDisplayValue("7"), "{Backspace}9{Enter}");
+    expect(screen.getByRole("button", { name: "Зберегти все (1)" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Скинути" }));
+
+    expect(screen.getByRole("button", { name: "7" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Зберегти все/ })).not.toBeInTheDocument();
+    expect(onSetParam).not.toHaveBeenCalled();
+  });
+
+  it("stages edits across different params browsed via the tree, and Save all sends every one", async () => {
+    seedParams([
+      ["SERVO1_FUNCTION", 1],
+      ["SERVO2_FUNCTION", 2],
+    ]);
+    const { user, onSetParam } = getView();
+
+    await user.click(screen.getByText("SERVO1"));
+    await user.click(await screen.findByText("FUNCTION"));
+    await user.click(screen.getByRole("button", { name: "1" }));
+    await user.type(screen.getByDisplayValue("1"), "{Backspace}5{Enter}");
+
+    await user.click(screen.getByText("SERVO2"));
+    // Both SERVO1's and SERVO2's "FUNCTION" leaves are visible now (SERVO1's branch is still
+    // expanded from above) - SERVO1 sorts first, so its own leaf is the first match.
+    const functionLeaves = await screen.findAllByText("FUNCTION");
+    await user.click(functionLeaves[1]!);
+    await user.click(screen.getByRole("button", { name: "2" }));
+    await user.type(screen.getByDisplayValue("2"), "{Backspace}6{Enter}");
+
+    await user.click(screen.getByRole("button", { name: "Зберегти все (2)" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Надіслати зміни" }));
+
+    expect(onSetParam).toHaveBeenCalledWith("SERVO1_FUNCTION", 5, MavParamType.REAL32);
+    expect(onSetParam).toHaveBeenCalledWith("SERVO2_FUNCTION", 6, MavParamType.REAL32);
   });
 
   it("shows the known default value for the selected param, once loaded", async () => {

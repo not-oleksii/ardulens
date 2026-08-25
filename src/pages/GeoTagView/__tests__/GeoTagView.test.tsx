@@ -121,6 +121,29 @@ describe("GeoTagView", () => {
     expect(screen.queryByRole("button", { name: "Геотегувати фото" })).not.toBeInTheDocument();
   });
 
+  it("resets the picked photo folder when a different log is loaded, even if the new log happens to have the same CAM-record count", async () => {
+    // Real bug: without a reset, loading a NEW log with the SAME CAM-record count as the OLD
+    // photo folder's photo count would leave `canGeoTag` true with zero warning, silently
+    // writing the wrong flight's GPS/altitude into that folder's EXIF data.
+    useFileStore.getState().setFile({ name: "flight-a.bin", buf: buildBinWithCamRecords(2) });
+    mockOpen.mockResolvedValue("/photos");
+    mockReadDir.mockResolvedValue([dirEntry("a.jpg"), dirEntry("b.jpg")]);
+    const user = userEvent.setup();
+    render(<GeoTagView />);
+    await screen.findByText(/У логу знайдено записів спрацювань камери: 2/);
+    await user.click(screen.getByRole("button", { name: "Виберіть папку з фото..." }));
+    await screen.findByText(/У папці знайдено JPEG-фото: 2/);
+    expect(screen.getByRole("button", { name: "Геотегувати фото" })).toBeInTheDocument();
+
+    // A different flight, but coincidentally also 2 CAM records - same count as the stale
+    // photo folder above.
+    useFileStore.getState().setFile({ name: "flight-b.bin", buf: buildBinWithCamRecords(2) });
+
+    await waitFor(() => expect(screen.queryByText(/У папці знайдено JPEG-фото/)).not.toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Геотегувати фото" })).not.toBeInTheDocument();
+    expect(screen.queryByText("/photos")).not.toBeInTheDocument();
+  });
+
   it("geotagging writes real EXIF-tagged bytes for each matched photo into a _geotagged subfolder", async () => {
     useFileStore.getState().setFile({ name: "sample.bin", buf: buildBinWithCamRecords(2) });
     mockOpen.mockResolvedValue("/photos");

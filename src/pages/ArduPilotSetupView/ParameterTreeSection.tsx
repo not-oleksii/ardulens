@@ -3,7 +3,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import type { MavParamType, MavType } from "../../mavlink/registry/registry";
 import {
@@ -16,6 +18,7 @@ import {
 } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import { useMavlinkParamDefaultsStore } from "../../stores/mavlinkParamDefaultsStore/mavlinkParamDefaultsStore";
+import { useUnsavedChangesStore } from "../../stores/unsavedChangesStore/unsavedChangesStore";
 
 interface ParameterTreeSectionProps {
   vehicleType: MavType;
@@ -156,10 +159,11 @@ function optionsSummary(doc: ParamDoc | undefined): string {
 
 /** The same flat parameter store ParametersPanel uses, browsed as a real multi-level drill-down
  *  tree instead of a flat searchable table - Mission Planner's "Full Parameter Tree" alongside
- *  its "Full Parameter List". Edits here commit immediately (one param at a time, via the detail
- *  panel) rather than staging into a batch confirm-dialog like the List view's bulk editor -
- *  a deliberate, simpler UX fit for this view's one-param-at-a-time drill-down shape, not a
- *  shared pending-changes queue with the List view. */
+ *  its "Full Parameter List". Edits stage into the SAME kind of pendingChanges queue and
+ *  Save all/confirm-dialog flow as the List view's bulk editor (unified in Wave 2 of the UI/UX
+ *  audit - this used to commit each edit immediately on blur/Enter, one of 3 different
+ *  param-edit models the app had), so browsing to several params across the tree and editing
+ *  each stages them all for one review before anything reaches the vehicle. */
 export function ParameterTreeSection({ vehicleType, onLoadParameters, onSetParam }: ParameterTreeSectionProps) {
   const { t } = useTranslation();
   const params = useMavlinkParameterStore((s) => s.params);
@@ -170,6 +174,10 @@ export function ParameterTreeSection({ vehicleType, onLoadParameters, onSetParam
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState<string | null>(null);
   const [docsState, setDocsState] = useState<{ folder: ArduPilotVehicleFolder; docs: ParamDocsMap } | null>(null);
+  // Same shape/semantics as ParametersPanel's own pendingChanges - staged here (not sent) until
+  // "Save all" is confirmed.
+  const [pendingChanges, setPendingChanges] = useState<Record<string, number>>({});
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const vehicleFolder = vehicleFolderForMavType(vehicleType);
   const docs = docsState?.folder === vehicleFolder ? docsState.docs : null;
@@ -197,6 +205,17 @@ export function ParameterTreeSection({ vehicleType, onLoadParameters, onSetParam
 
   const selected = selectedPath ? params[selectedPath] : undefined;
   const selectedDoc = selectedPath ? docs?.[selectedPath] : undefined;
+  const pendingEntries = Object.entries(pendingChanges);
+  const hasPendingChanges = pendingEntries.length > 0;
+  const shownValue = selected ? (pendingChanges[selected.name] ?? selected.value) : undefined;
+  const isModified = selected ? pendingChanges[selected.name] !== undefined : false;
+
+  // Same reasoning as ParametersPanel's identical effect: switching sidebar sections unmounts
+  // this component and would otherwise silently discard pendingChanges.
+  useEffect(() => {
+    useUnsavedChangesStore.getState().setUnsaved(hasPendingChanges);
+    return () => useUnsavedChangesStore.getState().setUnsaved(false);
+  }, [hasPendingChanges]);
 
   function toggle(path: string, open: boolean) {
     setExpanded((prev) => {
@@ -216,8 +235,27 @@ export function ParameterTreeSection({ vehicleType, onLoadParameters, onSetParam
     if (!selected || editingValue === null) return;
     const parsed = Number(editingValue);
     setEditingValue(null);
-    if (!Number.isFinite(parsed) || parsed === selected.value) return;
-    onSetParam(selected.name, parsed, selected.type);
+    if (!Number.isFinite(parsed)) return;
+    const name = selected.name;
+    setPendingChanges((prev) => {
+      const next = { ...prev };
+      if (parsed === selected.value) delete next[name]; // editing back to the original un-stages it
+      else next[name] = parsed;
+      return next;
+    });
+  }
+
+  function handleResetAll() {
+    setPendingChanges({});
+  }
+
+  function handleConfirmSaveAll() {
+    for (const [name, value] of pendingEntries) {
+      const type = params[name]?.type;
+      if (type !== undefined) onSetParam(name, value, type);
+    }
+    setPendingChanges({});
+    setConfirmOpen(false);
   }
 
   return (
@@ -233,6 +271,16 @@ export function ParameterTreeSection({ vehicleType, onLoadParameters, onSetParam
           <Button type="button" size="sm" onClick={onLoadParameters}>
             {t("ardupilotSetup.parameters.load")}
           </Button>
+        )}
+        {hasPendingChanges && (
+          <>
+            <Button type="button" size="sm" variant="ghost" onClick={handleResetAll}>
+              {t("ardupilotSetup.parameters.reset")}
+            </Button>
+            <Button type="button" size="sm" onClick={() => setConfirmOpen(true)}>
+              {t("ardupilotSetup.parameters.saveAll", { count: pendingEntries.length })}
+            </Button>
+          </>
         )}
       </div>
 
@@ -294,9 +342,14 @@ export function ParameterTreeSection({ vehicleType, onLoadParameters, onSetParam
                           className="h-7 w-32"
                         />
                       ) : (
-                        <button type="button" className="hover:underline" onClick={() => setEditingValue(String(selected.value))}>
-                          {selected.value}
-                        </button>
+                        <span className="flex items-center gap-1.5">
+                          <button type="button" className="hover:underline" onClick={() => setEditingValue(String(shownValue))}>
+                            {shownValue}
+                          </button>
+                          {isModified && (
+                            <span className="text-xs text-primary">{t("ardupilotSetup.parameters.modified")}</span>
+                          )}
+                        </span>
                       )}
                     </dd>
                     <dt className="text-muted-foreground">{t("ardupilotSetup.parameters.default")}</dt>
@@ -312,6 +365,45 @@ export function ParameterTreeSection({ vehicleType, onLoadParameters, onSetParam
           </div>
         </>
       )}
+
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("ardupilotSetup.parameters.confirmTitle")}</DialogTitle>
+            <DialogDescription>
+              {t("ardupilotSetup.parameters.confirmDescription", { count: pendingEntries.length })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-80 overflow-y-auto rounded-md border border-border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("ardupilotSetup.parameters.name")}</TableHead>
+                  <TableHead>{t("ardupilotSetup.parameters.from")}</TableHead>
+                  <TableHead>{t("ardupilotSetup.parameters.to")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pendingEntries.map(([name, value]) => (
+                  <TableRow key={name}>
+                    <TableCell className="font-mono">{name}</TableCell>
+                    <TableCell className="font-mono">{params[name]?.value}</TableCell>
+                    <TableCell className="font-mono">{value}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmOpen(false)}>
+              {t("ardupilotSetup.parameters.cancel")}
+            </Button>
+            <Button type="button" onClick={handleConfirmSaveAll}>
+              {t("ardupilotSetup.parameters.confirmSave")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

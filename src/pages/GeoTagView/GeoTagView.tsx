@@ -51,6 +51,24 @@ export function GeoTagView() {
     return worker.extractCamGeoTags(buf);
   });
 
+  // Real bug fix: the picked photo folder used to survive a file change untouched. `camTags`
+  // re-derives correctly against the new file via useDerivedFromFile, but `countMismatch` only
+  // ever compared photo COUNT to CAM-record count - if a newly-loaded log happened to have the
+  // same CAM-record count as the still-selected folder's photo count, `canGeoTag` went true
+  // with zero warning and would silently write the WRONG flight's GPS/altitude into that
+  // folder's EXIF data. Resetting the folder selection here (same "adjust state during render"
+  // pattern GraphsView already uses for its own per-file UI state) forces a deliberate re-pick
+  // against the newly-loaded log instead.
+  const [resetKeyFile, setResetKeyFile] = useState(file);
+  if (file !== resetKeyFile) {
+    setResetKeyFile(file);
+    setFolderPath(null);
+    setPhotoNames(null);
+    setPickError(null);
+    setProgress(null);
+    setWriteResult(null);
+  }
+
   const tauriAvailable = isTauriRuntime();
   const countMismatch = photoNames !== null && camTags !== null && photoNames.length !== camTags.length;
   const canGeoTag = !countMismatch && photoNames !== null && camTags !== null && camTags.length > 0 && progress === null;
