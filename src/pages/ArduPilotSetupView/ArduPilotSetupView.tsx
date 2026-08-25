@@ -34,7 +34,7 @@ import { VehicleStatusBar } from "./VehicleStatusBar";
 import { decodeMessage, encodePacket } from "../../mavlink/codec/codec";
 import { VERIFIED_FRAME_PRESETS } from "../../mavlink/frameDiagrams/frameDiagrams";
 import { MavlinkFramer } from "../../mavlink/framer/framer";
-import { rtlModeNumber } from "../../mavlink/labels/labels";
+import { flightCommandLabel, flightModeLabel, mavResultLabel, rtlModeNumber } from "../../mavlink/labels/labels";
 import {
   decodeFtpNakError,
   decodeFtpPayload,
@@ -139,6 +139,7 @@ import { useMavlinkRcCalStore } from "../../stores/mavlinkRcCalStore/mavlinkRcCa
 import { useMavlinkStatusTextStore } from "../../stores/mavlinkStatusTextStore/mavlinkStatusTextStore";
 import { useMavlinkTelemetryStore } from "../../stores/mavlinkTelemetryStore/mavlinkTelemetryStore";
 import { useMavlinkVehicleStore } from "../../stores/mavlinkVehicleStore/mavlinkVehicleStore";
+import { toast } from "../../stores/toastStore/toastStore";
 import { useUiStore } from "../../stores/uiStore/uiStore";
 import { useUnsavedChangesStore } from "../../stores/unsavedChangesStore/unsavedChangesStore";
 
@@ -180,6 +181,16 @@ const MOTOR_TEST_TIMEOUT_S = 3;
 // packed parameter list - `withdefaults=1` makes it include each parameter's factory default
 // alongside its current value (only when they differ - see mavFtpCodec.ts's unpackParamPck).
 const PARAM_PCK_PATH = "@PARAM/param.pck?withdefaults=1";
+// How long to wait for a requested flight-mode change (see handleSetMode) to actually show up
+// as vehicle.customMode on a heartbeat before toasting that it may not have applied - generous
+// enough for a real link's own heartbeat cadence (~1Hz) plus a missed beat or two, without
+// leaving the user wondering for too long whether a rejected/lost SET_MODE silently did nothing.
+const MODE_CHANGE_CONFIRM_TIMEOUT_MS = 4000;
+// How long to wait for a sent PARAM_SET's own PARAM_VALUE echo (see mavlinkParameterStore's
+// `dirty` flag) before toasting that it may have failed - real ArduPilot always echoes a
+// PARAM_SET back, so a still-dirty entry after this long means the write was likely dropped,
+// rejected, or the link is down, not just "still in flight."
+const PARAM_SET_CONFIRM_TIMEOUT_MS = 6000;
 
 /** Builds a full MAVLink v2 packet for one FTP payload - pure (no component state), so it's
  *  safe to call both from click handlers (fresh `vehicle`) and from the persistent onData
@@ -334,6 +345,12 @@ export function ArduPilotSetupView() {
   const [udpHost, setUdpHost] = useState("");
   const [scanningPort, setScanningPort] = useState<string | null>(null);
   const [scanningBaud, setScanningBaud] = useState<number | null>(null);
+  // "Attempt N of total" for the auto-connect port*baud scan below - total isn't just
+  // ports.length*bauds.length shown once, since it needs to freeze at the count actually being
+  // scanned (a port list refresh mid-scan shouldn't retroactively change what "total" means for
+  // an attempt already in flight).
+  const [scanIndex, setScanIndex] = useState<number | null>(null);
+  const [scanTotal, setScanTotal] = useState<number | null>(null);
   const [devFramePresetKey, setDevFramePresetKey] = useState(VERIFIED_FRAME_PRESETS[1]!.key); // Quad X
   const [activeSection, setActiveSection] = useState<ArduPilotSetupSection>("telemetry");
   // Sections are fully unmounted on switch, silently discarding any component-local unsaved
@@ -375,6 +392,13 @@ export function ArduPilotSetupView() {
   // carries no field identifying which sub-calibration it answers, so this tracks whichever
   // was sent most recently to route the next ack to the right store.
   const pendingCalibrationKindRef = useRef<"accel" | "rc" | null>(null);
+  // The most recently requested flight-mode change (handleSetMode, including RTL's own call
+  // into it) that hasn't yet been confirmed by a matching vehicle.customMode heartbeat -
+  // SET_MODE has no COMMAND_ACK (see handleSetMode's own comment), so this plus the timeout it
+  // schedules is what lets Wave 3 toast "mode changed" / "mode change may not have applied"
+  // instead of the vehicle silently ignoring a rejected request. `requestedAt` disambiguates a
+  // stale timeout firing after a NEWER mode change already superseded this one.
+  const pendingModeChangeRef = useRef<{ mode: number; requestedAt: number } | null>(null);
   // The in-progress param.pck FTP download's session id and accumulated burst-read chunks
   // (offset order, see the FileTransferProtocol.MSG_ID case below) - null when no download is
   // active. A plain ref, not store state, since react-render doesn't need to see every chunk.
@@ -1241,8 +1265,13 @@ export function ArduPilotSetupView() {
     // this, a mismatched default baud (e.g. the header still on 57600 while the FC actually
     // talks at 115200) makes every port time out with no heartbeat, even the right one.
     const bauds = [baudRate, ...BAUD_RATES.filter((rate) => rate !== baudRate)];
+    const total = ports.length * bauds.length;
+    setScanTotal(total);
+    let attempt = 0;
     for (const port of ports) {
       for (const rate of bauds) {
+        attempt += 1;
+        setScanIndex(attempt);
         setScanningPort(port.name);
         setScanningBaud(rate);
         try {
@@ -1257,6 +1286,8 @@ export function ArduPilotSetupView() {
           setBaudRate(rate);
           setScanningPort(null);
           setScanningBaud(null);
+          setScanIndex(null);
+          setScanTotal(null);
           return; // stay connected - onStatus already reflected "connected"
         }
 
@@ -1265,6 +1296,8 @@ export function ArduPilotSetupView() {
     }
     setScanningPort(null);
     setScanningBaud(null);
+    setScanIndex(null);
+    setScanTotal(null);
     setError(t("ardupilotSetup.connect.autoConnectFailed"));
   }
 
@@ -1463,6 +1496,17 @@ export function ArduPilotSetupView() {
     if (existing) {
       storeSetParam({ ...existing, value, dirty: true, updatedAt: Date.now() }, expectedCount ?? existing.index + 1);
     }
+
+    // Real ArduPilot always echoes a PARAM_SET back as a PARAM_VALUE, which clears `dirty` (see
+    // mavlinkParameterStore) - still dirty with the SAME requested value after this long means
+    // the write was likely dropped or rejected, not just still in flight. Checking `.value`
+    // (not just `.dirty`) avoids a false alarm if a later edit to the same param supersedes this
+    // one before the timeout fires.
+    window.setTimeout(() => {
+      const entry = useMavlinkParameterStore.getState().params[name];
+      if (!entry || !entry.dirty || entry.value !== value) return;
+      toast({ variant: "warning", description: t("ardupilotSetup.parameters.setTimeout", { name }) });
+    }, PARAM_SET_CONFIRM_TIMEOUT_MS);
   }
 
   function handleStartCompassCal() {
@@ -1582,12 +1626,21 @@ export function ArduPilotSetupView() {
     sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
   }
 
+  // DO_SET_RELAY gets no COMMAND_ACK and no readback at all (see registry.ts's own comment -
+  // relay state is optimistic) - unlike servo, which already has a live PWM readout confirming
+  // it took effect, a relay toggle otherwise has ZERO feedback of any kind. A brief toast is the
+  // only confirmation this command will ever get.
   function handleSetRelay(instance: number, on: boolean) {
     if (!vehicle) return;
     const cmd = new DoSetRelayCommand(vehicle.sysid, vehicle.compid);
     cmd.instance = instance;
     cmd.setting = on ? 1 : 0;
     sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+    toast({
+      variant: "info",
+      description: t(on ? "ardupilotSetup.servoRelay.relaySentOn" : "ardupilotSetup.servoRelay.relaySentOff", { instance }),
+      duration: 2000,
+    });
   }
 
   // Reboots the flight controller - needed for RebootRequired params (e.g. FRAME_CLASS/
@@ -1699,7 +1752,9 @@ export function ArduPilotSetupView() {
 
   // Flight-mode change - see registry.ts's SET_MODE comment for why this is a plain message
   // (not a COMMAND_LONG) and never gets a COMMAND_ACK; the UI confirms it took by watching
-  // vehicle.customMode update on the vehicle's own next heartbeat instead.
+  // vehicle.customMode update on the vehicle's own next heartbeat instead (see the toast-firing
+  // effect below, and pendingModeChangeRef's own comment) - also covers handleRtl, which is
+  // just a SET_MODE call into this same function.
   function handleSetMode(customMode: number) {
     if (!vehicle) return;
     const msg = new SetMode();
@@ -1707,6 +1762,20 @@ export function ArduPilotSetupView() {
     msg.baseMode = MavModeFlag.CUSTOM_MODE_ENABLED as unknown as MavMode;
     msg.customMode = customMode;
     sendGcsPacket(encodePacket(msg, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+
+    const requestedAt = Date.now();
+    pendingModeChangeRef.current = { mode: customMode, requestedAt };
+    window.setTimeout(() => {
+      const pending = pendingModeChangeRef.current;
+      if (!pending || pending.requestedAt !== requestedAt) return; // already confirmed, or superseded by a newer request
+      pendingModeChangeRef.current = null;
+      toast({
+        variant: "warning",
+        description: t("ardupilotSetup.vehicle.modeChangeTimeout", {
+          mode: flightModeLabel(vehicle.type, customMode),
+        }),
+      });
+    }, MODE_CHANGE_CONFIRM_TIMEOUT_MS);
   }
 
   // Sends the vehicle to a clicked map point in GUIDED mode - MavDoRepositionFlags.CHANGE_MODE
@@ -1787,6 +1856,35 @@ export function ArduPilotSetupView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- handleLoadParameters intentionally excluded: the ref guard above, not this array, is what prevents re-firing (same pattern as streamsRequestedRef)
   }, [status, vehicle]);
 
+  // The other half of handleSetMode's own confirm-or-timeout pair: fires the moment a heartbeat
+  // reports the exact mode that was requested, matching pendingModeChangeRef's `mode` (not just
+  // "any mode changed," which could be a coincidental external change) - cancels the pending
+  // timeout by clearing the ref before it fires.
+  useEffect(() => {
+    if (!vehicle) return;
+    const pending = pendingModeChangeRef.current;
+    if (!pending || pending.mode !== vehicle.customMode) return;
+    pendingModeChangeRef.current = null;
+    toast({ variant: "good", description: t("ardupilotSetup.vehicle.modeChangeConfirmed", { mode: flightModeLabel(vehicle.type, vehicle.customMode) }) });
+  }, [vehicle, t]);
+
+  // Takeoff/fly-to/set-home are the only 3 commands flightCommandAck ever carries (RTL has no
+  // ack of its own - see handleRtl/handleSetMode) - a rejection here is otherwise easy to miss
+  // since LiveMapSection's own inline banner only shows while that section is mounted. Each
+  // `setFlightCommandAck` call constructs a fresh object literal (see the onData handler above),
+  // so this fires on every ack, including a repeat of the same command+result, not just the
+  // first one.
+  useEffect(() => {
+    if (!flightCommandAck || flightCommandAck.result === MavResult.ACCEPTED) return;
+    toast({
+      variant: "critical",
+      description: t("ardupilotSetup.map.flightCommandRejected", {
+        command: flightCommandLabel(t, flightCommandAck.command),
+        result: mavResultLabel(t, flightCommandAck.result),
+      }),
+    });
+  }, [flightCommandAck, t]);
+
   return (
     <div className="flex h-svh flex-col overflow-hidden">
       <ArduPilotSetupHeader
@@ -1808,6 +1906,8 @@ export function ArduPilotSetupView() {
         errorMessage={errorMessage}
         scanningPort={scanningPort}
         scanningBaud={scanningBaud}
+        scanIndex={scanIndex}
+        scanTotal={scanTotal}
         bytesReceived={bytesReceived}
         bytesSent={bytesSent}
         onRefreshPorts={() => void refreshPorts()}

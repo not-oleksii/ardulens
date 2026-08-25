@@ -10,6 +10,7 @@ import { VERIFIED_FRAME_PRESETS } from "../../mavlink/frameDiagrams/frameDiagram
 import { mavResultLabel } from "../../mavlink/labels/labels";
 import { MavResult } from "../../mavlink/registry/registry";
 import type { SerialPortInfo } from "../../services/mavlinkTransport/types";
+import { connectionErrorRemediation } from "../../utils/connectionErrorRemediation/connectionErrorRemediation";
 
 const SELECT_CLASSNAME =
   "flex h-8 min-w-0 rounded-md border border-input bg-transparent px-2 text-xs shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50";
@@ -33,6 +34,8 @@ export interface ArduPilotSetupHeaderProps {
   errorMessage: string | null;
   scanningPort: string | null;
   scanningBaud: number | null;
+  scanIndex: number | null;
+  scanTotal: number | null;
   bytesReceived: number;
   bytesSent: number;
   onRefreshPorts: () => void;
@@ -74,6 +77,8 @@ export function ArduPilotSetupHeader({
   errorMessage,
   scanningPort,
   scanningBaud,
+  scanIndex,
+  scanTotal,
   bytesReceived,
   bytesSent,
   onRefreshPorts,
@@ -339,10 +344,24 @@ export function ArduPilotSetupHeader({
           {status === "idle" && t("ardupilotSetup.connect.statusIdle")}
           {status === "connecting" &&
             (scanningPort
-              ? t("ardupilotSetup.connect.autoConnectScanning", { port: scanningPort, baud: scanningBaud })
+              ? t("ardupilotSetup.connect.autoConnectScanning", {
+                  port: scanningPort,
+                  baud: scanningBaud,
+                  index: scanIndex,
+                  total: scanTotal,
+                })
               : t("ardupilotSetup.connect.statusConnecting"))}
           {status === "connected" && t("ardupilotSetup.connect.statusConnected", { detail })}
-          {status === "error" && t("ardupilotSetup.connect.statusError", { message: errorMessage })}
+          {status === "error" && (
+            <>
+              {t("ardupilotSetup.connect.statusError", { message: errorMessage })}
+              {errorMessage &&
+                (() => {
+                  const remediation = connectionErrorRemediation(t, errorMessage);
+                  return remediation ? <span className="block font-normal">{remediation}</span> : null;
+                })()}
+            </>
+          )}
         </AlertDescription>
       </Alert>
 

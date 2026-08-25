@@ -4539,9 +4539,8 @@ describe("ArduPilotSetupView", () => {
         expect(findCommandLongSend(invoked, MavCmd.PREFLIGHT_CALIBRATION)).toBeDefined();
       });
 
-      // Auto-confirm defaults on (see AccelCalSection.tsx) - switch it off first so this test
-      // can drive each position with an explicit click, same as before that default existed.
-      await user.click(screen.getByLabelText("Автопідтвердження через 5 с"));
+      // Auto-confirm defaults OFF (Wave 3 of the UI/UX audit) - the manual confirm button is
+      // already what's shown, no toggle needed to drive each position with an explicit click.
 
       // Vehicle asks the user to move to LEVEL first. The position label also appears in the
       // checklist below, hence the testid - see AccelCalSection.tsx.
@@ -4570,13 +4569,15 @@ describe("ArduPilotSetupView", () => {
     });
 
     it("clicking the countdown ring confirms the position immediately, without waiting out the timer", async () => {
-      // Auto-confirm defaults on - this proves the ring itself is still a real confirm control
-      // for a user who doesn't want to wait, not just a passive progress display.
+      // Auto-confirm defaults OFF (Wave 3 of the UI/UX audit) - opt in via the checkbox first,
+      // then this proves the ring itself is still a real confirm control for a user who doesn't
+      // want to wait, not just a passive progress display.
       const invoked = vi.fn();
       mockBackend(invoked);
       const { user } = await connectAndOpenAccelCal();
 
       await user.click(screen.getByRole("button", { name: "Повне калібрування" }));
+      await user.click(screen.getByRole("checkbox", { name: /Автопідтвердження/ }));
       await emit(DATA_EVENT, { bytes: buildAccelcalVehiclePosBytes(AccelcalVehiclePos.LEVEL, 1) });
       expect(await screen.findByTestId("accel-cal-position-prompt")).toHaveTextContent("Рівно");
 
@@ -4598,6 +4599,8 @@ describe("ArduPilotSetupView", () => {
         const { user } = await connectAndOpenAccelCal();
 
         await user.click(screen.getByRole("button", { name: "Повне калібрування" }));
+        // Auto-confirm defaults OFF (Wave 3 of the UI/UX audit) - opt in explicitly.
+        await user.click(screen.getByRole("checkbox", { name: /Автопідтвердження/ }));
         await emit(DATA_EVENT, { bytes: buildAccelcalVehiclePosBytes(AccelcalVehiclePos.LEVEL, 1) });
         expect(await screen.findByTestId("accel-cal-position-prompt")).toHaveTextContent("Рівно");
 

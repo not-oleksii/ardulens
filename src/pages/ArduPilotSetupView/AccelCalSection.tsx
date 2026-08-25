@@ -110,9 +110,12 @@ export function AccelCalSection({
   const isActive = activeCalType === "full" ? result === null : activeCalType === "level" ? !levelCalDone : false;
   const commandRejected = lastCommandAck !== null && lastCommandAck.result !== MavResult.ACCEPTED;
 
-  // Defaults on, matching the user's own request - "user can switch to manual button click if
-  // this default timer they don't like" is the escape hatch, not the default.
-  const [autoConfirm, setAutoConfirm] = useState(true);
+  // Defaults OFF (Wave 3 of the UI/UX audit reversed the earlier default-on choice) - a wrong-
+  // orientation reading can silently corrupt the calibration if the user hasn't finished
+  // repositioning the vehicle within the 5s window, and that failure mode is invisible until
+  // the finished calibration is already bad. Auto-confirm stays available as an opt-in speed-up
+  // for a user who already knows the flow, not the default a first-time user falls into.
+  const [autoConfirm, setAutoConfirm] = useState(false);
 
   return (
     <div className="flex h-full flex-col gap-4">

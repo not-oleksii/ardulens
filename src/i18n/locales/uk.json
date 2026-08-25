@@ -160,7 +160,9 @@
       "release": "Відпустити",
       "relayLabel": "Реле {{instance}}",
       "on": "УВІМК",
-      "off": "ВИМК"
+      "off": "ВИМК",
+      "relaySentOn": "Реле {{instance}}: команду УВІМК надіслано",
+      "relaySentOff": "Реле {{instance}}: команду ВИМК надіслано"
     },
     "compassCal": {
       "heading": "Калібрування компаса",
@@ -325,7 +327,8 @@
       "from": "Було",
       "to": "Стане",
       "cancel": "Скасувати",
-      "confirmSave": "Надіслати зміни"
+      "confirmSave": "Надіслати зміни",
+      "setTimeout": "Параметр {{name}} не підтверджено апаратом - можливо, зміну не отримано."
     },
     "unsavedChanges": {
       "title": "Незбережені зміни параметрів",
@@ -666,7 +669,7 @@
       "portPlaceholder": "Портів не знайдено - підключіть пристрій і оновіть",
       "refreshPorts": "Оновити порти",
       "autoConnect": "Автовизначення",
-      "autoConnectScanning": "Сканування {{port}} @ {{baud}}...",
+      "autoConnectScanning": "Сканування {{port}} @ {{baud}}... ({{index}} з {{total}})",
       "autoConnectFailed": "Не знайдено heartbeat ArduPilot на жодному порту",
       "baudLabel": "Швидкість (baud rate)",
       "udpPortLabel": "Порт прослуховування",
@@ -692,6 +695,13 @@
       "statusConnecting": "Підключення...",
       "statusConnected": "Підключено: {{detail}}",
       "statusError": "Помилка підключення: {{message}}",
+      "remediation": {
+        "permissionDenied": "Порт зайнятий іншою програмою або обліковий запис не має доступу до нього.",
+        "portBusy": "Порт вже відкритий іншою програмою (інший GCS, монітор порту тощо) - закрийте її і спробуйте ще раз.",
+        "portNotFound": "Порт не знайдено - можливо, пристрій відключено. Натисніть «Оновити порти» і спробуйте знову.",
+        "connectionRefused": "Ніхто не слухає на вказаній адресі/порту - перевірте, що апарат налаштований надсилати MAVLink саме сюди.",
+        "timedOut": "Час очікування вичерпано - перевірте кабель/з'єднання та обрану швидкість (baud rate)."
+      },
       "bytesReceived": "Отримано",
       "bytesSent": "Надіслано",
       "bytesUnit": "{{count}} Б"
@@ -710,6 +720,8 @@
       "confirmModeTitle": "Змінити режим польоту?",
       "confirmModeDescription": "Апарат перейде в режим {{mode}}. Переконайтесь, що це саме той режим, який ви хотіли обрати.",
       "confirmMode": "Змінити режим",
+      "modeChangeConfirmed": "Режим змінено на {{mode}}",
+      "modeChangeTimeout": "Зміна режиму на {{mode}} не підтверджена - можливо, команду не отримано.",
       "mode": "Режим",
       "types": {
         "generic": "Загальний",
