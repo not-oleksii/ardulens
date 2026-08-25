@@ -963,6 +963,10 @@
       "bin": "Sample .bin",
       "skylog": "Sample .skylog"
     },
+    "showAnyway": {
+      "button": "Show log anyway",
+      "loading": "Showing..."
+    },
     "columns": {
       "toggle": "Show/hide table columns filter",
       "heading": "Table columns",

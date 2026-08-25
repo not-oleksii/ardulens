@@ -1,5 +1,5 @@
 import { isFlightSamples } from "../../analysis/metrics/metrics";
-import type { ParseResult, Sample } from "../../types";
+import type { ParseOpts, ParseResult, Sample } from "../../types";
 import type { DataflashRecord, DataflashTables, FormatDef } from "./types";
 
 function readStr(dv: DataView, off: number, len: number): string {
@@ -150,6 +150,22 @@ function binWindows(m: DataflashTables): Array<[number, number]> {
   return [];
 }
 
+/** "Show anyway" fallback: the whole file's TimeUS range across every known table, used as
+ *  a single synthetic window when no ARM/STAT.Armed span was found at all. */
+function wholeFileWindow(m: DataflashTables): [number, number] | null {
+  let lo: number | null = null;
+  let hi: number | null = null;
+  for (const key in m) {
+    for (const r of m[key] ?? []) {
+      const t = r["TimeUS"] as number | undefined;
+      if (typeof t !== "number") continue;
+      if (lo === null || t < lo) lo = t;
+      if (hi === null || t > hi) hi = t;
+    }
+  }
+  return lo !== null && hi !== null && hi > lo ? [lo, hi] : null;
+}
+
 interface TimedValue {
   t: number;
   v: number | undefined;
@@ -174,10 +190,14 @@ function holdMerge(s: number, e: number, streams: Record<string, TimedValue[]>):
   return samples;
 }
 
-export function parseBin(buf: ArrayBuffer, board?: string): ParseResult {
+export function parseBin(buf: ArrayBuffer, board?: string, opts?: ParseOpts): ParseResult {
   const { tables: m } = parseDataflash(buf);
-  const wins = binWindows(m);
-  if (!wins.length) return { info: "У .bin не вдалося визначити виліт (немає ані пари ARM, ані STAT.Armed)." };
+  let wins = binWindows(m);
+  if (!wins.length) {
+    const whole = opts?.forceWholeFile ? wholeFileWindow(m) : null;
+    if (!whole) return { info: "У .bin не вдалося визначити виліт (немає ані пари ARM, ані STAT.Armed)." };
+    wins = [whole];
+  }
 
   const BAT = m["BAT"] ?? [];
   const CTUN = m["CTUN"] ?? [];
@@ -222,7 +242,7 @@ export function parseBin(buf: ArrayBuffer, board?: string): ParseResult {
 
       return { board: bd, timeReliable: false, fmt: "bin" as const, samples };
     })
-    .filter((f) => isFlightSamples(f.samples));
+    .filter((f) => opts?.forceWholeFile || isFlightSamples(f.samples));
 
   if (!flights.length) return { info: "У .bin немає вильоту (борт не піднявся в повітря)." };
   return { flights, boards: [bd], fmt: "bin" };

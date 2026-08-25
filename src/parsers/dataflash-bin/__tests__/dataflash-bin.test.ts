@@ -68,6 +68,23 @@ describe("parseBin", () => {
     expect(isParsedInfo(result)).toBe(true);
   });
 
+  it("forceWholeFile shows the whole time range as one flight when no ARM/STAT span exists", () => {
+    const b = defineCommonFormats(new DataflashBuilder())
+      .addRecord(BAT, [0, 25.0, 5.0])
+      .addRecord(BAT, [40_000_000, 24.0, 1.0])
+      .addRecord(POS, [0, 50.0, 30.0, 0])
+      .addRecord(POS, [40_000_000, 50.0001, 30.0001, 5]);
+
+    const result = parseBin(b.build(), "3570", { forceWholeFile: true });
+    expect(isParsedFlights(result)).toBe(true);
+    if (!isParsedFlights(result)) return;
+
+    expect(result.flights).toHaveLength(1);
+    const flight = result.flights[0]!;
+    expect(flight.samples[0]!.t).toBe(0);
+    expect(flight.samples[flight.samples.length - 1]!.t).toBe(40_000);
+  });
+
   it("falls back to the STAT.Armed span when ARM pairs are missing", () => {
     const b = defineCommonFormats(new DataflashBuilder())
       .defineFormat(STAT, "STAT", ["Q", "B"], ["TimeUS", "Armed"])
@@ -90,6 +107,19 @@ describe("parseBin", () => {
 
     const result = parseBin(b.build());
     expect(isParsedInfo(result)).toBe(true);
+  });
+
+  it("forceWholeFile shows an armed-but-never-airborne window despite failing the altitude threshold", () => {
+    const b = defineCommonFormats(new DataflashBuilder())
+      .addRecord(ARM, [0, 1])
+      .addRecord(ARM, [70_000_000, 0])
+      .addRecord(POS, [0, 50.0, 30.0, 0])
+      .addRecord(POS, [70_000_000, 50.0001, 30.0001, 2]); // stays under 30m and under 15 m/s
+
+    const result = parseBin(b.build(), undefined, { forceWholeFile: true });
+    expect(isParsedFlights(result)).toBe(true);
+    if (!isParsedFlights(result)) return;
+    expect(result.flights).toHaveLength(1);
   });
 
   it("never returns an error result for a well-formed buffer", () => {

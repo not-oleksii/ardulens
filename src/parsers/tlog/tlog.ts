@@ -1,7 +1,7 @@
 import type { MavLinkData } from "mavlink-mappings/dist/lib/mavlink";
 import { decodeOnePacket } from "../../mavlink/framer/framer";
 import { GlobalPositionInt, Heartbeat, MavModeFlag, SysStatus, VfrHud } from "../../mavlink/registry/registry";
-import type { ParseResult, Sample } from "../../types";
+import type { ParseOpts, ParseResult, Sample } from "../../types";
 import { isFlightSamples } from "../../analysis/metrics/metrics";
 
 // A real, standard Mission Planner/pymavlink-compatible .tlog record: an 8-byte big-endian
@@ -75,6 +75,20 @@ function armWindows(heartbeats: Array<{ tsMs: number; armed: boolean }>): Array<
   return full;
 }
 
+/** "Show anyway" fallback: the whole file's timestamp range, used as a single synthetic
+ *  window when the vehicle was never seen armed for long enough (mirrors dataflash-bin.ts's
+ *  own wholeFileWindow()). */
+function wholeFileWindow(records: MavRecord[]): [number, number] | null {
+  if (!records.length) return null;
+  let lo = records[0]!.tsMs;
+  let hi = records[0]!.tsMs;
+  for (const r of records) {
+    if (r.tsMs < lo) lo = r.tsMs;
+    if (r.tsMs > hi) hi = r.tsMs;
+  }
+  return hi > lo ? [lo, hi] : null;
+}
+
 interface TimedValue {
   t: number;
   v: number | undefined;
@@ -111,14 +125,18 @@ function holdMerge(s: number, e: number, streams: Record<string, TimedValue[]>):
  *  IMU/BAT/CTUN-level dataflash detail exists in a live MAVLink stream at all, so this is a
  *  genuinely different (not degraded) kind of source, matching how `.skylog`'s own sparser
  *  Sample set already works fine with the same downstream metrics/advisors pipeline. */
-export function parseTlog(buf: ArrayBuffer, board?: string): ParseResult {
+export function parseTlog(buf: ArrayBuffer, board?: string, opts?: ParseOpts): ParseResult {
   const records = walkTlogRecords(buf);
   if (!records.length) return { info: "У записі немає розпізнаних MAVLink-пакетів." };
 
   const heartbeatRecords = records.filter((r) => r.msgId === Heartbeat.MSG_ID).map((r) => ({ tsMs: r.tsMs, m: r.message as Heartbeat }));
   const heartbeats = heartbeatRecords.map((r) => ({ tsMs: r.tsMs, armed: (r.m.baseMode & MavModeFlag.SAFETY_ARMED) !== 0 }));
-  const wins = armWindows(heartbeats);
-  if (!wins.length) return { info: "У записаній сесії апарат жодного разу не був озброєний достатньо довго для вильоту." };
+  let wins = armWindows(heartbeats);
+  if (!wins.length) {
+    const whole = opts?.forceWholeFile ? wholeFileWindow(records) : null;
+    if (!whole) return { info: "У записаній сесії апарат жодного разу не був озброєний достатньо довго для вильоту." };
+    wins = [whole];
+  }
 
   const sysStatus = records.filter((r) => r.msgId === SysStatus.MSG_ID).map((r) => ({ tsMs: r.tsMs, m: r.message as SysStatus }));
   const vfrHud = records.filter((r) => r.msgId === VfrHud.MSG_ID).map((r) => ({ tsMs: r.tsMs, m: r.message as VfrHud }));
@@ -146,7 +164,7 @@ export function parseTlog(buf: ArrayBuffer, board?: string): ParseResult {
 
       return { board: bd, timeReliable: true, fmt: "tlog" as const, samples: holdMerge(s, e, streams) };
     })
-    .filter((f) => isFlightSamples(f.samples));
+    .filter((f) => opts?.forceWholeFile || isFlightSamples(f.samples));
 
   if (!flights.length) return { info: "У записаній сесії немає вильоту з достатньою кількістю телеметрії." };
   return { flights, boards: [bd], fmt: "tlog" };

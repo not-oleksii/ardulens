@@ -109,6 +109,19 @@ describe("parseTlog", () => {
     expect(isParsedInfo(result)).toBe(true);
   });
 
+  it("forceWholeFile shows the whole recording as one flight when never armed long enough", () => {
+    const b = new TlogBuilder();
+    b.addMessage(heartbeat(false), EPOCH_START, { seq: 0, sysid: SYSID, compid: COMPID });
+    b.addMessage(heartbeat(true), EPOCH_START + 1000, { seq: 1, sysid: SYSID, compid: COMPID }); // armed <1s
+    b.addMessage(heartbeat(false), EPOCH_START + 2000, { seq: 2, sysid: SYSID, compid: COMPID });
+
+    const result = parseTlog(b.build(), "TestVehicle", { forceWholeFile: true });
+    expect(isParsedFlights(result)).toBe(true);
+    if (!isParsedFlights(result)) return;
+    expect(result.flights).toHaveLength(1);
+    expect(result.flights[0]!.samples.length).toBeGreaterThan(0);
+  });
+
   it("parses one flight from a real armed window, with real decoded telemetry values", () => {
     const result = parseTlog(buildFlightTlog(), "TestVehicle");
 
