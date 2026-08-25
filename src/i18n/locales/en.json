@@ -279,7 +279,15 @@
       "rightClickHint": "Right-click the map to fly to or set home at a point.",
       "vehicleAltitude": "Vehicle: {{meters}} m",
       "targetAltitude": "Target: {{meters}} m",
-      "altitudeLabel": "{{meters}} m"
+      "altitudeLabel": "{{meters}} m",
+      "cancel": "Cancel",
+      "confirmTakeoffTitle": "Take off?",
+      "confirmTakeoffDescription": "The vehicle will take off to {{meters}} m.",
+      "confirmTakeoff": "Take off",
+      "confirmRtlTitle": "Return to launch (RTL)?",
+      "confirmRtlDescription": "The vehicle will immediately switch to Return-to-Launch mode and fly back to its takeoff point.",
+      "confirmRtl": "RTL",
+      "flightCommandRejected": "\"{{command}}\" command rejected: {{result}}"
     },
     "parameters": {
       "heading": "Parameters",
@@ -318,6 +326,12 @@
       "to": "To",
       "cancel": "Cancel",
       "confirmSave": "Send changes"
+    },
+    "unsavedChanges": {
+      "title": "Unsaved parameter changes",
+      "description": "This section has parameter changes that haven't been sent to the vehicle yet. Switching sections will discard them.",
+      "stay": "Stay",
+      "discard": "Discard changes and switch"
     },
     "pidTune": {
       "heading": "PID Tune",
@@ -693,6 +707,9 @@
       "cancel": "Cancel",
       "confirmArm": "Arm",
       "armCommandRejected": "Arm/disarm command rejected: {{result}}",
+      "confirmModeTitle": "Change flight mode?",
+      "confirmModeDescription": "The vehicle will switch to {{mode}} mode. Make sure this is the mode you meant to select.",
+      "confirmMode": "Change mode",
       "mode": "Mode",
       "types": {
         "generic": "Generic",

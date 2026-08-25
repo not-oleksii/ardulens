@@ -21,8 +21,11 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { CESIUM_TOKEN_STORAGE_KEY } from "../../constants";
+import { mavResultLabel } from "../../mavlink/labels/labels";
+import { MavCmd, MavResult } from "../../mavlink/registry/registry";
 import { useMavlinkLiveMapStore } from "../../stores/mavlinkLiveMapStore/mavlinkLiveMapStore";
 import type { PositionTelemetry } from "../../stores/mavlinkTelemetryStore/types";
 import { pickLatLon } from "./cesiumPicking";
@@ -87,10 +90,23 @@ interface LiveMapSectionProps {
   /** null hides the RTL quick-action - a vehicle family this app doesn't have a mode table for
    *  (see labels.ts's rtlModeNumber). */
   rtlModeNumber: number | null;
+  /** The result of the most recently sent NAV_TAKEOFF/DO_REPOSITION/DO_SET_HOME command - see
+   *  mavlinkVehicleStore's own doc comment on why RTL has no equivalent here. */
+  flightCommandAck: { command: MavCmd; result: MavResult } | null;
   onFlyToHere: (lat: number, lon: number, altitudeM: number) => void;
   onSetHomeHere: (lat: number, lon: number) => void;
   onTakeoff: (altitudeM: number) => void;
   onRtl: () => void;
+}
+
+// The three commands flightCommandAck ever carries, labeled with the same action names this
+// section's own buttons/menu items already use rather than inventing new copy for the same
+// action.
+function flightCommandLabel(t: (key: string) => string, command: MavCmd): string {
+  if (command === MavCmd.NAV_TAKEOFF) return t("ardupilotSetup.map.takeoff");
+  if (command === MavCmd.DO_REPOSITION) return t("ardupilotSetup.map.flyToHere");
+  if (command === MavCmd.DO_SET_HOME) return t("ardupilotSetup.map.setHomeHere");
+  return String(command);
 }
 
 interface ContextMenuState {
@@ -102,7 +118,16 @@ interface ContextMenuState {
   lon: number;
 }
 
-export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHere, onSetHomeHere, onTakeoff, onRtl }: LiveMapSectionProps) {
+export function LiveMapSection({
+  position,
+  headingDeg,
+  rtlModeNumber,
+  flightCommandAck,
+  onFlyToHere,
+  onSetHomeHere,
+  onTakeoff,
+  onRtl,
+}: LiveMapSectionProps) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
@@ -131,6 +156,10 @@ export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHer
   const [tokenInput, setTokenInput] = useState("");
   const [takeoffAltInput, setTakeoffAltInput] = useState("10");
   const [flyToAltInput, setFlyToAltInput] = useState("0");
+  // Takeoff/RTL both start real flight behavior with no undo - a misclick shouldn't be enough
+  // to trigger either, so both get the same confirm-before-send dialog Arm already uses.
+  const [confirmTakeoffAlt, setConfirmTakeoffAlt] = useState<number | null>(null);
+  const [confirmRtlOpen, setConfirmRtlOpen] = useState(false);
   // A right-click-triggered popup with "Fly to here"/"Set home here" - the real-GCS convention
   // this app's map now follows, rather than a left-click-arms-then-click toggle.
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -351,7 +380,18 @@ export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHer
   function handleTakeoffClick() {
     const alt = Number(takeoffAltInput);
     if (!Number.isFinite(alt) || alt <= 0) return;
-    onTakeoff(alt);
+    setConfirmTakeoffAlt(alt);
+  }
+
+  function confirmTakeoff() {
+    if (confirmTakeoffAlt === null) return;
+    onTakeoff(confirmTakeoffAlt);
+    setConfirmTakeoffAlt(null);
+  }
+
+  function confirmRtl() {
+    setConfirmRtlOpen(false);
+    onRtl();
   }
 
   // Marks the last "Fly to here" target with a crosshair icon (labeled with its own altitude)
@@ -457,12 +497,20 @@ export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHer
             </Button>
           </div>
           {rtlModeNumber !== null && (
-            <Button type="button" size="sm" variant="destructive" onClick={onRtl}>
+            <Button type="button" size="sm" variant="destructive" onClick={() => setConfirmRtlOpen(true)}>
               {t("ardupilotSetup.map.rtl")}
             </Button>
           )}
           <p className="text-xs text-muted-foreground">{t("ardupilotSetup.map.rightClickHint")}</p>
         </div>
+        {flightCommandAck && flightCommandAck.result !== MavResult.ACCEPTED && (
+          <span role="alert" className="text-xs font-semibold text-destructive">
+            {t("ardupilotSetup.map.flightCommandRejected", {
+              command: flightCommandLabel(t, flightCommandAck.command),
+              result: mavResultLabel(t, flightCommandAck.result),
+            })}
+          </span>
+        )}
         {/* Plain-text mirror of the altitude labels drawn on the map itself (vehicle marker /
             fly-to crosshair) - readable without needing to spot/zoom into the 3D labels, and
             works before the scene has even rendered anything. */}
@@ -514,6 +562,42 @@ export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHer
           </button>
         </div>
       )}
+
+      <Dialog open={confirmTakeoffAlt !== null} onOpenChange={(open) => !open && setConfirmTakeoffAlt(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("ardupilotSetup.map.confirmTakeoffTitle")}</DialogTitle>
+            <DialogDescription>
+              {t("ardupilotSetup.map.confirmTakeoffDescription", { meters: confirmTakeoffAlt ?? 0 })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmTakeoffAlt(null)}>
+              {t("ardupilotSetup.map.cancel")}
+            </Button>
+            <Button type="button" variant="destructive" onClick={confirmTakeoff}>
+              {t("ardupilotSetup.map.confirmTakeoff")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={confirmRtlOpen} onOpenChange={setConfirmRtlOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("ardupilotSetup.map.confirmRtlTitle")}</DialogTitle>
+            <DialogDescription>{t("ardupilotSetup.map.confirmRtlDescription")}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmRtlOpen(false)}>
+              {t("ardupilotSetup.map.cancel")}
+            </Button>
+            <Button type="button" variant="destructive" onClick={confirmRtl}>
+              {t("ardupilotSetup.map.confirmRtl")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -258,6 +258,29 @@ describe("GraphsView", () => {
     expect(useUiStore.getState().pendingPresetKey).toBeNull();
   });
 
+  it("shows the friendly parameter label (not the raw series key) in the plotted-series list", async () => {
+    const rateLog: RawLogResult = {
+      fmt: "bin",
+      timeRangeMs: [0, 1000],
+      modeSegments: [],
+      categories: [{ key: "other", params: [{ key: "RATE.RDes", label: "Desired Roll Rate" }] }],
+      series: { "RATE.RDes": [{ t: 0, v: 0 }] },
+    };
+    vi.mocked(getCoreWorker).mockReturnValueOnce({
+      buildRawLog: () => Promise.resolve(rateLog),
+      parseFile: () => Promise.resolve({ flights: [], boards: [], fmt: "bin" }),
+    } as unknown as ReturnType<typeof getCoreWorker>);
+    loadFile("sample-flight.bin", sampleBinBuf());
+    const { clickButton } = getView();
+    await screen.findByRole("button", { name: "Інше" });
+
+    await clickButton("Інше");
+    await clickButton("Desired Roll Rate");
+
+    expect(within(screen.getByRole("list")).getByText("Desired Roll Rate")).toBeInTheDocument();
+    expect(within(screen.getByRole("list")).queryByText("RATE.RDes")).not.toBeInTheDocument();
+  });
+
   it("resets plots/search/open-categories when a different file is loaded", async () => {
     loadFile("sample-flight.bin", sampleBinBuf());
     const { clickButton, typeParamSearch, getParamSearchInput } = getView();

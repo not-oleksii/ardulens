@@ -1,6 +1,7 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MavCmd, MavResult } from "../../../mavlink/registry/registry";
 import { useMavlinkLiveMapStore } from "../../../stores/mavlinkLiveMapStore/mavlinkLiveMapStore";
 import type { PositionTelemetry } from "../../../stores/mavlinkTelemetryStore/types";
 import { LiveMapSection } from "../LiveMapSection";
@@ -71,6 +72,7 @@ function getView(
       position={position}
       headingDeg={headingDeg}
       rtlModeNumber={rtlModeNumber}
+      flightCommandAck={null}
       onFlyToHere={onFlyToHere}
       onSetHomeHere={onSetHomeHere}
       onTakeoff={onTakeoff}
@@ -90,6 +92,7 @@ function getView(
         position={p}
         headingDeg={h}
         rtlModeNumber={rtlModeNumber}
+        flightCommandAck={null}
         onFlyToHere={onFlyToHere}
         onSetHomeHere={onSetHomeHere}
         onTakeoff={onTakeoff}
@@ -200,6 +203,7 @@ describe("LiveMapSection", () => {
         position={null}
         headingDeg={undefined}
         rtlModeNumber={null}
+        flightCommandAck={null}
         onFlyToHere={vi.fn()}
         onSetHomeHere={vi.fn()}
         onTakeoff={vi.fn()}
@@ -209,25 +213,51 @@ describe("LiveMapSection", () => {
     expect(screen.queryByRole("button", { name: "RTL" })).not.toBeInTheDocument();
   });
 
-  it("RTL button calls onRtl", async () => {
+  it("RTL button opens a confirmation, and confirming calls onRtl", async () => {
     localStorage.setItem(TOKEN_STORAGE_KEY, "test-token");
     const { user, onRtl } = getView(null);
     await user.click(screen.getByRole("button", { name: "RTL" }));
+    expect(onRtl).not.toHaveBeenCalled();
+
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "RTL" }));
     expect(onRtl).toHaveBeenCalledTimes(1);
   });
 
-  it("Takeoff sends the entered altitude, ignores a non-positive one", async () => {
+  it("cancelling the RTL confirmation never calls onRtl", async () => {
+    localStorage.setItem(TOKEN_STORAGE_KEY, "test-token");
+    const { user, onRtl } = getView(null);
+    await user.click(screen.getByRole("button", { name: "RTL" }));
+    await user.click(screen.getByRole("button", { name: "Скасувати" }));
+    expect(onRtl).not.toHaveBeenCalled();
+    expect(screen.queryByText("Повернутися додому (RTL)?")).not.toBeInTheDocument();
+  });
+
+  it("Takeoff opens a confirmation with the entered altitude, ignores a non-positive one, and confirming calls onTakeoff", async () => {
     localStorage.setItem(TOKEN_STORAGE_KEY, "test-token");
     const { user, onTakeoff } = getView(null);
 
     await user.click(screen.getByRole("button", { name: "Зліт" })); // default "10"
+    expect(onTakeoff).not.toHaveBeenCalled();
+    expect(screen.getByText("Апарат злетить на висоту 10 м.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Злетіти" }));
     expect(onTakeoff).toHaveBeenCalledWith(10);
 
     const altInput = screen.getByLabelText("Висота зльоту (м)");
     await user.clear(altInput);
     await user.type(altInput, "0");
     await user.click(screen.getByRole("button", { name: "Зліт" }));
+    expect(screen.queryByText("Виконати зліт?")).not.toBeInTheDocument();
     expect(onTakeoff).toHaveBeenCalledTimes(1); // still just the one call from above
+  });
+
+  it("cancelling the Takeoff confirmation never calls onTakeoff", async () => {
+    localStorage.setItem(TOKEN_STORAGE_KEY, "test-token");
+    const { user, onTakeoff } = getView(null);
+    await user.click(screen.getByRole("button", { name: "Зліт" }));
+    await user.click(screen.getByRole("button", { name: "Скасувати" }));
+    expect(onTakeoff).not.toHaveBeenCalled();
+    expect(screen.queryByText("Виконати зліт?")).not.toBeInTheDocument();
   });
 
   it("right-click opens a popup with Fly-to-here/Set-home-here at the clicked point", async () => {
@@ -386,5 +416,39 @@ describe("LiveMapSection", () => {
     localStorage.setItem(TOKEN_STORAGE_KEY, "test-token");
     getView(null);
     expect(screen.queryByText("Карта")).not.toBeInTheDocument();
+  });
+
+  it("shows a rejection message when the last flight command (Takeoff/fly-to/set-home) wasn't accepted", () => {
+    localStorage.setItem(TOKEN_STORAGE_KEY, "test-token");
+    render(
+      <LiveMapSection
+        position={null}
+        headingDeg={undefined}
+        rtlModeNumber={6}
+        flightCommandAck={{ command: MavCmd.NAV_TAKEOFF, result: MavResult.DENIED }}
+        onFlyToHere={vi.fn()}
+        onSetHomeHere={vi.fn()}
+        onTakeoff={vi.fn()}
+        onRtl={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("Команду «Зліт» відхилено: Відхилено");
+  });
+
+  it("shows nothing extra when the last flight command was accepted", () => {
+    localStorage.setItem(TOKEN_STORAGE_KEY, "test-token");
+    render(
+      <LiveMapSection
+        position={null}
+        headingDeg={undefined}
+        rtlModeNumber={6}
+        flightCommandAck={{ command: MavCmd.NAV_TAKEOFF, result: MavResult.ACCEPTED }}
+        onFlyToHere={vi.fn()}
+        onSetHomeHere={vi.fn()}
+        onTakeoff={vi.fn()}
+        onRtl={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

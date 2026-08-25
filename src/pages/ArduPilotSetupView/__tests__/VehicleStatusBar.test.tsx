@@ -79,14 +79,30 @@ describe("VehicleStatusBar", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("shows a mode dropdown for Copter and calls onSetMode when a different mode is picked", async () => {
+  it("shows a mode dropdown for Copter, and picking a different mode opens a confirmation before calling onSetMode", async () => {
     const { user, onSetMode } = getView({ type: MavType.QUADROTOR, customMode: 0 });
 
     const select = screen.getByLabelText("Режим");
     expect(select).toBeInTheDocument();
     await user.selectOptions(select, "6"); // RTL
+    expect(onSetMode).not.toHaveBeenCalled();
+
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Змінити режим польоту?")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Змінити режим" }));
 
     expect(onSetMode).toHaveBeenCalledWith(6);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("cancelling the mode-change confirmation never calls onSetMode", async () => {
+    const { user, onSetMode } = getView({ type: MavType.QUADROTOR, customMode: 0 });
+
+    await user.selectOptions(screen.getByLabelText("Режим"), "6"); // RTL
+    await user.click(screen.getByRole("button", { name: "Скасувати" }));
+
+    expect(onSetMode).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("falls back to a read-only mode label for a vehicle family with no known mode table", () => {

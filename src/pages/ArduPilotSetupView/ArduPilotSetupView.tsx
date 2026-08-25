@@ -5,6 +5,8 @@ import type { CommandLong } from "mavlink-mappings/dist/lib/common";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ArduPilotSetupHeader } from "./ArduPilotSetupHeader";
 import { ArduPilotSetupSidebar, type ArduPilotSetupSection } from "./ArduPilotSetupSidebar";
 import { AccelCalSection } from "./AccelCalSection";
@@ -138,6 +140,7 @@ import { useMavlinkStatusTextStore } from "../../stores/mavlinkStatusTextStore/m
 import { useMavlinkTelemetryStore } from "../../stores/mavlinkTelemetryStore/mavlinkTelemetryStore";
 import { useMavlinkVehicleStore } from "../../stores/mavlinkVehicleStore/mavlinkVehicleStore";
 import { useUiStore } from "../../stores/uiStore/uiStore";
+import { useUnsavedChangesStore } from "../../stores/unsavedChangesStore/unsavedChangesStore";
 
 const BAUD_RATES = [9600, 38400, 57600, 115200, 921600];
 const DEFAULT_UDP_PORT = 14550;
@@ -231,6 +234,8 @@ export function ArduPilotSetupView() {
   const setVehicle = useMavlinkVehicleStore((s) => s.setVehicle);
   const armCommandAck = useMavlinkVehicleStore((s) => s.armCommandAck);
   const setArmCommandAck = useMavlinkVehicleStore((s) => s.setArmCommandAck);
+  const flightCommandAck = useMavlinkVehicleStore((s) => s.flightCommandAck);
+  const setFlightCommandAck = useMavlinkVehicleStore((s) => s.setFlightCommandAck);
   const resetVehicle = useMavlinkVehicleStore((s) => s.reset);
   const attitude = useMavlinkTelemetryStore((s) => s.attitude);
   const vfrHud = useMavlinkTelemetryStore((s) => s.vfrHud);
@@ -331,6 +336,18 @@ export function ArduPilotSetupView() {
   const [scanningBaud, setScanningBaud] = useState<number | null>(null);
   const [devFramePresetKey, setDevFramePresetKey] = useState(VERIFIED_FRAME_PRESETS[1]!.key); // Quad X
   const [activeSection, setActiveSection] = useState<ArduPilotSetupSection>("telemetry");
+  // Sections are fully unmounted on switch, silently discarding any component-local unsaved
+  // edits (e.g. ParametersPanel's staged pendingChanges) - see useUnsavedChangesStore.ts. Holds
+  // the section the user tried to switch to while a confirm dialog asks whether to discard.
+  const [pendingSectionSwitch, setPendingSectionSwitch] = useState<ArduPilotSetupSection | null>(null);
+  function handleSelectSection(section: ArduPilotSetupSection) {
+    if (section === activeSection) return;
+    if (useUnsavedChangesStore.getState().hasUnsaved) {
+      setPendingSectionSwitch(section);
+      return;
+    }
+    setActiveSection(section);
+  }
   // Surfaces the header's Reboot button's own COMMAND_ACK - without this, a rejected reboot
   // (e.g. DENIED while armed) looked exactly like a silently-broken button, since nothing else
   // in the UI ever changes on a NACK (the connection doesn't drop, no further message arrives).
@@ -703,6 +720,10 @@ export function ArduPilotSetupView() {
               setArmCommandAck({ result: msg.result });
             } else if (command === MavCmd.PREFLIGHT_REBOOT_SHUTDOWN) {
               setRebootLastCommandAck(msg.result);
+            } else if (command === MavCmd.NAV_TAKEOFF || command === MavCmd.DO_REPOSITION || command === MavCmd.DO_SET_HOME) {
+              // Same minimum-viable-feedback rationale as COMPONENT_ARM_DISARM above - a
+              // rejected Takeoff/fly-to/set-home otherwise looks like nothing happened.
+              setFlightCommandAck({ command, result: msg.result });
             }
             break;
           }
@@ -1021,6 +1042,7 @@ export function ArduPilotSetupView() {
     setError,
     setVehicle,
     setArmCommandAck,
+    setFlightCommandAck,
     setRebootLastCommandAck,
     resetVehicle,
     setAttitude,
@@ -1819,7 +1841,7 @@ export function ArduPilotSetupView() {
       />
 
       <div className="flex flex-1 overflow-hidden">
-        <ArduPilotSetupSidebar activeSection={activeSection} onSelect={setActiveSection} />
+        <ArduPilotSetupSidebar activeSection={activeSection} onSelect={handleSelectSection} />
 
         <main className="min-w-0 flex-1 overflow-y-auto px-6 py-4">
           {!isConnected ? (
@@ -1842,6 +1864,7 @@ export function ArduPilotSetupView() {
               vibration={vibration}
               statusTextMessages={statusTextMessages}
               rtlModeNumber={vehicle ? rtlModeNumber(vehicle.type) : null}
+              flightCommandAck={flightCommandAck}
               onNavigateToSection={setActiveSection}
               onFlyToHere={handleFlyToHere}
               onSetHomeHere={handleSetHomeHere}
@@ -1992,6 +2015,30 @@ export function ArduPilotSetupView() {
           ) : null}
         </main>
       </div>
+
+      <Dialog open={pendingSectionSwitch !== null} onOpenChange={(open) => !open && setPendingSectionSwitch(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("ardupilotSetup.unsavedChanges.title")}</DialogTitle>
+            <DialogDescription>{t("ardupilotSetup.unsavedChanges.description")}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingSectionSwitch(null)}>
+              {t("ardupilotSetup.unsavedChanges.stay")}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                const section = pendingSectionSwitch;
+                setPendingSectionSwitch(null);
+                if (section) setActiveSection(section);
+              }}
+            >
+              {t("ardupilotSetup.unsavedChanges.discard")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

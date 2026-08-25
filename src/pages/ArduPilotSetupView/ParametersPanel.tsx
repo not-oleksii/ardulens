@@ -20,6 +20,7 @@ import {
 } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import { useMavlinkParamDefaultsStore } from "../../stores/mavlinkParamDefaultsStore/mavlinkParamDefaultsStore";
+import { useUnsavedChangesStore } from "../../stores/unsavedChangesStore/unsavedChangesStore";
 
 interface ParametersPanelProps {
   vehicleType: MavType;
@@ -202,6 +203,16 @@ export function ParametersPanel({
   const isComplete = expectedCount !== null && receivedCount >= expectedCount;
   const pendingEntries = Object.entries(pendingChanges);
   const hasPendingChanges = pendingEntries.length > 0;
+
+  // Switching sidebar sections unmounts this component and discards `pendingChanges` with no
+  // warning otherwise - this lets ArduPilotSetupView gate the switch behind a confirmation.
+  // Cleared on unmount too, since by that point the edits are gone either way (confirmed or
+  // navigated past the guard) and a stale `true` must not leak into whichever section mounts
+  // next.
+  useEffect(() => {
+    useUnsavedChangesStore.getState().setUnsaved(hasPendingChanges);
+    return () => useUnsavedChangesStore.getState().setUnsaved(false);
+  }, [hasPendingChanges]);
 
   const rowVirtualizer = useVirtualizer({
     count: filtered.length,

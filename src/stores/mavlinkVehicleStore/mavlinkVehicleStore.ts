@@ -6,5 +6,7 @@ export const useMavlinkVehicleStore = create<MavlinkVehicleState>((set) => ({
   setVehicle: (vehicle) => set({ vehicle }),
   armCommandAck: null,
   setArmCommandAck: (armCommandAck) => set({ armCommandAck }),
-  reset: () => set({ vehicle: null, armCommandAck: null }),
+  flightCommandAck: null,
+  setFlightCommandAck: (flightCommandAck) => set({ flightCommandAck }),
+  reset: () => set({ vehicle: null, armCommandAck: null, flightCommandAck: null }),
 }));

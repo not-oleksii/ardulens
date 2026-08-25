@@ -279,7 +279,15 @@
       "rightClickHint": "Клацніть правою кнопкою на карті, щоб летіти туди або встановити дім.",
       "vehicleAltitude": "Апарат: {{meters}} м",
       "targetAltitude": "Ціль: {{meters}} м",
-      "altitudeLabel": "{{meters}} м"
+      "altitudeLabel": "{{meters}} м",
+      "cancel": "Скасувати",
+      "confirmTakeoffTitle": "Виконати зліт?",
+      "confirmTakeoffDescription": "Апарат злетить на висоту {{meters}} м.",
+      "confirmTakeoff": "Злетіти",
+      "confirmRtlTitle": "Повернутися додому (RTL)?",
+      "confirmRtlDescription": "Апарат негайно перейде в режим повернення додому і полетить до точки старту.",
+      "confirmRtl": "RTL",
+      "flightCommandRejected": "Команду «{{command}}» відхилено: {{result}}"
     },
     "parameters": {
       "heading": "Параметри",
@@ -318,6 +326,12 @@
       "to": "Стане",
       "cancel": "Скасувати",
       "confirmSave": "Надіслати зміни"
+    },
+    "unsavedChanges": {
+      "title": "Незбережені зміни параметрів",
+      "description": "У цьому розділі є зміни параметрів, які ще не надіслано на апарат. Перехід в інший розділ їх скасує.",
+      "stay": "Залишитися",
+      "discard": "Скасувати зміни й перейти"
     },
     "pidTune": {
       "heading": "Налаштування PID",
@@ -693,6 +707,9 @@
       "cancel": "Скасувати",
       "confirmArm": "Озброїти",
       "armCommandRejected": "Команду озброєння/роззброєння відхилено: {{result}}",
+      "confirmModeTitle": "Змінити режим польоту?",
+      "confirmModeDescription": "Апарат перейде в режим {{mode}}. Переконайтесь, що це саме той режим, який ви хотіли обрати.",
+      "confirmMode": "Змінити режим",
       "mode": "Режим",
       "types": {
         "generic": "Загальний",
