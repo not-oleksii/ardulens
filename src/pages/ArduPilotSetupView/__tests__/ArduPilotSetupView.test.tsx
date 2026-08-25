@@ -1646,7 +1646,7 @@ describe("ArduPilotSetupView", () => {
       expect(findSetServoPwm(invoked, 1)).toBe(1500); // last DO_SET_SERVO(1, ...) is at trim again
     });
 
-    it("toggling a channel's Reverse checkbox sends SERVO1_REVERSED via PARAM_SET", async () => {
+    it("toggling a channel's Reverse checkbox stages it, and Save all + confirm sends SERVO1_REVERSED via PARAM_SET", async () => {
       const invoked = vi.fn();
       mockBackend(invoked);
       const { user } = await connectPlaneAndOpenMotors();
@@ -1656,6 +1656,10 @@ describe("ArduPilotSetupView", () => {
       const checkbox = await screen.findByRole("checkbox");
 
       await user.click(checkbox);
+      expect(invoked.mock.calls.find(([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamSet.MSG_ID)).toBeUndefined();
+
+      await user.click(screen.getByRole("button", { name: "Зберегти все (1)" }));
+      await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Надіслати зміни" }));
 
       const paramSet = invoked.mock.calls.find(
         ([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamSet.MSG_ID,
@@ -1666,7 +1670,7 @@ describe("ArduPilotSetupView", () => {
       expect(paramWireBitsToValue(readParamValueBits(payload), MavParamType.INT8)).toBe(1);
     });
 
-    it("editing a channel's Min field commits SERVO1_MIN via PARAM_SET on blur", async () => {
+    it("editing a channel's Min field stages it on blur, and Save all + confirm sends SERVO1_MIN via PARAM_SET", async () => {
       const invoked = vi.fn();
       mockBackend(invoked);
       const { user } = await connectPlaneAndOpenMotors();
@@ -1681,6 +1685,12 @@ describe("ArduPilotSetupView", () => {
       await user.type(input, "1100");
       fireEvent.blur(input);
 
+      expect(invoked.mock.calls.find(([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamSet.MSG_ID)).toBeUndefined();
+      expect(screen.getByRole("button", { name: "1100" })).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Зберегти все (1)" }));
+      await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Надіслати зміни" }));
+
       const paramSet = invoked.mock.calls.find(
         ([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamSet.MSG_ID,
       );
@@ -1690,7 +1700,7 @@ describe("ArduPilotSetupView", () => {
       expect(paramWireBitsToValue(readParamValueBits(payload), MavParamType.INT16)).toBe(1100);
     });
 
-    it("ArrowUp/ArrowDown nudge a channel's Trim by 1us (10us with Shift) and commit immediately, for precise surface trimming without retyping", async () => {
+    it("ArrowUp/ArrowDown nudge a channel's Trim by 1us (10us with Shift) and stage it, without sending until Save all + confirm", async () => {
       const invoked = vi.fn();
       mockBackend(invoked);
       const { user } = await connectPlaneAndOpenMotors();
@@ -1702,21 +1712,25 @@ describe("ArduPilotSetupView", () => {
       await user.click(trimButton);
       const input = screen.getByRole("textbox");
 
-      function lastCommittedValue(): number {
-        const paramSetCalls = invoked.mock.calls.filter(
-          ([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamSet.MSG_ID,
-        );
-        const bytes = (paramSetCalls.at(-1)![1] as { bytes: number[] }).bytes;
-        return paramWireBitsToValue(readParamValueBits(new Uint8Array(bytes.slice(10))), MavParamType.INT16);
-      }
-
       fireEvent.keyDown(input, { key: "ArrowUp" });
       expect(input).toHaveValue("1501");
-      expect(lastCommittedValue()).toBe(1501);
 
       fireEvent.keyDown(input, { key: "ArrowDown", shiftKey: true });
       expect(input).toHaveValue("1491");
-      expect(lastCommittedValue()).toBe(1491);
+
+      expect(invoked.mock.calls.find(([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamSet.MSG_ID)).toBeUndefined();
+
+      fireEvent.blur(input);
+      await user.click(screen.getByRole("button", { name: "Зберегти все (1)" }));
+      await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Надіслати зміни" }));
+
+      const paramSet = invoked.mock.calls.find(
+        ([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamSet.MSG_ID,
+      );
+      expect(paramSet).toBeDefined();
+      const bytes = (paramSet![1] as { bytes: number[] }).bytes;
+      const payload = new Uint8Array(bytes.slice(10));
+      expect(paramWireBitsToValue(readParamValueBits(payload), MavParamType.INT16)).toBe(1491);
     });
   });
 
@@ -1817,7 +1831,7 @@ describe("ArduPilotSetupView", () => {
       // pass - this bug shipped once already and was reported against a real vehicle).
       const invoked = vi.fn();
       mockBackend(invoked);
-      await connectCopterAndOpenMotors();
+      const { user } = await connectCopterAndOpenMotors();
 
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_CLASS", 1, MavParamType.INT8, 0, 2, 1) });
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("FRAME_TYPE", 1, MavParamType.INT8, 1, 2, 2) });
@@ -1835,6 +1849,13 @@ describe("ArduPilotSetupView", () => {
 
       const frameClassSelect = screen.getByRole("combobox", { name: "Клас рами" });
       fireEvent.change(frameClassSelect, { target: { value: "2" } }); // Quad -> Hexa
+
+      // Stages, doesn't send yet (Wave 2 of the UI/UX audit unified this with the other
+      // param-editing surfaces' own stage+confirm model) - "Save all" and the confirm dialog
+      // are what actually send it.
+      expect(invoked.mock.calls.find(([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamSet.MSG_ID)).toBeUndefined();
+      await user.click(screen.getByRole("button", { name: "Зберегти все (1)" }));
+      await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Надіслати зміни" }));
 
       const paramSet = invoked.mock.calls.find(
         ([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamSet.MSG_ID,
@@ -1883,6 +1904,10 @@ describe("ArduPilotSetupView", () => {
 
       const checkbox = screen.getAllByRole("checkbox", { name: "Реверс" })[0]!;
       fireEvent.click(checkbox);
+
+      // Stages, doesn't send yet (same unification as the Frame Class/Type test above).
+      await user.click(screen.getByRole("button", { name: "Зберегти все (1)" }));
+      await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Надіслати зміни" }));
 
       const paramSet = invoked.mock.calls.find(
         ([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamSet.MSG_ID,

@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { MotorFrameDiagram } from "../../components/MotorFrameDiagram/MotorFrameDiagram";
 import {
@@ -14,6 +16,7 @@ import {
 import { MavParamType } from "../../mavlink/registry/registry";
 import { fetchParamDocs, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
+import { useUnsavedChangesStore } from "../../stores/unsavedChangesStore/unsavedChangesStore";
 import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
 import { ParamLoadProgress } from "./ParamLoadProgress";
 
@@ -72,6 +75,13 @@ export function MotorsCopterSection({
   const [testedMotors, setTestedMotors] = useState<Set<number>>(new Set());
   const [rebootSent, setRebootSent] = useState(false);
   const [testThrottlePercent, setTestThrottlePercent] = useState(DEFAULT_TEST_THROTTLE_PERCENT);
+  // FRAME_CLASS/FRAME_TYPE/SERVOx_REVERSED edits stage here (same shape/semantics as
+  // ParametersPanel's own pendingChanges) instead of sending immediately - unified in Wave 2 of
+  // the UI/UX audit, this used to be one of 3 different param-edit commit models the app had.
+  // Motor-test throttle/identification below is NOT staged - those are live test commands, not
+  // config, and must stay instant per the same audit's own safety-critical-controls note.
+  const [pendingChanges, setPendingChanges] = useState<Record<string, number>>({});
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -209,6 +219,39 @@ export function MotorsCopterSection({
     setIdentifying(false);
   }
 
+  const pendingEntries = Object.entries(pendingChanges);
+  const hasPendingChanges = pendingEntries.length > 0;
+
+  // Switching sidebar sections unmounts this component - same guard ParametersPanel/
+  // ParameterTreeSection already use so staged frame/reverse edits are never silently dropped.
+  useEffect(() => {
+    useUnsavedChangesStore.getState().setUnsaved(hasPendingChanges);
+    return () => useUnsavedChangesStore.getState().setUnsaved(false);
+  }, [hasPendingChanges]);
+
+  function stageParam(name: string, value: number, original: number) {
+    setPendingChanges((prev) => {
+      const next = { ...prev };
+      if (value === original) delete next[name]; // editing back to the original un-stages it
+      else next[name] = value;
+      return next;
+    });
+  }
+
+  function handleResetAll() {
+    setPendingChanges({});
+  }
+
+  function handleConfirmSaveAll() {
+    for (const [name, value] of pendingEntries) {
+      const type =
+        name === "FRAME_CLASS" ? frameClassEntry?.type : name === "FRAME_TYPE" ? frameTypeEntry?.type : (params[name]?.type ?? MavParamType.INT8);
+      if (type !== undefined) onSetFrameParam(name, value, type);
+    }
+    setPendingChanges({});
+    setConfirmOpen(false);
+  }
+
   // SERVOx_REVERSED is a real, generic ArduPilot param every servo/motor output has (confirmed
   // against ArduCopter's own apm.pdef.xml) - flips a DShot ESC's spin direction on its next
   // arm/reboot without needing to physically swap wires. It does nothing for plain PWM/OneShot
@@ -216,16 +259,22 @@ export function MotorsCopterSection({
   function reverseCheckbox(motor: number) {
     const name = `SERVO${motor}_REVERSED`;
     const entry = params[name];
-    const isReversed = entry?.value === 1;
+    const original = entry?.value ?? 0;
+    const shownValue = pendingChanges[name] ?? original;
+    const isReversed = shownValue === 1;
     return (
       <label className="flex items-center gap-1 text-xs">
         <input
           type="checkbox"
           checked={isReversed}
-          onChange={(e) => onSetFrameParam(name, e.target.checked ? 1 : 0, entry?.type ?? MavParamType.INT8)}
+          onChange={(e) => stageParam(name, e.target.checked ? 1 : 0, original)}
         />
         {t("ardupilotSetup.motorsServos.reverseMotor")}
-        {entry && <ModifiedFromDefaultDot name={name} value={entry.value} />}
+        {pendingChanges[name] !== undefined ? (
+          <span className="text-primary">{t("ardupilotSetup.parameters.modified")}</span>
+        ) : (
+          entry && <ModifiedFromDefaultDot name={name} value={entry.value} />
+        )}
       </label>
     );
   }
@@ -245,16 +294,28 @@ export function MotorsCopterSection({
     );
   }
 
-  const frameClassLabel =
-    docs?.FRAME_CLASS?.values?.[frameClassEntry.value] ?? FRAME_CLASS_NAMES[frameClassEntry.value] ?? String(frameClassEntry.value);
-  const frameTypeLabel =
-    docs?.FRAME_TYPE?.values?.[frameTypeEntry.value] ?? FRAME_TYPE_NAMES[frameTypeEntry.value] ?? String(frameTypeEntry.value);
-  const reversedMotors = motorNumbers.filter((n) => params[`SERVO${n}_REVERSED`]?.value === 1);
+  const shownFrameClass = pendingChanges.FRAME_CLASS ?? frameClassEntry.value;
+  const shownFrameType = pendingChanges.FRAME_TYPE ?? frameTypeEntry.value;
+  const frameClassLabel = docs?.FRAME_CLASS?.values?.[shownFrameClass] ?? FRAME_CLASS_NAMES[shownFrameClass] ?? String(shownFrameClass);
+  const frameTypeLabel = docs?.FRAME_TYPE?.values?.[shownFrameType] ?? FRAME_TYPE_NAMES[shownFrameType] ?? String(shownFrameType);
+  const reversedMotors = motorNumbers.filter((n) => (pendingChanges[`SERVO${n}_REVERSED`] ?? params[`SERVO${n}_REVERSED`]?.value) === 1);
   const frameConfirmed = !frameClassEntry.dirty && !frameTypeEntry.dirty;
 
   return (
     <div className="flex h-full flex-col gap-3">
-      <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.motorsServos.heading")}</h3>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.motorsServos.heading")}</h3>
+        {hasPendingChanges && (
+          <div className="flex items-center gap-2">
+            <Button type="button" size="sm" variant="ghost" onClick={handleResetAll}>
+              {t("ardupilotSetup.parameters.reset")}
+            </Button>
+            <Button type="button" size="sm" onClick={() => setConfirmOpen(true)}>
+              {t("ardupilotSetup.parameters.saveAll", { count: pendingEntries.length })}
+            </Button>
+          </div>
+        )}
+      </div>
 
       <div role="tablist" className="flex flex-wrap gap-1 border-b border-border pb-2">
         {STEPS.map((s, i) => (
@@ -284,12 +345,12 @@ export function MotorsCopterSection({
               <label className="flex flex-col gap-1 text-xs">
                 <span className="flex items-center gap-1.5 font-bold tracking-wide uppercase">
                   {t("ardupilotSetup.motorsServos.frameClass")}
-                  <ModifiedFromDefaultDot name="FRAME_CLASS" value={frameClassEntry.value} />
+                  <ModifiedFromDefaultDot name="FRAME_CLASS" value={shownFrameClass} />
                 </span>
                 <select
                   className="rounded-md border border-border bg-background px-2 py-1"
-                  value={frameClassEntry.value}
-                  onChange={(e) => onSetFrameParam("FRAME_CLASS", Number(e.target.value), frameClassEntry.type)}
+                  value={shownFrameClass}
+                  onChange={(e) => stageParam("FRAME_CLASS", Number(e.target.value), frameClassEntry.value)}
                 >
                   {Object.entries(docs?.FRAME_CLASS?.values ?? FRAME_CLASS_NAMES).map(([code, label]) => (
                     <option key={code} value={code}>
@@ -299,30 +360,36 @@ export function MotorsCopterSection({
                   {/* The vehicle's actual current value always stays selectable/shown, even if
                       it's a code neither source above happens to list (e.g. a newer firmware
                       class this app doesn't know about yet). */}
-                  {!(frameClassEntry.value in (docs?.FRAME_CLASS?.values ?? FRAME_CLASS_NAMES)) && (
-                    <option value={frameClassEntry.value}>{frameClassEntry.value}</option>
+                  {!(shownFrameClass in (docs?.FRAME_CLASS?.values ?? FRAME_CLASS_NAMES)) && (
+                    <option value={shownFrameClass}>{shownFrameClass}</option>
                   )}
                 </select>
+                {pendingChanges.FRAME_CLASS !== undefined && (
+                  <span className="text-xs text-primary">{t("ardupilotSetup.parameters.modified")}</span>
+                )}
               </label>
               <label className="flex flex-col gap-1 text-xs">
                 <span className="flex items-center gap-1.5 font-bold tracking-wide uppercase">
                   {t("ardupilotSetup.motorsServos.frameType")}
-                  <ModifiedFromDefaultDot name="FRAME_TYPE" value={frameTypeEntry.value} />
+                  <ModifiedFromDefaultDot name="FRAME_TYPE" value={shownFrameType} />
                 </span>
                 <select
                   className="rounded-md border border-border bg-background px-2 py-1"
-                  value={frameTypeEntry.value}
-                  onChange={(e) => onSetFrameParam("FRAME_TYPE", Number(e.target.value), frameTypeEntry.type)}
+                  value={shownFrameType}
+                  onChange={(e) => stageParam("FRAME_TYPE", Number(e.target.value), frameTypeEntry.value)}
                 >
                   {Object.entries(docs?.FRAME_TYPE?.values ?? FRAME_TYPE_NAMES).map(([code, label]) => (
                     <option key={code} value={code}>
                       {label}
                     </option>
                   ))}
-                  {!(frameTypeEntry.value in (docs?.FRAME_TYPE?.values ?? FRAME_TYPE_NAMES)) && (
-                    <option value={frameTypeEntry.value}>{frameTypeEntry.value}</option>
+                  {!(shownFrameType in (docs?.FRAME_TYPE?.values ?? FRAME_TYPE_NAMES)) && (
+                    <option value={shownFrameType}>{shownFrameType}</option>
                   )}
                 </select>
+                {pendingChanges.FRAME_TYPE !== undefined && (
+                  <span className="text-xs text-primary">{t("ardupilotSetup.parameters.modified")}</span>
+                )}
               </label>
             </div>
             <Button type="button" size="sm" className="w-fit self-end" onClick={() => setStep("test")}>
@@ -594,6 +661,45 @@ export function MotorsCopterSection({
           </div>
         )}
       </div>
+
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("ardupilotSetup.parameters.confirmTitle")}</DialogTitle>
+            <DialogDescription>
+              {t("ardupilotSetup.parameters.confirmDescription", { count: pendingEntries.length })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-80 overflow-y-auto rounded-md border border-border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("ardupilotSetup.parameters.name")}</TableHead>
+                  <TableHead>{t("ardupilotSetup.parameters.from")}</TableHead>
+                  <TableHead>{t("ardupilotSetup.parameters.to")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pendingEntries.map(([name, value]) => (
+                  <TableRow key={name}>
+                    <TableCell className="font-mono">{name}</TableCell>
+                    <TableCell className="font-mono">{params[name]?.value}</TableCell>
+                    <TableCell className="font-mono">{value}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmOpen(false)}>
+              {t("ardupilotSetup.parameters.cancel")}
+            </Button>
+            <Button type="button" onClick={handleConfirmSaveAll}>
+              {t("ardupilotSetup.parameters.confirmSave")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
