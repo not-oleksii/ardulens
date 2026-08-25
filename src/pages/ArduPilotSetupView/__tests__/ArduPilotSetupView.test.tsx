@@ -4118,6 +4118,71 @@ describe("ArduPilotSetupView", () => {
     });
   });
 
+  describe("live session recording", () => {
+    async function connectCopter() {
+      const view = getView();
+      await view.clickDevModeCopter();
+      await within(view.getStatusAlert()).findByText("Підключено: Dev mode (simulated vehicle)");
+      return view;
+    }
+
+    it("shows Record session once connected, and Stop recording once clicked", async () => {
+      mockBackend();
+      const { user } = await connectCopter();
+
+      expect(screen.getByRole("button", { name: "Записати сесію" })).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Записати сесію" }));
+
+      expect(screen.getByRole("button", { name: "Зупинити запис" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Записати сесію" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Зберегти .tlog" })).not.toBeInTheDocument();
+    });
+
+    it("captures real traffic while recording, and offers Save/View once stopped", async () => {
+      mockBackend();
+      const { user } = await connectCopter();
+      await user.click(screen.getByRole("button", { name: "Записати сесію" }));
+
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
+      await user.click(screen.getByRole("button", { name: "Зупинити запис" }));
+
+      expect(screen.getByRole("button", { name: "Зберегти .tlog" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Переглянути в Логах" })).toBeInTheDocument();
+      // Starting a fresh recording is still offered alongside the finished one.
+      expect(screen.getByRole("button", { name: "Записати сесію" })).toBeInTheDocument();
+    });
+
+    it("View in Logs hands the recorded .tlog to the shared fileStore and switches to the Logs tab", async () => {
+      mockBackend();
+      const { user } = await connectCopter();
+      await user.click(screen.getByRole("button", { name: "Записати сесію" }));
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
+      await user.click(screen.getByRole("button", { name: "Зупинити запис" }));
+
+      await user.click(screen.getByRole("button", { name: "Переглянути в Логах" }));
+
+      expect(useFileStore.getState().file?.name).toMatch(/\.tlog$/);
+      expect(useFileStore.getState().file!.buf.byteLength).toBeGreaterThan(0);
+      expect(useUiStore.getState().activeTab).toBe("logs");
+    });
+
+    it("disconnecting mid-recording finalizes it - Save/View become available without an explicit Stop", async () => {
+      mockBackend();
+      const { user, clickDisconnect } = await connectCopter();
+      await user.click(screen.getByRole("button", { name: "Записати сесію" }));
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
+
+      await clickDisconnect();
+
+      // Disconnecting unmounts the header's connected-state controls entirely (back to the
+      // not-connected connect form) - reconnect to see the finalized recording's Save/View
+      // buttons, proving the bytes captured before disconnect weren't discarded.
+      await user.click(screen.getByRole("button", { name: "Режим розробника (мультикоптер)" }));
+      await within(screen.getByRole("banner")).findByText("Підключено: Dev mode (simulated vehicle)");
+      expect(screen.getByRole("button", { name: "Зберегти .tlog" })).toBeInTheDocument();
+    });
+  });
+
   describe("compass calibration", () => {
     async function connectAndOpenCompassCal() {
       const view = getView();

@@ -115,4 +115,17 @@ describe("MavlinkFramer", () => {
     const framer = new MavlinkFramer();
     expect(framer.push(REAL_V2_HEARTBEAT.subarray(0, 3))).toHaveLength(0);
   });
+
+  it("exposes each packet's exact raw bytes, as an independent copy", () => {
+    const framer = new MavlinkFramer();
+    const packets = framer.push(REAL_V2_HEARTBEAT);
+
+    expect(packets[0]!.raw).toEqual(REAL_V2_HEARTBEAT);
+    expect(packets[0]!.raw.buffer).not.toBe(REAL_V2_HEARTBEAT.buffer);
+
+    // Feeding more data afterwards (which reassigns the framer's internal buffer) must not
+    // retroactively change a previously-returned packet's raw bytes.
+    framer.push(sampleHeartbeatPacket(9, 1));
+    expect(packets[0]!.raw).toEqual(REAL_V2_HEARTBEAT);
+  });
 });

@@ -10,7 +10,7 @@ export interface Sample {
   mode?: number;
 }
 
-export type LogFormat = "skylog" | "bin";
+export type LogFormat = "skylog" | "bin" | "tlog";
 
 export interface TrackStats {
   maxd: number | null;

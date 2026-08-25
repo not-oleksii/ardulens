@@ -14,6 +14,17 @@ describe("PARSERS registry", () => {
     expect(PARSERS[0]!.test("plain.skylog", new Uint8Array([0x7b, 0x74]))).toBe(false);
   });
 
+  it("routes .tlog files (and a MAVLink packet at byte 8) to the tlog parser", () => {
+    const tlogIndex = PARSERS.findIndex((p) => p.test("session.tlog", new Uint8Array()));
+    expect(tlogIndex).toBeGreaterThanOrEqual(0);
+    const tlogParser = PARSERS[tlogIndex]!;
+    expect(tlogParser.test("session.TLOG", new Uint8Array())).toBe(true);
+    const withMavlinkAtByte8 = new Uint8Array(10);
+    withMavlinkAtByte8[8] = 0xfd;
+    expect(tlogParser.test("weird-name.log", withMavlinkAtByte8)).toBe(true);
+    expect(tlogParser.test("plain.skylog", new Uint8Array([0x7b, 0x74]))).toBe(false);
+  });
+
   it("falls back to the skylog parser for anything else", () => {
     expect(PARSERS[PARSERS.length - 1]!.test("anything", new Uint8Array())).toBe(true);
   });

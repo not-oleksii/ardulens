@@ -24,11 +24,16 @@ export function isTauriRuntime(): boolean {
 // onData/onStatus below), so a caller never needs to know whether it's ultimately hearing
 // from a real vehicle or a simulated one.
 const dataListeners = new Set<(bytes: Uint8Array) => void>();
+const sentListeners = new Set<(bytes: Uint8Array) => void>();
 const statusListeners = new Set<(status: TransportStatus) => void>();
 let mockHandle: MockVehicleHandle | null = null;
 
 function emitData(bytes: Uint8Array): void {
   dataListeners.forEach((cb) => cb(bytes));
+}
+
+function emitSent(bytes: Uint8Array): void {
+  sentListeners.forEach((cb) => cb(bytes));
 }
 
 function emitStatus(status: TransportStatus): void {
@@ -92,11 +97,27 @@ export async function disconnect(): Promise<void> {
 }
 
 export function sendBytes(bytes: Uint8Array): Promise<void> {
+  emitSent(bytes);
   if (mockHandle) {
     mockHandle.handleAppBytes(bytes);
     return Promise.resolve();
   }
   return invoke("send_bytes", { bytes: Array.from(bytes) });
+}
+
+/**
+ * Every raw packet this app sends, across every call site (ArduPilotSetupView.tsx alone has
+ * three independent `sendBytes()` wrappers - a plain GCS heartbeat/command sender, and two
+ * effect-local ones for the mission and FTP protocols) - a plain local Set, not a Tauri event
+ * subscription like onData/onStatus below, since outgoing bytes originate right here in JS
+ * rather than arriving from the Rust backend. Used by telemetryRecorder.ts to capture the
+ * GCS-\>vehicle half of a live session for its .tlog recording, alongside onData's
+ * vehicle-\>GCS half - matching a real .tlog's own bidirectional capture (confirmed against
+ * both pymavlink's mavutil.mavlogfile and Mission Planner's own SaveToTlog).
+ */
+export function onSent(cb: (bytes: Uint8Array) => void): () => void {
+  sentListeners.add(cb);
+  return () => sentListeners.delete(cb);
 }
 
 export async function onData(cb: (bytes: Uint8Array) => void): Promise<UnlistenFn> {
