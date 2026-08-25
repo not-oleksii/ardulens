@@ -1,4 +1,5 @@
 import {
+  Cartesian2,
   Cartesian3,
   CallbackProperty,
   Cartographic,
@@ -8,6 +9,7 @@ import {
   Entity,
   HeightReference,
   Ion,
+  LabelStyle,
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
   Terrain,
@@ -56,13 +58,35 @@ const TRAIL_COLOR = Color.fromCssColorString("#3b82f6");
 // Camera height above the vehicle on first fix / Recenter, in meters.
 const FOLLOW_HEIGHT_M = 300;
 
+// Shared label styling for the two altitude readouts drawn directly on the map (vehicle +
+// fly-to target) - white fill with a black outline reads on both light and dark terrain
+// imagery alike, matching the arrow/crosshair icons' own black-stroke-on-white convention.
+// pixelOffset lifts the text clear of the icon it's attached to rather than overlapping it.
+function altitudeLabelOptions(text: string, pixelOffsetY: number): Entity.ConstructorOptions["label"] {
+  return {
+    text,
+    font: "12px sans-serif",
+    fillColor: Color.WHITE,
+    outlineColor: Color.BLACK,
+    outlineWidth: 3,
+    style: LabelStyle.FILL_AND_OUTLINE,
+    pixelOffset: new Cartesian2(0, pixelOffsetY),
+  };
+}
+function vehicleAltitudeLabelOptions(text: string): Entity.ConstructorOptions["label"] {
+  return altitudeLabelOptions(text, -24);
+}
+function flyToAltitudeLabelOptions(text: string): Entity.ConstructorOptions["label"] {
+  return altitudeLabelOptions(text, -20);
+}
+
 interface LiveMapSectionProps {
   position: PositionTelemetry | null;
   headingDeg: number | undefined;
   /** null hides the RTL quick-action - a vehicle family this app doesn't have a mode table for
    *  (see labels.ts's rtlModeNumber). */
   rtlModeNumber: number | null;
-  onFlyToHere: (lat: number, lon: number) => void;
+  onFlyToHere: (lat: number, lon: number, altitudeM: number) => void;
   onSetHomeHere: (lat: number, lon: number) => void;
   onTakeoff: (altitudeM: number) => void;
   onRtl: () => void;
@@ -98,21 +122,28 @@ export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHer
   // rather than floating or sinking relative to Cesium World Terrain.
   const homeGroundHeightRef = useRef<number | null>(null);
   const hasFlownRef = useRef(false);
+  // The last "Fly to here" target's own altitude (relative to home, meters) - null until a
+  // target has actually been sent, shown alongside the vehicle's own live altitude in the
+  // action bar and as the map marker's label text.
+  const [flyToTargetAlt, setFlyToTargetAlt] = useState<number | null>(null);
   const [token, setToken] = useState(() => localStorage.getItem(CESIUM_TOKEN_STORAGE_KEY) ?? "");
   const [tokenInput, setTokenInput] = useState("");
   const [takeoffAltInput, setTakeoffAltInput] = useState("10");
+  const [flyToAltInput, setFlyToAltInput] = useState("0");
   // A right-click-triggered popup with "Fly to here"/"Set home here" - the real-GCS convention
   // this app's map now follows, rather than a left-click-arms-then-click toggle.
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  // Mirrors onFlyToHere/onSetHomeHere for the map-click handler's closure below, which is set up
-  // once per Cesium viewer lifetime (see the token-keyed effect), not per render - same pattern
-  // as MissionPlanSection's itemsRef.
+  // Mirrors onFlyToHere/onSetHomeHere/position for the map-click handler's closure below, which
+  // is set up once per Cesium viewer lifetime (see the token-keyed effect), not per render -
+  // same pattern as MissionPlanSection's itemsRef.
   const onFlyToHereRef = useRef(onFlyToHere);
   const onSetHomeHereRef = useRef(onSetHomeHere);
+  const positionRef = useRef(position);
   useEffect(() => {
     onFlyToHereRef.current = onFlyToHere;
     onSetHomeHereRef.current = onSetHomeHere;
-  }, [onFlyToHere, onSetHomeHere]);
+    positionRef.current = position;
+  }, [onFlyToHere, onSetHomeHere, position]);
 
   // Closes the context menu on Escape or a click anywhere else - a real click (left button),
   // since a right-click that opens a NEW menu doesn't fire the DOM's own "click" event at all.
@@ -176,6 +207,10 @@ export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHer
       const picked = pickLatLon(viewer, movement.position);
       if (!picked) return;
       setContextMenu({ x: movement.position.x, y: movement.position.y, lat: picked.lat, lon: picked.lon });
+      // Defaults to the vehicle's own current relative altitude ("fly here at the same
+      // height," matching this app's own prior default) - editable before sending, rather
+      // than a fixed value the user has to always overwrite.
+      setFlyToAltInput(String(Math.round(positionRef.current?.relativeAltM ?? 0)));
     }, ScreenSpaceEventType.RIGHT_CLICK);
 
     return () => {
@@ -223,10 +258,12 @@ export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHer
       trailRef.current.push(cartesian);
 
       const rotation = headingDeg !== undefined ? -(headingDeg * (Math.PI / 180)) : 0;
+      const altitudeLabel = t("ardupilotSetup.map.altitudeLabel", { meters: Math.round(position!.relativeAltM) });
       if (!markerRef.current) {
         markerRef.current = viewer!.entities.add({
           position: cartesian,
           billboard: { image: ARROW_ICON, width: 28, height: 28, alignedAxis: Cartesian3.UNIT_Z, rotation },
+          label: vehicleAltitudeLabelOptions(altitudeLabel),
           description: t("map.currentPositionDescription"),
         });
         viewer!.entities.add({
@@ -239,6 +276,7 @@ export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHer
       } else {
         markerRef.current.position = new ConstantPositionProperty(cartesian);
         if (markerRef.current.billboard) markerRef.current.billboard.rotation = new ConstantProperty(rotation);
+        if (markerRef.current.label) markerRef.current.label.text = new ConstantProperty(altitudeLabel);
       }
 
       if (!hasFlownRef.current) {
@@ -286,20 +324,22 @@ export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHer
     onTakeoff(alt);
   }
 
-  // Marks the last "Fly to here" target with a crosshair icon and a live track line back to the
-  // vehicle's current position - at the vehicle's own current altitude, matching what
-  // handleFlyToHere (ArduPilotSetupView.tsx) actually commands (DO_REPOSITION keeps the current
-  // relative altitude), not the ground.
-  function placeFlyToTarget(lat: number, lon: number) {
+  // Marks the last "Fly to here" target with a crosshair icon (labeled with its own altitude)
+  // and a live track line back to the vehicle's current position - at the altitude the user
+  // entered in the context menu (matching what handleFlyToHere (ArduPilotSetupView.tsx)
+  // actually commands via DO_REPOSITION's own relative-altitude field), not the ground.
+  function placeFlyToTarget(lat: number, lon: number, altitudeM: number) {
     const viewer = viewerRef.current;
     if (!viewer) return;
-    const alt = (homeGroundHeightRef.current ?? 0) + (position?.relativeAltM ?? 0);
+    const alt = (homeGroundHeightRef.current ?? 0) + altitudeM;
     const cartesian = Cartesian3.fromDegrees(lon, lat, alt);
     flyToTargetRef.current = cartesian;
+    const altitudeLabel = t("ardupilotSetup.map.altitudeLabel", { meters: Math.round(altitudeM) });
     if (!flyToMarkerRef.current) {
       flyToMarkerRef.current = viewer.entities.add({
         position: cartesian,
         billboard: { image: FLY_TO_ICON, width: 24, height: 24 },
+        label: flyToAltitudeLabelOptions(altitudeLabel),
       });
       flyToLineRef.current = viewer.entities.add({
         polyline: {
@@ -314,7 +354,9 @@ export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHer
       });
     } else {
       flyToMarkerRef.current.position = new ConstantPositionProperty(cartesian);
+      if (flyToMarkerRef.current.label) flyToMarkerRef.current.label.text = new ConstantProperty(altitudeLabel);
     }
+    setFlyToTargetAlt(altitudeM);
   }
 
   // Marks the last "Set home here" point with a house icon, clamped to the real terrain height
@@ -335,8 +377,10 @@ export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHer
 
   function handleFlyToOption() {
     if (!contextMenu) return;
-    onFlyToHereRef.current(contextMenu.lat, contextMenu.lon);
-    placeFlyToTarget(contextMenu.lat, contextMenu.lon);
+    const alt = Number(flyToAltInput);
+    if (!Number.isFinite(alt)) return;
+    onFlyToHereRef.current(contextMenu.lat, contextMenu.lon, alt);
+    placeFlyToTarget(contextMenu.lat, contextMenu.lon, alt);
     setContextMenu(null);
   }
 
@@ -384,6 +428,17 @@ export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHer
           )}
           <p className="text-xs text-muted-foreground">{t("ardupilotSetup.map.rightClickHint")}</p>
         </div>
+        {/* Plain-text mirror of the altitude labels drawn on the map itself (vehicle marker /
+            fly-to crosshair) - readable without needing to spot/zoom into the 3D labels, and
+            works before the scene has even rendered anything. */}
+        {(position || flyToTargetAlt !== null) && (
+          <div className="flex flex-wrap items-center gap-3 font-mono text-xs text-muted-foreground">
+            {position && <span>{t("ardupilotSetup.map.vehicleAltitude", { meters: Math.round(position.relativeAltM) })}</span>}
+            {flyToTargetAlt !== null && (
+              <span>{t("ardupilotSetup.map.targetAltitude", { meters: Math.round(flyToTargetAlt) })}</span>
+            )}
+          </div>
+        )}
         {!position && <p className="text-xs text-muted-foreground">{t("ardupilotSetup.map.noFix")}</p>}
       </div>
       {contextMenu && (
@@ -398,13 +453,23 @@ export function LiveMapSection({ position, headingDeg, rtlModeNumber, onFlyToHer
           // that listener is what makes the two option buttons below work at all.
           onClick={(e) => e.stopPropagation()}
         >
-          <button
-            type="button"
-            className="px-3 py-1.5 text-left text-xs whitespace-nowrap hover:bg-accent"
-            onClick={handleFlyToOption}
-          >
-            {t("ardupilotSetup.map.flyToHere")}
-          </button>
+          <div className="flex items-center gap-1 px-3 py-1.5">
+            <Input
+              type="number"
+              value={flyToAltInput}
+              onChange={(e) => setFlyToAltInput(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              className="h-6 w-14 font-mono text-xs"
+              aria-label={t("ardupilotSetup.map.flyToAltitude")}
+            />
+            <button
+              type="button"
+              className="px-2 py-1 text-left text-xs whitespace-nowrap hover:bg-accent"
+              onClick={handleFlyToOption}
+            >
+              {t("ardupilotSetup.map.flyToHere")}
+            </button>
+          </div>
           <button
             type="button"
             className="px-3 py-1.5 text-left text-xs whitespace-nowrap hover:bg-accent"

@@ -15,6 +15,7 @@ pub fn run() {
             transport::disconnect,
             transport::send_bytes,
             geotag::grant_geotag_folder_access,
+            geotag::grant_file_access,
         ])
         .run(tauri::generate_context!())
         .expect("error while running ardulens");

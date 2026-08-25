@@ -60,7 +60,7 @@ function getView(
   opts: { rtlModeNumber?: number | null } = {},
 ) {
   const user = userEvent.setup();
-  const onFlyToHere = vi.fn<(lat: number, lon: number) => void>();
+  const onFlyToHere = vi.fn<(lat: number, lon: number, altitudeM: number) => void>();
   const onSetHomeHere = vi.fn<(lat: number, lon: number) => void>();
   const onTakeoff = vi.fn<(altitudeM: number) => void>();
   const onRtl = vi.fn<() => void>();
@@ -242,9 +242,9 @@ describe("LiveMapSection", () => {
     expect(screen.getByRole("button", { name: "Встановити дім тут" })).toBeInTheDocument();
   });
 
-  it("Fly to here sends the right-clicked lat/lon and drops a target marker + track line, then closes the popup", async () => {
+  it("Fly to here sends the right-clicked lat/lon at the vehicle's current altitude by default, drops a target marker + track line, then closes the popup", async () => {
     localStorage.setItem(TOKEN_STORAGE_KEY, "test-token");
-    const { user, onFlyToHere } = getView(null);
+    const { user, onFlyToHere } = getView({ lat: 50, lon: 30, relativeAltM: 42, updatedAt: 0 });
 
     const viewer = viewerInstances.at(-1)!;
     const { Cartesian3 } = await import("cesium");
@@ -254,15 +254,38 @@ describe("LiveMapSection", () => {
       registeredClickHandlers[0]!({ position: { x: 120, y: 80 } });
     });
 
+    // Defaults to the vehicle's own current relative altitude, editable before sending.
+    expect(screen.getByLabelText("Висота польоту до точки (м)")).toHaveValue(42);
+
     await user.click(screen.getByRole("button", { name: "Летіти сюди" }));
 
     expect(onFlyToHere).toHaveBeenCalledTimes(1);
-    const [lat, lon] = onFlyToHere.mock.calls[0]!;
+    const [lat, lon, alt] = onFlyToHere.mock.calls[0]!;
     expect(lat).toBeCloseTo(52, 4);
     expect(lon).toBeCloseTo(31, 4);
+    expect(alt).toBe(42);
     // Target marker + track-line entity both added.
     expect(viewer.entities.add.mock.calls.length).toBe(entitiesBefore + 2);
     expect(screen.queryByRole("button", { name: "Летіти сюди" })).not.toBeInTheDocument();
+  });
+
+  it("Fly to here sends a user-edited altitude instead of the default", async () => {
+    localStorage.setItem(TOKEN_STORAGE_KEY, "test-token");
+    const { user, onFlyToHere } = getView({ lat: 50, lon: 30, relativeAltM: 42, updatedAt: 0 });
+
+    const viewer = viewerInstances.at(-1)!;
+    const { Cartesian3 } = await import("cesium");
+    viewer.camera.pickEllipsoid.mockReturnValue(Cartesian3.fromDegrees(31, 52, 0));
+    act(() => {
+      registeredClickHandlers[0]!({ position: { x: 120, y: 80 } });
+    });
+
+    const altInput = screen.getByLabelText("Висота польоту до точки (м)");
+    await user.clear(altInput);
+    await user.type(altInput, "75");
+    await user.click(screen.getByRole("button", { name: "Летіти сюди" }));
+
+    expect(onFlyToHere.mock.calls[0]![2]).toBe(75);
   });
 
   it("Set home here sends the right-clicked lat/lon and drops a home marker", async () => {

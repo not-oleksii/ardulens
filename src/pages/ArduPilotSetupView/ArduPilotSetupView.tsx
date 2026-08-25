@@ -1,3 +1,6 @@
+import { invoke } from "@tauri-apps/api/core";
+import { save } from "@tauri-apps/plugin-dialog";
+import { writeFile } from "@tauri-apps/plugin-fs";
 import type { CommandLong } from "mavlink-mappings/dist/lib/common";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import { useTranslation } from "react-i18next";
@@ -1590,13 +1593,34 @@ export function ArduPilotSetupView() {
     setRecordingStats(null);
   }
 
-  function handleSaveRecording() {
+  // Under Tauri, a real native "Save As" dialog + direct filesystem write - the Blob+`<a
+  // download>` trick DataflashLogsSection uses for its own Save button is a real browser
+  // mechanism, but WebView2 doesn't reliably surface it as a visible save prompt the way a
+  // plain Chrome tab does (confirmed live: the click fires but no dialog ever appears, no
+  // error either) - a real environment gap, not a coding mistake in the original approach.
+  // The plain-browser build (no Tauri backend) still needs the Blob fallback, since the
+  // dialog/fs plugins only work under Tauri.
+  async function handleSaveRecording() {
     if (!recordedTlogBytes) return;
+    const filename = `ardulens-session-${new Date().toISOString().replace(/[:.]/g, "-")}.tlog`;
+
+    if (isTauriRuntime()) {
+      const path = await save({
+        title: t("ardupilotSetup.connect.saveRecording"),
+        defaultPath: filename,
+        filters: [{ name: "MAVLink Telemetry Log", extensions: ["tlog"] }],
+      });
+      if (!path) return; // user cancelled
+      await invoke("grant_file_access", { path });
+      await writeFile(path, recordedTlogBytes);
+      return;
+    }
+
     const blob = new Blob([recordedTlogBytes.buffer as ArrayBuffer], { type: "application/octet-stream" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `ardulens-session-${new Date().toISOString().replace(/[:.]/g, "-")}.tlog`;
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -1662,10 +1686,10 @@ export function ArduPilotSetupView() {
 
   // Sends the vehicle to a clicked map point in GUIDED mode - MavDoRepositionFlags.CHANGE_MODE
   // makes it switch to GUIDED itself (see registry.ts's DO_REPOSITION comment), no separate
-  // SET_MODE needed first. Keeps the vehicle's current relative altitude rather than exposing a
-  // separate altitude control here - "fly here at the same height" matches how real GCS's
-  // default this action.
-  function handleFlyToHere(lat: number, lon: number) {
+  // SET_MODE needed first. Altitude is relative to home (DO_REPOSITION's own `altitude` field
+  // semantics) - the map's own context menu prompts for it, defaulting to the vehicle's current
+  // altitude but editable, rather than always silently reusing the current height.
+  function handleFlyToHere(lat: number, lon: number, altitudeM: number) {
     if (!vehicle) return;
     const cmd = new DoRepositionCommand(vehicle.sysid, vehicle.compid);
     cmd.speed = -1; // no change
@@ -1674,7 +1698,7 @@ export function ArduPilotSetupView() {
     cmd.yaw = NaN; // use the current yaw mode
     cmd.latitude = lat;
     cmd.longitude = lon;
-    cmd.altitude = position?.relativeAltM ?? 0;
+    cmd.altitude = altitudeM;
     sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
   }
 
@@ -1777,7 +1801,7 @@ export function ArduPilotSetupView() {
         hasRecordingToSave={recordedTlogBytes !== null}
         onStartRecording={handleStartRecording}
         onStopRecording={handleStopRecording}
-        onSaveRecording={handleSaveRecording}
+        onSaveRecording={() => void handleSaveRecording()}
         onViewRecording={handleViewRecording}
       />
 

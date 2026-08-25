@@ -12,3 +12,13 @@ pub fn grant_geotag_folder_access(app: tauri::AppHandle, path: String) -> Result
         .allow_directory(&path, true)
         .map_err(|e| e.to_string())
 }
+
+/// Same idea as `grant_geotag_folder_access` above but for a single file rather than a whole
+/// directory tree - used by the "Save .tlog" flow (ArduPilotSetupHeader's recording controls):
+/// the destination is chosen freely via the dialog plugin's native Save dialog, so it can be
+/// anywhere on disk. Granting just this one file (not its whole containing folder) keeps the
+/// scope as narrow as the GeoTag grant above is for its own use case.
+#[tauri::command]
+pub fn grant_file_access(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    app.fs_scope().allow_file(&path).map_err(|e| e.to_string())
+}
