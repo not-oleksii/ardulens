@@ -1,0 +1,83 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+import {
+  AlertTriangle, ArrowLeft, BatteryMedium, Check, CheckCircle2, ChevronDown, ChevronRight, ChevronUp,
+  ChevronsLeft, ChevronsRight, Circle, CircleAlert, CircleCheck, Cog, Compass, Download, FlaskConical,
+  Info, Joystick, ListVideo, Loader2, Monitor, Moon, MoveDiagonal, OctagonAlert, RotateCcw, RotateCw,
+  Satellite, ShieldAlert, ShieldCheck, SlidersHorizontal, Square, Sun, Trash2, TriangleAlert, X,
+} from "lucide-react";
+
+<Meta title="Foundations/Iconography" />
+
+# Iconography
+
+ArduLens uses exactly one icon library, [lucide-react](https://lucide.dev) — every icon in the
+app is **outline/stroke-based** by construction (lucide ships one style, not filled/duotone
+variants), so "use outlined icons" is a property of the library choice itself, not a per-icon
+decision. Default stroke width is `2`; severity icons in [Alert](/?path=/docs/components-alert--docs)
+use the library default, nothing overridden.
+
+<div style={{display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 4}}>
+  {[
+    ["OctagonAlert", OctagonAlert, "Destructive alert — shape reads as \"stop\" before color does"],
+    ["TriangleAlert", TriangleAlert, "Warning alert"],
+    ["CheckCircle2", CheckCircle2, "Good / success alert"],
+    ["Info", Info, "Info alert"],
+    ["AlertTriangle", AlertTriangle, "Inline safety warnings (motor test, ESC cal)"],
+    ["ShieldAlert", ShieldAlert, "Armed / unsafe state"],
+    ["ShieldCheck", ShieldCheck, "Disarmed / safe state"],
+    ["CircleAlert", CircleAlert, "Command rejected / NACK"],
+    ["CircleCheck", CircleCheck, "Command acked"],
+    ["Circle", Circle, "Record (idle)"],
+    ["Square", Square, "Stop recording"],
+    ["Download", Download, "Save / export"],
+    ["ListVideo", ListVideo, "View recording"],
+    ["RotateCw", RotateCw, "Reboot"],
+    ["RotateCcw", RotateCcw, "Reset / undo"],
+    ["Trash2", Trash2, "Delete"],
+    ["Loader2", Loader2, "Spinner — always paired with animate-spin"],
+    ["Check", Check, "Selected / confirmed (Checkbox, Select)"],
+    ["ChevronDown", ChevronDown, "Select trigger, expand"],
+    ["ChevronUp", ChevronUp, "Drawer handle, collapse"],
+    ["ChevronRight", ChevronRight, "Tree expand"],
+    ["ChevronsLeft", ChevronsLeft, "Sidebar collapse"],
+    ["ChevronsRight", ChevronsRight, "Sidebar expand"],
+    ["SlidersHorizontal", SlidersHorizontal, "Column/filter toggle"],
+    ["Cog", Cog, "Settings / config section"],
+    ["Compass", Compass, "Heading / navigation"],
+    ["Satellite", Satellite, "GPS"],
+    ["BatteryMedium", BatteryMedium, "Battery telemetry"],
+    ["Joystick", Joystick, "RC / manual control"],
+    ["FlaskConical", FlaskConical, "Dev Mode / simulation"],
+    ["Monitor", Monitor, "Desktop / display"],
+    ["MoveDiagonal", MoveDiagonal, "Resize / drag handle"],
+    ["Sun", Sun, "Light theme"],
+    ["Moon", Moon, "Dark theme"],
+    ["ArrowLeft", ArrowLeft, "Back navigation"],
+    ["X", X, "Close (Dialog)"],
+  ].map(([name, Icon, use]) => (
+    <div key={name} style={{display: "flex", flexDirection: "column", gap: 6, alignItems: "center", padding: 12, border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", background: "var(--card)", textAlign: "center"}}>
+      <Icon size={20} />
+      <code style={{fontSize: 11}}>{name}</code>
+      <span style={{fontSize: 11, color: "var(--muted-foreground)"}}>{use}</span>
+    </div>
+  ))}
+</div>
+
+## Severity icons pair with a shape, not just a color
+
+An icon's **shape** carries meaning independent of color, so severity is never color-alone:
+
+- **Destructive** → `OctagonAlert` (a "stop sign" silhouette)
+- **Warning** → `TriangleAlert`
+- **Good** → `CheckCircle2`
+- **Info** → `Info`
+
+This mirrors [Badge](/?path=/docs/components-badge--docs)'s own dot-based status pills, which use
+the same four-tone system — see [Foundations/Color](/?path=/docs/foundations-color--docs).
+
+## Sizing convention
+
+- `size-4` (16px) inside buttons and alerts (matches text line-height)
+- `size-3.5` (14px) inside compact controls (Checkbox indicator, Select item indicator)
+- Never resized via `strokeWidth` — a thinner/thicker stroke at the same pixel size reads as a
+  different icon set entirely, so every icon in the app keeps lucide's default `2`.

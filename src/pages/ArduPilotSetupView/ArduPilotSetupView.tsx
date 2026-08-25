@@ -1766,7 +1766,7 @@ export function ArduPilotSetupView() {
   }, [status, vehicle]);
 
   return (
-    <div className="ardupilot-setup-theme flex h-svh flex-col overflow-hidden">
+    <div className="flex h-svh flex-col overflow-hidden">
       <ArduPilotSetupHeader
         liveAvailable={isTauriRuntime()}
         mode={mode}

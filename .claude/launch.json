@@ -14,6 +14,13 @@
       "runtimeArgs": ["run", "preview"],
       "port": 4173,
       "url": "http://localhost:4173"
+    },
+    {
+      "name": "ardulens-storybook",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "storybook"],
+      "port": 6006,
+      "url": "http://localhost:6006"
     }
   ]
 }
