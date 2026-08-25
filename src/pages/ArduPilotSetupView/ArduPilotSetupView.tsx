@@ -1,6 +1,10 @@
+import { invoke } from "@tauri-apps/api/core";
+import { save } from "@tauri-apps/plugin-dialog";
+import { writeFile } from "@tauri-apps/plugin-fs";
 import type { CommandLong } from "mavlink-mappings/dist/lib/common";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router";
 import { ArduPilotSetupHeader } from "./ArduPilotSetupHeader";
 import { ArduPilotSetupSidebar, type ArduPilotSetupSection } from "./ArduPilotSetupSidebar";
 import { AccelCalSection } from "./AccelCalSection";
@@ -113,11 +117,14 @@ import {
   sendBytes,
 } from "../../services/mavlinkTransport/mavlinkTransport";
 import type { SerialPortInfo } from "../../services/mavlinkTransport/types";
+import { startTelemetryRecording, type TelemetryRecorderHandle } from "../../services/telemetryRecorder/telemetryRecorder";
+import { useFileStore } from "../../stores/fileStore/fileStore";
 import { useMavlinkAccelCalStore } from "../../stores/mavlinkAccelCalStore/mavlinkAccelCalStore";
 import { useMavlinkCompassCalStore } from "../../stores/mavlinkCompassCalStore/mavlinkCompassCalStore";
 import { useMavlinkConnectionStore } from "../../stores/mavlinkConnectionStore/mavlinkConnectionStore";
 import { useMavlinkDataflashLogStore } from "../../stores/mavlinkDataflashLogStore/mavlinkDataflashLogStore";
 import { useMavlinkInspectorStore } from "../../stores/mavlinkInspectorStore/mavlinkInspectorStore";
+import { useMavlinkLiveMapStore } from "../../stores/mavlinkLiveMapStore/mavlinkLiveMapStore";
 import { useMavlinkMissionStore } from "../../stores/mavlinkMissionStore/mavlinkMissionStore";
 import { useMavlinkFenceStore } from "../../stores/mavlinkMissionStore/mavlinkFenceStore";
 import { useMavlinkRallyStore } from "../../stores/mavlinkMissionStore/mavlinkRallyStore";
@@ -130,6 +137,7 @@ import { useMavlinkRcCalStore } from "../../stores/mavlinkRcCalStore/mavlinkRcCa
 import { useMavlinkStatusTextStore } from "../../stores/mavlinkStatusTextStore/mavlinkStatusTextStore";
 import { useMavlinkTelemetryStore } from "../../stores/mavlinkTelemetryStore/mavlinkTelemetryStore";
 import { useMavlinkVehicleStore } from "../../stores/mavlinkVehicleStore/mavlinkVehicleStore";
+import { useUiStore } from "../../stores/uiStore/uiStore";
 
 const BAUD_RATES = [9600, 38400, 57600, 115200, 921600];
 const DEFAULT_UDP_PORT = 14550;
@@ -205,6 +213,9 @@ function waitForHeartbeat(timeoutMs: number): Promise<boolean> {
 
 export function ArduPilotSetupView() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
+  const setFile = useFileStore((s) => s.setFile);
+  const setActiveTab = useUiStore((s) => s.setActiveTab);
   const status = useMavlinkConnectionStore((s) => s.status);
   const detail = useMavlinkConnectionStore((s) => s.detail);
   const errorMessage = useMavlinkConnectionStore((s) => s.errorMessage);
@@ -324,8 +335,17 @@ export function ArduPilotSetupView() {
   // (e.g. DENIED while armed) looked exactly like a silently-broken button, since nothing else
   // in the UI ever changes on a NACK (the connection doesn't drop, no further message arrives).
   const [rebootLastCommandAck, setRebootLastCommandAck] = useState<MavResult | null>(null);
+  // Non-null while a live-session recording is in progress (its value is the recording's own
+  // start time, shown as an elapsed-time readout in the header) - see telemetryRecorder.ts.
+  const [recordingStartedAt, setRecordingStartedAt] = useState<number | null>(null);
+  const [recordingStats, setRecordingStats] = useState<{ packetCount: number; byteCount: number } | null>(null);
+  // The finished .tlog bytes once a recording is stopped - stays populated (offering Save/
+  // View) until a new recording starts, matching DataflashLogsSection's own "downloadedFile
+  // stays available until the next download" convention.
+  const [recordedTlogBytes, setRecordedTlogBytes] = useState<Uint8Array | null>(null);
 
   const framerRef = useRef(new MavlinkFramer());
+  const recordingHandleRef = useRef<TelemetryRecorderHandle | null>(null);
   const outgoingSeqRef = useRef(0);
   const streamsRequestedRef = useRef(false);
   const fullParamsRequestedRef = useRef(false);
@@ -914,10 +934,23 @@ export function ArduPilotSetupView() {
       else unlistenData = unlisten;
     });
 
+    // A recording in progress when the link drops (disconnect, or a real connection error)
+    // must not just silently vanish - stops it and keeps whatever was captured so far
+    // available to Save/View, exactly as if the user had clicked "Stop Recording" themselves.
+    function finalizeRecordingOnDisconnect() {
+      const handle = recordingHandleRef.current;
+      if (!handle) return;
+      recordingHandleRef.current = null;
+      setRecordedTlogBytes(handle.stop());
+      setRecordingStartedAt(null);
+      setRecordingStats(null);
+    }
+
     void onStatus((s) => {
       if (s.kind === "connected") setConnected(s.detail);
       else if (s.kind === "disconnected") {
         setDisconnected();
+        finalizeRecordingOnDisconnect();
         resetVehicle();
         resetTelemetry();
         resetStatusText();
@@ -931,6 +964,7 @@ export function ArduPilotSetupView() {
         useMavlinkFenceStore.getState().reset();
         useMavlinkRallyStore.getState().reset();
         useMavlinkInspectorStore.getState().reset();
+        useMavlinkLiveMapStore.getState().reset();
         pendingParamsRef.current.clear();
         pendingParamCountRef.current = null;
         ftpSessionRef.current = null;
@@ -943,6 +977,7 @@ export function ArduPilotSetupView() {
         setRebootLastCommandAck(null);
       } else {
         setError(s.message);
+        finalizeRecordingOnDisconnect();
         resetVehicle();
         resetTelemetry();
         resetStatusText();
@@ -956,6 +991,7 @@ export function ArduPilotSetupView() {
         useMavlinkFenceStore.getState().reset();
         useMavlinkRallyStore.getState().reset();
         useMavlinkInspectorStore.getState().reset();
+        useMavlinkLiveMapStore.getState().reset();
         pendingParamsRef.current.clear();
         pendingParamCountRef.current = null;
         ftpSessionRef.current = null;
@@ -1081,6 +1117,19 @@ export function ArduPilotSetupView() {
     }, 1000);
     return () => window.clearInterval(id);
   }, [status]);
+
+  // Polls the recorder's own packet/byte counters into React state once a second while
+  // recording - getStats() is a plain function call (not itself reactive), same "poll a ref-
+  // backed counter on an interval" shape as the Inspector's own tickRates() above, just with
+  // the source living in a service ref instead of a Zustand store.
+  useEffect(() => {
+    if (recordingStartedAt === null) return;
+    const id = window.setInterval(() => {
+      const stats = recordingHandleRef.current?.getStats();
+      if (stats) setRecordingStats(stats);
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [recordingStartedAt]);
 
   // Ask the vehicle to start streaming telemetry once we know who it is (its sysid/compid,
   // learned from its own heartbeat) - ArduPilot doesn't push ATTITUDE/VFR_HUD/SYS_STATUS/etc.
@@ -1530,6 +1579,68 @@ export function ArduPilotSetupView() {
     sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
   }
 
+  function handleStartRecording() {
+    if (recordingHandleRef.current) return; // already recording
+    recordingHandleRef.current = startTelemetryRecording();
+    setRecordingStartedAt(Date.now());
+    setRecordingStats({ packetCount: 0, byteCount: 0 });
+    setRecordedTlogBytes(null);
+  }
+
+  function handleStopRecording() {
+    const handle = recordingHandleRef.current;
+    if (!handle) return;
+    recordingHandleRef.current = null;
+    setRecordedTlogBytes(handle.stop());
+    setRecordingStartedAt(null);
+    setRecordingStats(null);
+  }
+
+  // Under Tauri, a real native "Save As" dialog + direct filesystem write - the Blob+`<a
+  // download>` trick DataflashLogsSection uses for its own Save button is a real browser
+  // mechanism, but WebView2 doesn't reliably surface it as a visible save prompt the way a
+  // plain Chrome tab does (confirmed live: the click fires but no dialog ever appears, no
+  // error either) - a real environment gap, not a coding mistake in the original approach.
+  // The plain-browser build (no Tauri backend) still needs the Blob fallback, since the
+  // dialog/fs plugins only work under Tauri.
+  async function handleSaveRecording() {
+    if (!recordedTlogBytes) return;
+    const filename = `ardulens-session-${new Date().toISOString().replace(/[:.]/g, "-")}.tlog`;
+
+    if (isTauriRuntime()) {
+      const path = await save({
+        title: t("ardupilotSetup.connect.saveRecording"),
+        defaultPath: filename,
+        filters: [{ name: "MAVLink Telemetry Log", extensions: ["tlog"] }],
+      });
+      if (!path) return; // user cancelled
+      await invoke("grant_file_access", { path });
+      await writeFile(path, recordedTlogBytes);
+      return;
+    }
+
+    const blob = new Blob([recordedTlogBytes.buffer as ArrayBuffer], { type: "application/octet-stream" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // Hands the recorded bytes to the SAME fileStore the home screen's drag-and-drop uses, then
+  // deep-links into the Logs tab - the same cross-navigation shape DataflashLogsSection's own
+  // "View on map" and PidTuneSection's "View in Graphs" already use. Logs (not Map, unlike
+  // DataflashLogsSection) since a recorded session's derived Flight/Sample data is the same
+  // shape a .bin's is, but doesn't yet have Map-tab support (CesiumMapView's own worker call
+  // is dataflash-.bin-specific) - a real, honest v1 scope cut, not an oversight.
+  function handleViewRecording() {
+    if (!recordedTlogBytes) return;
+    setFile({ name: `ardulens-session-${Date.now()}.tlog`, buf: recordedTlogBytes.buffer as ArrayBuffer });
+    setActiveTab("logs");
+    void navigate("/");
+  }
+
   // Sets ESC_CALIBRATION=3 ("Auto") and reboots - the firmware handles the whole passthrough
   // sequence itself on the next boot (see EscCalSection.tsx's comment), so no further protocol
   // interaction is needed after this.
@@ -1578,10 +1689,10 @@ export function ArduPilotSetupView() {
 
   // Sends the vehicle to a clicked map point in GUIDED mode - MavDoRepositionFlags.CHANGE_MODE
   // makes it switch to GUIDED itself (see registry.ts's DO_REPOSITION comment), no separate
-  // SET_MODE needed first. Keeps the vehicle's current relative altitude rather than exposing a
-  // separate altitude control here - "fly here at the same height" matches how real GCS's
-  // default this action.
-  function handleFlyToHere(lat: number, lon: number) {
+  // SET_MODE needed first. Altitude is relative to home (DO_REPOSITION's own `altitude` field
+  // semantics) - the map's own context menu prompts for it, defaulting to the vehicle's current
+  // altitude but editable, rather than always silently reusing the current height.
+  function handleFlyToHere(lat: number, lon: number, altitudeM: number) {
     if (!vehicle) return;
     const cmd = new DoRepositionCommand(vehicle.sysid, vehicle.compid);
     cmd.speed = -1; // no change
@@ -1590,7 +1701,7 @@ export function ArduPilotSetupView() {
     cmd.yaw = NaN; // use the current yaw mode
     cmd.latitude = lat;
     cmd.longitude = lon;
-    cmd.altitude = position?.relativeAltM ?? 0;
+    cmd.altitude = altitudeM;
     sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
   }
 
@@ -1687,6 +1798,14 @@ export function ArduPilotSetupView() {
         onDevModeCopter={() => void handleConnectMockCopter()}
         devFramePresetKey={devFramePresetKey}
         setDevFramePresetKey={setDevFramePresetKey}
+        isRecording={recordingStartedAt !== null}
+        recordingStartedAt={recordingStartedAt}
+        recordingStats={recordingStats}
+        hasRecordingToSave={recordedTlogBytes !== null}
+        onStartRecording={handleStartRecording}
+        onStopRecording={handleStopRecording}
+        onSaveRecording={() => void handleSaveRecording()}
+        onViewRecording={handleViewRecording}
       />
 
       <VehicleStatusBar

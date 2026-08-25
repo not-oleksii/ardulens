@@ -1,4 +1,5 @@
-import { ArrowLeft, FlaskConical, RotateCw } from "lucide-react";
+import { ArrowLeft, Circle, Download, FlaskConical, ListVideo, RotateCw, Square } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -44,6 +45,14 @@ export interface ArduPilotSetupHeaderProps {
   onDevModeCopter: () => void;
   devFramePresetKey: string;
   setDevFramePresetKey: (key: string) => void;
+  isRecording: boolean;
+  recordingStartedAt: number | null;
+  recordingStats: { packetCount: number; byteCount: number } | null;
+  hasRecordingToSave: boolean;
+  onStartRecording: () => void;
+  onStopRecording: () => void;
+  onSaveRecording: () => void;
+  onViewRecording: () => void;
 }
 
 export function ArduPilotSetupHeader({
@@ -77,10 +86,32 @@ export function ArduPilotSetupHeader({
   onDevModeCopter,
   devFramePresetKey,
   setDevFramePresetKey,
+  isRecording,
+  recordingStartedAt,
+  recordingStats,
+  hasRecordingToSave,
+  onStartRecording,
+  onStopRecording,
+  onSaveRecording,
+  onViewRecording,
 }: ArduPilotSetupHeaderProps) {
   const { t } = useTranslation();
   const isBusy = status === "connecting";
   const isConnected = status === "connected";
+
+  // A purely local "now" tick - `recordingStartedAt` (the source of truth) lives in the
+  // parent, this just re-reads the clock once a second so the elapsed-time text below keeps
+  // advancing, without making the parent manage a timer for a concern this component can
+  // fully own itself. Date.now() is read here (inside the effect, a real side-effect context)
+  // rather than directly in the render body, which this codebase's react-hooks/purity rule
+  // (enforced via the React Compiler) flags as an impure render.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!isRecording) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [isRecording]);
+  const recordingElapsedSec = recordingStartedAt !== null ? Math.floor((now - recordingStartedAt) / 1000) : 0;
 
   return (
     <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-4 py-2">
@@ -219,6 +250,42 @@ export function ArduPilotSetupHeader({
                 : t("ardupilotSetup.connect.rebootRejected", { result: mavResultLabel(t, rebootLastCommandAck) })}
             </span>
           )}
+
+          {isRecording ? (
+            <>
+              <Button type="button" size="sm" variant="destructive" className="shrink-0 gap-1" onClick={onStopRecording}>
+                <Square className="h-3.5 w-3.5 fill-current" />
+                {t("ardupilotSetup.connect.stopRecording")}
+              </Button>
+              <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                {t("ardupilotSetup.connect.recordingElapsed", {
+                  time: `${String(Math.floor(recordingElapsedSec / 60)).padStart(2, "0")}:${String(recordingElapsedSec % 60).padStart(2, "0")}`,
+                  packets: (recordingStats?.packetCount ?? 0).toLocaleString(),
+                })}
+              </span>
+            </>
+          ) : hasRecordingToSave ? (
+            <>
+              <Button type="button" size="sm" variant="outline" className="shrink-0 gap-1" onClick={onSaveRecording}>
+                <Download className="h-3.5 w-3.5" />
+                {t("ardupilotSetup.connect.saveRecording")}
+              </Button>
+              <Button type="button" size="sm" variant="outline" className="shrink-0 gap-1" onClick={onViewRecording}>
+                <ListVideo className="h-3.5 w-3.5" />
+                {t("ardupilotSetup.connect.viewRecording")}
+              </Button>
+              <Button type="button" size="sm" variant="ghost" className="shrink-0 gap-1" onClick={onStartRecording}>
+                <Circle className="h-3.5 w-3.5" />
+                {t("ardupilotSetup.connect.startRecording")}
+              </Button>
+            </>
+          ) : (
+            <Button type="button" size="sm" variant="outline" className="shrink-0 gap-1" onClick={onStartRecording}>
+              <Circle className="h-3.5 w-3.5" />
+              {t("ardupilotSetup.connect.startRecording")}
+            </Button>
+          )}
+
           <Button type="button" size="sm" variant="destructive" className="shrink-0" onClick={onDisconnect}>
             {t("ardupilotSetup.connect.disconnect")}
           </Button>

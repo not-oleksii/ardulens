@@ -19,6 +19,11 @@ export interface DecodedMavlinkPacket {
    * directly from these raw bytes instead of trusting `message.paramValue`.
    */
   payload: Uint8Array;
+  /** The packet's complete raw bytes (header through CRC/signature) - an independent copy
+   *  (not a view into MavlinkFramer's internal reassembly buffer), safe to hold onto for as
+   *  long as needed (e.g. telemetryRecorder.ts writing a .tlog). Most callers don't need this
+   *  - `message`/`payload` cover the normal case. */
+  raw: Uint8Array;
 }
 
 const V1_START_BYTE = 0xfe;
@@ -34,6 +39,69 @@ function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
   result.set(a, 0);
   result.set(b, a.length);
   return result;
+}
+
+export type PacketDecodeResult =
+  | { kind: "ok"; packet: DecodedMavlinkPacket; length: number }
+  | { kind: "incomplete" } // not enough bytes yet to tell - wait for more
+  | { kind: "invalid" }; // buf[0] isn't a real packet start after all - caller should resync
+
+/**
+ * Attempts to decode one complete, CRC-validated MAVLink packet starting at `buf[0]` (the
+ * caller owns finding/validating that `buf[0]` is a plausible start byte - this function
+ * doesn't scan). Pure and stateless - the shared decode core behind both `MavlinkFramer`'s
+ * streaming reassembly (buf[0] is a live-stream resync candidate, `incomplete` means "wait for
+ * more bytes") and tlog.ts's offline `.tlog` walker (buf[0] is always the real, fixed-layout
+ * start of the next record's packet, so `incomplete`/`invalid` there just means "stop, this is
+ * the last complete record" rather than something to resync past).
+ */
+export function decodeOnePacket(buf: Uint8Array): PacketDecodeResult {
+  const isV2 = buf[0] === V2_START_BYTE;
+  if (!isV2 && buf[0] !== V1_START_BYTE) return { kind: "invalid" };
+
+  const headerLength = isV2 ? V2_HEADER_LENGTH : V1_HEADER_LENGTH;
+  if (buf.length < headerLength) return { kind: "incomplete" };
+
+  // Look up the message id (and therefore whether we can even validate this packet's CRC)
+  // as soon as the header is available - *before* trusting the length byte to decide how
+  // much more data to wait for. Otherwise a false-positive start byte inside unrelated
+  // garbage can compute an implausible total length from noise and stall forever waiting
+  // for bytes that will never arrive, instead of resyncing immediately.
+  const msgId = isV2 ? buf[7]! | (buf[8]! << 8) | (buf[9]! << 16) : buf[5]!;
+  const ctor = MAVLINK_REGISTRY[msgId];
+  const payloadLength = buf[1]!;
+  // A real packet's payload can be *shorter* than PAYLOAD_LENGTH (MAVLink 2 allows trailing
+  // zero bytes to be stripped) but never longer - a claimed length above that is already
+  // proof this isn't a real packet of this message id, so reject it up front rather than
+  // trusting it to compute how many more bytes to wait for (a bogus but "plausible" claimed
+  // length on a message id that happens to be registered could otherwise stall the parser
+  // waiting for bytes that will never arrive).
+  if (!ctor || payloadLength > ctor.PAYLOAD_LENGTH) return { kind: "invalid" };
+
+  const incompatFlags = isV2 ? buf[2]! : 0;
+  const signed = isV2 && (incompatFlags & V2_SIGNED_FLAG) !== 0;
+  const totalLength = headerLength + payloadLength + CRC_LENGTH + (signed ? V2_SIGNATURE_LENGTH : 0);
+  if (buf.length < totalLength) return { kind: "incomplete" };
+
+  const crcInput = buf.subarray(1, headerLength + payloadLength);
+  const expectedCrc = x25Crc(crcInput, ctor.MAGIC_NUMBER);
+  const actualCrc = buf[headerLength + payloadLength]! | (buf[headerLength + payloadLength + 1]! << 8);
+  if (expectedCrc !== actualCrc) return { kind: "invalid" };
+
+  const payload = buf.subarray(headerLength, headerLength + payloadLength);
+  const packet: DecodedMavlinkPacket = {
+    msgId,
+    seq: isV2 ? buf[4]! : buf[2]!,
+    sysid: isV2 ? buf[5]! : buf[3]!,
+    compid: isV2 ? buf[6]! : buf[4]!,
+    message: decodeMessage(ctor, payload),
+    payload,
+    // An independent copy, not a view into the caller's own (possibly reused/mutated)
+    // buffer - safe for a caller to hold onto indefinitely (e.g. telemetryRecorder.ts
+    // accumulating raw packets for a whole session).
+    raw: buf.slice(0, totalLength),
+  };
+  return { kind: "ok", packet, length: totalLength };
 }
 
 /**
@@ -60,52 +128,15 @@ export class MavlinkFramer {
         this.buffer = this.buffer.subarray(start);
       }
 
-      const isV2 = this.buffer[0] === V2_START_BYTE;
-      const headerLength = isV2 ? V2_HEADER_LENGTH : V1_HEADER_LENGTH;
-      if (this.buffer.length < headerLength) break; // wait for more data
-
-      // Look up the message id (and therefore whether we can even validate this packet's
-      // CRC) as soon as the header is available - *before* trusting the length byte to
-      // decide how much more data to wait for. Otherwise a false-positive start byte inside
-      // unrelated garbage can compute an implausible total length from noise and stall
-      // forever waiting for bytes that will never arrive, instead of resyncing immediately.
-      const msgId = isV2 ? this.buffer[7]! | (this.buffer[8]! << 8) | (this.buffer[9]! << 16) : this.buffer[5]!;
-      const ctor = MAVLINK_REGISTRY[msgId];
-      const payloadLength = this.buffer[1]!;
-      // A real packet's payload can be *shorter* than PAYLOAD_LENGTH (MAVLink 2 allows
-      // trailing zero bytes to be stripped) but never longer - a claimed length above that
-      // is already proof this isn't a real packet of this message id, so reject it up front
-      // rather than trusting it to compute how many more bytes to wait for (a bogus but
-      // "plausible" claimed length on a message id that happens to be registered could
-      // otherwise stall the parser waiting for bytes that will never arrive).
-      if (!ctor || payloadLength > ctor.PAYLOAD_LENGTH) {
+      const result = decodeOnePacket(this.buffer);
+      if (result.kind === "incomplete") break;
+      if (result.kind === "invalid") {
         this.buffer = this.buffer.subarray(1);
         continue;
       }
 
-      const incompatFlags = isV2 ? this.buffer[2]! : 0;
-      const signed = isV2 && (incompatFlags & V2_SIGNED_FLAG) !== 0;
-      const totalLength = headerLength + payloadLength + CRC_LENGTH + (signed ? V2_SIGNATURE_LENGTH : 0);
-      if (this.buffer.length < totalLength) break; // wait for more data
-
-      const crcInput = this.buffer.subarray(1, headerLength + payloadLength);
-      const expectedCrc = x25Crc(crcInput, ctor.MAGIC_NUMBER);
-      const actualCrc = this.buffer[headerLength + payloadLength]! | (this.buffer[headerLength + payloadLength + 1]! << 8);
-      if (expectedCrc !== actualCrc) {
-        this.buffer = this.buffer.subarray(1);
-        continue;
-      }
-
-      const payload = this.buffer.subarray(headerLength, headerLength + payloadLength);
-      packets.push({
-        msgId,
-        seq: isV2 ? this.buffer[4]! : this.buffer[2]!,
-        sysid: isV2 ? this.buffer[5]! : this.buffer[3]!,
-        compid: isV2 ? this.buffer[6]! : this.buffer[4]!,
-        message: decodeMessage(ctor, payload),
-        payload,
-      });
-      this.buffer = this.buffer.subarray(totalLength);
+      packets.push(result.packet);
+      this.buffer = this.buffer.subarray(result.length);
     }
 
     return packets;

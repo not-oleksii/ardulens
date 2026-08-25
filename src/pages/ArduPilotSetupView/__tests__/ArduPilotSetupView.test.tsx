@@ -3,6 +3,16 @@ import userEvent from "@testing-library/user-event";
 import { emit } from "@tauri-apps/api/event";
 import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Save .tlog's own real-desktop-only path (see ArduPilotSetupView.tsx's handleSaveRecording) -
+// mocked here, not routed through mockIPC's own invoke-command handling below, since these are
+// separate npm packages (@tauri-apps/plugin-dialog/plugin-fs), not core Tauri IPC commands.
+const { mockSaveDialog, mockWriteFile } = vi.hoisted(() => ({
+  mockSaveDialog: vi.fn<(options?: { title?: string; defaultPath?: string }) => Promise<string | null>>(),
+  mockWriteFile: vi.fn<(path: string, data: Uint8Array) => Promise<void>>(),
+}));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ save: mockSaveDialog }));
+vi.mock("@tauri-apps/plugin-fs", () => ({ writeFile: mockWriteFile }));
 import { MemoryRouter } from "react-router";
 import { decodeMessage, encodePacket } from "../../../mavlink/codec/codec";
 import { MemInfo } from "mavlink-mappings/dist/lib/ardupilotmega";
@@ -69,6 +79,7 @@ import { useMavlinkCompassCalStore } from "../../../stores/mavlinkCompassCalStor
 import { useMavlinkConnectionStore } from "../../../stores/mavlinkConnectionStore/mavlinkConnectionStore";
 import { useMavlinkDataflashLogStore } from "../../../stores/mavlinkDataflashLogStore/mavlinkDataflashLogStore";
 import { useMavlinkInspectorStore } from "../../../stores/mavlinkInspectorStore/mavlinkInspectorStore";
+import { useMavlinkLiveMapStore } from "../../../stores/mavlinkLiveMapStore/mavlinkLiveMapStore";
 import { useMavlinkMissionStore } from "../../../stores/mavlinkMissionStore/mavlinkMissionStore";
 import { useMavlinkFenceStore } from "../../../stores/mavlinkMissionStore/mavlinkFenceStore";
 import { useMavlinkRallyStore } from "../../../stores/mavlinkMissionStore/mavlinkRallyStore";
@@ -108,7 +119,7 @@ const { MockCesiumViewer, MockScreenSpaceEventHandler, cesiumViewerInstances, ce
   const cesiumClickHandlers: Array<(movement: { position: unknown }) => void> = [];
   class MockCesiumViewer {
     entities = { add: vi.fn(), remove: vi.fn() };
-    camera = { flyTo: vi.fn(), pickEllipsoid: vi.fn(), getPickRay: vi.fn() };
+    camera = { flyTo: vi.fn(), setView: vi.fn(), pickEllipsoid: vi.fn(), getPickRay: vi.fn() };
     scene = { canvas: {}, globe: { ellipsoid: {}, pick: vi.fn() } };
     terrainProvider = {};
     destroy = vi.fn();
@@ -528,6 +539,7 @@ afterEach(async () => {
   useMavlinkFenceStore.getState().reset();
   useMavlinkRallyStore.getState().reset();
   useMavlinkInspectorStore.getState().reset();
+  useMavlinkLiveMapStore.getState().reset();
   cesiumViewerInstances.length = 0;
   cesiumClickHandlers.length = 0;
   useFileStore.getState().clearFile();
@@ -535,6 +547,8 @@ afterEach(async () => {
   useUiStore.getState().setActiveTab("logs");
   localStorage.clear();
   vi.unstubAllGlobals();
+  mockSaveDialog.mockReset();
+  mockWriteFile.mockReset();
 });
 
 describe("ArduPilotSetupView", () => {
@@ -3044,6 +3058,37 @@ describe("ArduPilotSetupView", () => {
       expect(sent.bitmask).toBe(MavDoRepositionFlags.CHANGE_MODE);
       expect(sent.latitude).toBeCloseTo(52, 4);
       expect(sent.longitude).toBeCloseTo(31, 4);
+      expect(sent.altitude).toBe(0); // no live position yet in this test -> defaults to 0
+    });
+
+    it("right-click, then Fly to here sends the altitude entered in the popup, not just the vehicle's current one", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const { user } = await connectWithCesiumTokenSet();
+
+      const pos = new GlobalPositionInt();
+      pos.lat = 504500000;
+      pos.lon = 305200000;
+      pos.relativeAlt = 100000; // 100 m in mm
+      await emit(DATA_EVENT, { bytes: Array.from(encodePacket(pos, { seq: 6, sysid: 1, compid: 1 })) });
+
+      const viewer = cesiumViewerInstances.at(-1)!;
+      const { Cartesian3 } = await import("cesium");
+      viewer.camera.pickEllipsoid.mockReturnValue(Cartesian3.fromDegrees(31, 52, 0));
+      act(() => {
+        cesiumClickHandlers[0]!({ position: { x: 100, y: 80 } });
+      });
+
+      const altInput = screen.getByLabelText("Висота польоту до точки (м)");
+      expect(altInput).toHaveValue(100); // defaults to the vehicle's current relative altitude
+      await user.clear(altInput);
+      await user.type(altInput, "150");
+      await user.click(screen.getByRole("button", { name: "Летіти сюди" }));
+
+      await vi.waitFor(() => expect(findSentMessages(invoked, DoRepositionCommand.MSG_ID)).toHaveLength(1));
+      const bytes = (findSentMessages(invoked, DoRepositionCommand.MSG_ID)[0]![1] as { bytes: number[] }).bytes;
+      const sent = decodeMessage(DoRepositionCommand, new Uint8Array(bytes.slice(10)));
+      expect(sent.altitude).toBe(150);
     });
 
     it("right-click, then Set home here sends DO_SET_HOME for the clicked point", async () => {
@@ -4115,6 +4160,112 @@ describe("ArduPilotSetupView", () => {
 
       await user.click(within(relay1Row).getByRole("button"));
       await vi.waitFor(() => expect(findSetRelay(invoked, 1)).toBe(0));
+    });
+  });
+
+  describe("live session recording", () => {
+    async function connectCopter() {
+      const view = getView();
+      await view.clickDevModeCopter();
+      await within(view.getStatusAlert()).findByText("Підключено: Dev mode (simulated vehicle)");
+      return view;
+    }
+
+    it("shows Record session once connected, and Stop recording once clicked", async () => {
+      mockBackend();
+      const { user } = await connectCopter();
+
+      expect(screen.getByRole("button", { name: "Записати сесію" })).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Записати сесію" }));
+
+      expect(screen.getByRole("button", { name: "Зупинити запис" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Записати сесію" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Зберегти .tlog" })).not.toBeInTheDocument();
+    });
+
+    it("captures real traffic while recording, and offers Save/View once stopped", async () => {
+      mockBackend();
+      const { user } = await connectCopter();
+      await user.click(screen.getByRole("button", { name: "Записати сесію" }));
+
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
+      await user.click(screen.getByRole("button", { name: "Зупинити запис" }));
+
+      expect(screen.getByRole("button", { name: "Зберегти .tlog" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Переглянути в Логах" })).toBeInTheDocument();
+      // Starting a fresh recording is still offered alongside the finished one.
+      expect(screen.getByRole("button", { name: "Записати сесію" })).toBeInTheDocument();
+    });
+
+    it("View in Logs hands the recorded .tlog to the shared fileStore and switches to the Logs tab", async () => {
+      mockBackend();
+      const { user } = await connectCopter();
+      await user.click(screen.getByRole("button", { name: "Записати сесію" }));
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
+      await user.click(screen.getByRole("button", { name: "Зупинити запис" }));
+
+      await user.click(screen.getByRole("button", { name: "Переглянути в Логах" }));
+
+      expect(useFileStore.getState().file?.name).toMatch(/\.tlog$/);
+      expect(useFileStore.getState().file!.buf.byteLength).toBeGreaterThan(0);
+      expect(useUiStore.getState().activeTab).toBe("logs");
+    });
+
+    it("disconnecting mid-recording finalizes it - Save/View become available without an explicit Stop", async () => {
+      mockBackend();
+      const { user, clickDisconnect } = await connectCopter();
+      await user.click(screen.getByRole("button", { name: "Записати сесію" }));
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
+
+      await clickDisconnect();
+
+      // Disconnecting unmounts the header's connected-state controls entirely (back to the
+      // not-connected connect form) - reconnect to see the finalized recording's Save/View
+      // buttons, proving the bytes captured before disconnect weren't discarded.
+      await user.click(screen.getByRole("button", { name: "Режим розробника (мультикоптер)" }));
+      await within(screen.getByRole("banner")).findByText("Підключено: Dev mode (simulated vehicle)");
+      expect(screen.getByRole("button", { name: "Зберегти .tlog" })).toBeInTheDocument();
+    });
+
+    it("Save .tlog uses a real native Save dialog + direct filesystem write under Tauri, not a silent browser download", async () => {
+      // isTauriRuntime() is true by default in this whole file - the file-wide beforeEach's
+      // mockWindows("main") simulates the Tauri desktop runtime (see "browser build (no Tauri
+      // runtime)" above), so no extra setup is needed to reach the native-dialog branch here.
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      mockSaveDialog.mockResolvedValue("C:\\Users\\test\\session.tlog");
+      mockWriteFile.mockResolvedValue(undefined);
+
+      const { user } = await connectCopter();
+      await user.click(screen.getByRole("button", { name: "Записати сесію" }));
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
+      await user.click(screen.getByRole("button", { name: "Зупинити запис" }));
+
+      await user.click(screen.getByRole("button", { name: "Зберегти .tlog" }));
+
+      await vi.waitFor(() => expect(mockWriteFile).toHaveBeenCalledTimes(1));
+      expect(mockSaveDialog).toHaveBeenCalledTimes(1);
+      expect(invoked).toHaveBeenCalledWith("grant_file_access", { path: "C:\\Users\\test\\session.tlog" });
+      const [writtenPath, writtenBytes] = mockWriteFile.mock.calls[0]!;
+      expect(writtenPath).toBe("C:\\Users\\test\\session.tlog");
+      expect(writtenBytes.length).toBeGreaterThan(0);
+    });
+
+    it("Save .tlog does nothing further if the native dialog is cancelled", async () => {
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      mockSaveDialog.mockResolvedValue(null);
+
+      const { user } = await connectCopter();
+      await user.click(screen.getByRole("button", { name: "Записати сесію" }));
+      await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
+      await user.click(screen.getByRole("button", { name: "Зупинити запис" }));
+
+      await user.click(screen.getByRole("button", { name: "Зберегти .tlog" }));
+
+      await vi.waitFor(() => expect(mockSaveDialog).toHaveBeenCalledTimes(1));
+      expect(mockWriteFile).not.toHaveBeenCalled();
+      expect(invoked).not.toHaveBeenCalledWith("grant_file_access", expect.anything());
     });
   });
 

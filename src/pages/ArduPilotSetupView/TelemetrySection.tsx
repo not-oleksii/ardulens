@@ -63,7 +63,7 @@ interface TelemetrySectionProps {
   statusTextMessages: StatusTextEntry[];
   rtlModeNumber: number | null;
   onNavigateToSection: (section: ArduPilotSetupSection) => void;
-  onFlyToHere: (lat: number, lon: number) => void;
+  onFlyToHere: (lat: number, lon: number, altitudeM: number) => void;
   onSetHomeHere: (lat: number, lon: number) => void;
   onTakeoff: (altitudeM: number) => void;
   onRtl: () => void;

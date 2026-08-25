@@ -28,7 +28,7 @@
     "title": "ArduLens",
     "description": "Перетягніть .skylog або .bin, щоб отримати зведену таблицю вильотів, графіки, автоматичні поради щодо стану польоту та 3D-карту польоту - усе рахується локально, нічого не залишає ваш комп'ютер.",
     "drop": {
-      "title": "Перетягніть лог: .skylog / .bin",
+      "title": "Перетягніть лог: .skylog / .bin / .tlog",
       "subtitle": "або клікніть, щоб вибрати файл",
       "reading": "Читання файлу...",
       "parsing": "Розбір файлу...",
@@ -271,11 +271,15 @@
       "radarLabel": "Позиція відносно старту (без карти - не задано токен Cesium ion)",
       "distanceFromStart": "{{meters}} м від старту",
       "flyToHere": "Летіти сюди",
+      "flyToAltitude": "Висота польоту до точки (м)",
       "setHomeHere": "Встановити дім тут",
       "takeoffAltitude": "Висота зльоту (м)",
       "takeoff": "Зліт",
       "rtl": "RTL",
-      "rightClickHint": "Клацніть правою кнопкою на карті, щоб летіти туди або встановити дім."
+      "rightClickHint": "Клацніть правою кнопкою на карті, щоб летіти туди або встановити дім.",
+      "vehicleAltitude": "Апарат: {{meters}} м",
+      "targetAltitude": "Ціль: {{meters}} м",
+      "altitudeLabel": "{{meters}} м"
     },
     "parameters": {
       "heading": "Параметри",
@@ -662,6 +666,11 @@
       "reboot": "Перезавантажити",
       "rebootAccepted": "Команду перезавантаження надіслано - апарат має перепідключитися незабаром.",
       "rebootRejected": "Перезавантаження відхилено: {{result}}",
+      "startRecording": "Записати сесію",
+      "stopRecording": "Зупинити запис",
+      "recordingElapsed": "{{time}} - {{packets}} пакетів",
+      "saveRecording": "Зберегти .tlog",
+      "viewRecording": "Переглянути в Логах",
       "devMode": "Режим розробника",
       "devModeCopter": "Режим розробника (мультикоптер)",
       "devFramePresetLabel": "Тип рами для тестового мультикоптера",
@@ -953,6 +962,10 @@
     "sample": {
       "bin": "Приклад .bin",
       "skylog": "Приклад .skylog"
+    },
+    "showAnyway": {
+      "button": "Показати лог попри це",
+      "loading": "Показ..."
     },
     "columns": {
       "toggle": "Показати/сховати фільтр стовпців таблиці",

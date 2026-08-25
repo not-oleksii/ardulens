@@ -97,7 +97,7 @@ export function HomeView() {
       <div className="w-full max-w-md">
         <FileDropzone
           testId={HOME_DROPZONE_TEST_ID}
-          accept=".skylog,.log,.txt,.bin,.BIN"
+          accept=".skylog,.log,.txt,.bin,.BIN,.tlog,.TLOG"
           isParsing={isParsing}
           stage={stage}
           onFile={handleFile}

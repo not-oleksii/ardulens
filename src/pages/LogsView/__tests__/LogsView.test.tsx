@@ -166,6 +166,17 @@ describe("LogsView", () => {
     expect(await screen.findByText(/не піднявся в повітря/)).toBeInTheDocument();
   });
 
+  it("'Show log anyway' displays the raw data despite no detected flight", async () => {
+    loadFile("ground.bin", new FlightBinBuilder().groundedOnly().build());
+    const { user, getTable } = getView();
+    await screen.findByText(/не піднявся в повітря/);
+
+    await user.click(screen.getByRole("button", { name: "Показати лог попри це" }));
+
+    expect(await getTable()).toBeInTheDocument();
+    expect(screen.queryByText(/не піднявся в повітря/)).not.toBeInTheDocument();
+  });
+
   it("shows an error message for a skylog missing -extended_log", async () => {
     loadFile("raw.skylog", new SkylogFileBuilder().addBoard({ board: 1001 }).withoutExtendedLog().build());
     getView();

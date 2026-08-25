@@ -1,7 +1,8 @@
 import { PLANE_MODE_NAMES } from "../../constants";
 import { parseDataflash } from "../../parsers/dataflash-bin/dataflash-bin";
 import { parseSkylog } from "../../parsers/skylog/skylog";
-import { isParsedError, isParsedInfo, isParsedFlights, type Sample } from "../../types";
+import { parseTlog } from "../../parsers/tlog/tlog";
+import { isParsedError, isParsedInfo, isParsedFlights, type Flight, type LogFormat, type Sample } from "../../types";
 import type { ModeSegment, ParamCategory, RawLogPoint, RawLogResult } from "./types";
 
 /** Message types that describe the log itself (formats, units, parameters) rather than flight data. */
@@ -129,14 +130,15 @@ const TELEMETRY_FIELDS: Array<{ key: keyof Sample; label: string }> = [
   { key: "alt", label: "alt" },
 ];
 
-function buildRawLogFromSkylog(buf: ArrayBuffer): RawLogResult {
-  const result = parseSkylog(buf);
-  if (isParsedError(result)) return { error: result.error };
-  if (isParsedInfo(result)) return { info: result.info };
-  if (!isParsedFlights(result) || !result.flights.length) return { info: "У .skylog немає вильоту." };
+/** Shared by every non-dataflash format (skylog, tlog) - both produce the same sparse,
+ *  fixed-field `Sample` shape (unlike .bin's rich, self-describing FMT tables), so both build
+ *  their Graphs param tree/series the same way, off `TELEMETRY_FIELDS` rather than an
+ *  arbitrary generic message tree. */
+function buildRawLogFromSamples(flights: Flight[], fmt: LogFormat, emptyMessage: string): RawLogResult {
+  if (!flights.length) return { info: emptyMessage };
 
   // Multiple flights/boards can share one file - graph only the largest one.
-  const flight = result.flights.reduce((best, f) => (f.samples.length > best.samples.length ? f : best));
+  const flight = flights.reduce((best, f) => (f.samples.length > best.samples.length ? f : best));
   const originMs = flight.samples[0]!.t;
   const maxMs = flight.samples[flight.samples.length - 1]!.t;
 
@@ -156,7 +158,7 @@ function buildRawLogFromSkylog(buf: ArrayBuffer): RawLogResult {
     .map((s) => ({ t: s.t - originMs, mode: s.mode as number }));
 
   return {
-    fmt: "skylog",
+    fmt,
     timeRangeMs: [0, maxMs - originMs],
     modeSegments: buildModeSegments(modeRecords, maxMs - originMs),
     categories: sortCategories([{ key: "telemetry", params }]),
@@ -164,9 +166,31 @@ function buildRawLogFromSkylog(buf: ArrayBuffer): RawLogResult {
   };
 }
 
+function buildRawLogFromSkylog(buf: ArrayBuffer): RawLogResult {
+  const result = parseSkylog(buf);
+  if (isParsedError(result)) return { error: result.error };
+  if (isParsedInfo(result)) return { info: result.info };
+  if (!isParsedFlights(result)) return { info: "У .skylog немає вильоту." };
+  return buildRawLogFromSamples(result.flights, "skylog", "У .skylog немає вильоту.");
+}
+
+function buildRawLogFromTlog(buf: ArrayBuffer): RawLogResult {
+  const result = parseTlog(buf);
+  if (isParsedError(result)) return { error: result.error };
+  if (isParsedInfo(result)) return { info: result.info };
+  if (!isParsedFlights(result)) return { info: "У записаній сесії немає вильоту." };
+  return buildRawLogFromSamples(result.flights, "tlog", "У записаній сесії немає вильоту.");
+}
+
+function isTlogFile(name: string, u8: Uint8Array): boolean {
+  return /\.tlog$/i.test(name) || (u8.length > 9 && (u8[8] === 0xfe || u8[8] === 0xfd));
+}
+
 export function buildRawLog(name: string, buf: ArrayBuffer): RawLogResult {
   const u8 = new Uint8Array(buf);
-  return isBinFile(name, u8) ? buildRawLogFromBin(buf) : buildRawLogFromSkylog(buf);
+  if (isBinFile(name, u8)) return buildRawLogFromBin(buf);
+  if (isTlogFile(name, u8)) return buildRawLogFromTlog(buf);
+  return buildRawLogFromSkylog(buf);
 }
 
 export type { ModeSegment, ParamCategory, ParamDef, RawLog, RawLogPoint, RawLogResult } from "./types";

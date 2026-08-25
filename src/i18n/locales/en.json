@@ -28,7 +28,7 @@
     "title": "ArduLens",
     "description": "Drop a .skylog or .bin file to get a summarized flight table, graphs, automated flight-health advisories, and a 3D flight map - everything runs locally, nothing leaves your computer.",
     "drop": {
-      "title": "Drop a log: .skylog / .bin",
+      "title": "Drop a log: .skylog / .bin / .tlog",
       "subtitle": "or click to choose a file",
       "reading": "Reading file...",
       "parsing": "Parsing file...",
@@ -271,11 +271,15 @@
       "radarLabel": "Position relative to start (no map tiles - no Cesium ion token set)",
       "distanceFromStart": "{{meters}} m from start",
       "flyToHere": "Fly to here",
+      "flyToAltitude": "Fly-to altitude (m)",
       "setHomeHere": "Set home here",
       "takeoffAltitude": "Takeoff altitude (m)",
       "takeoff": "Takeoff",
       "rtl": "RTL",
-      "rightClickHint": "Right-click the map to fly to or set home at a point."
+      "rightClickHint": "Right-click the map to fly to or set home at a point.",
+      "vehicleAltitude": "Vehicle: {{meters}} m",
+      "targetAltitude": "Target: {{meters}} m",
+      "altitudeLabel": "{{meters}} m"
     },
     "parameters": {
       "heading": "Parameters",
@@ -662,6 +666,11 @@
       "reboot": "Reboot",
       "rebootAccepted": "Reboot command sent - vehicle should reconnect shortly.",
       "rebootRejected": "Reboot rejected: {{result}}",
+      "startRecording": "Record session",
+      "stopRecording": "Stop recording",
+      "recordingElapsed": "{{time}} - {{packets}} packets",
+      "saveRecording": "Save .tlog",
+      "viewRecording": "View in Logs",
       "devMode": "Dev Mode",
       "devModeCopter": "Dev Mode (Copter)",
       "devFramePresetLabel": "Dev Copter frame type",
@@ -953,6 +962,10 @@
     "sample": {
       "bin": "Sample .bin",
       "skylog": "Sample .skylog"
+    },
+    "showAnyway": {
+      "button": "Show log anyway",
+      "loading": "Showing..."
     },
     "columns": {
       "toggle": "Show/hide table columns filter",

@@ -24,7 +24,7 @@ export interface RawLogPoint {
 }
 
 export interface RawLog {
-  fmt: "bin" | "skylog";
+  fmt: "bin" | "skylog" | "tlog";
   timeRangeMs: [number, number];
   modeSegments: ModeSegment[];
   categories: ParamCategory[];

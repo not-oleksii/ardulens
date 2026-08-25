@@ -14,6 +14,7 @@ import { useDerivedFromFile } from "../../hooks/useDerivedFromFile/useDerivedFro
 import { copyText } from "../../services/clipboard/clipboard";
 import { getCoreWorker } from "../../services/coreWorkerClient/coreWorkerClient";
 import { useFileStore } from "../../stores/fileStore/fileStore";
+import type { LoadedFile } from "../../stores/fileStore/types";
 import { isParsedError, isParsedFlights, isParsedInfo, type Flight, type ParseResult } from "../../types";
 import { trackStats } from "../../utils/geo/geo";
 
@@ -29,13 +30,30 @@ export function LogsView() {
   const [columnsOpen, setColumnsOpen] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  const { data: result, isLoading } = useDerivedFromFile<ParseResult>(file, async (name, buf) => {
+  const { data: parsed, isLoading } = useDerivedFromFile<ParseResult>(file, async (name, buf) => {
     try {
       return await getCoreWorker().parseFile(name, buf);
     } catch (err) {
       return { error: t("logs.messages.parseError", { message: err instanceof Error ? err.message : String(err) }) };
     }
   });
+
+  const [forced, setForced] = useState<{ file: LoadedFile; result: ParseResult } | null>(null);
+  const [forcing, setForcing] = useState(false);
+
+  const forcedResult = forced && forced.file === file ? forced.result : null;
+  const result = forcedResult ?? parsed;
+
+  async function handleShowAnyway() {
+    if (!file) return;
+    setForcing(true);
+    try {
+      const r = await getCoreWorker().parseFile(file.name, file.buf, undefined, { forceWholeFile: true });
+      setForced({ file, result: r });
+    } finally {
+      setForcing(false);
+    }
+  }
 
   async function handleCopy(key: string, text: string) {
     await copyText(text);
@@ -125,7 +143,14 @@ export function LogsView() {
           )}
           {result && isParsedInfo(result) && (
             <Alert variant="info">
-              <AlertDescription>{result.info}</AlertDescription>
+              <AlertDescription className="flex flex-wrap items-center gap-2">
+                <span>{result.info}</span>
+                {!forcedResult && (
+                  <Button variant="outline" size="sm" onClick={() => void handleShowAnyway()} disabled={forcing}>
+                    {forcing ? t("logs.showAnyway.loading") : t("logs.showAnyway.button")}
+                  </Button>
+                )}
+              </AlertDescription>
             </Alert>
           )}
 

@@ -10,7 +10,7 @@ export interface Sample {
   mode?: number;
 }
 
-export type LogFormat = "skylog" | "bin";
+export type LogFormat = "skylog" | "bin" | "tlog";
 
 export interface TrackStats {
   maxd: number | null;
@@ -42,6 +42,12 @@ export interface ParsedFlights {
 }
 
 export type ParseResult = ParsedFlights | ParsedError | ParsedInfo;
+
+export interface ParseOpts {
+  /** Skip arm/disarm-window and flight-altitude detection; treat the whole file's
+   *  time range as one synthetic flight so its raw data can still be viewed. */
+  forceWholeFile?: boolean;
+}
 
 export function isParsedFlights(r: ParseResult): r is ParsedFlights {
   return "flights" in r;

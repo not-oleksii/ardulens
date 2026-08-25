@@ -1,6 +1,7 @@
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useMavlinkLiveMapStore } from "../../../stores/mavlinkLiveMapStore/mavlinkLiveMapStore";
 import type { PositionTelemetry } from "../../../stores/mavlinkTelemetryStore/types";
 import { LiveMapSection } from "../LiveMapSection";
 
@@ -24,7 +25,7 @@ const { MockViewer, MockScreenSpaceEventHandler, viewerInstances, registeredClic
       add: vi.fn((opts: Record<string, unknown>) => new MockEntity(opts)),
       remove: vi.fn(),
     };
-    camera = { flyTo: vi.fn(), pickEllipsoid: vi.fn(), getPickRay: vi.fn() };
+    camera = { flyTo: vi.fn(), setView: vi.fn(), pickEllipsoid: vi.fn(), getPickRay: vi.fn() };
     scene = { canvas: {}, globe: { ellipsoid: {}, pick: vi.fn() } };
     terrainProvider = {};
     destroy = vi.fn();
@@ -60,12 +61,12 @@ function getView(
   opts: { rtlModeNumber?: number | null } = {},
 ) {
   const user = userEvent.setup();
-  const onFlyToHere = vi.fn<(lat: number, lon: number) => void>();
+  const onFlyToHere = vi.fn<(lat: number, lon: number, altitudeM: number) => void>();
   const onSetHomeHere = vi.fn<(lat: number, lon: number) => void>();
   const onTakeoff = vi.fn<(altitudeM: number) => void>();
   const onRtl = vi.fn<() => void>();
   const rtlModeNumber = opts.rtlModeNumber ?? 6;
-  const { rerender } = render(
+  const { rerender, unmount } = render(
     <LiveMapSection
       position={position}
       headingDeg={headingDeg}
@@ -106,6 +107,7 @@ function getView(
     clickSave,
     setPosition,
     rerender,
+    unmount,
     onFlyToHere,
     onSetHomeHere,
     onTakeoff,
@@ -121,6 +123,7 @@ beforeEach(() => {
 
 afterEach(() => {
   localStorage.clear();
+  useMavlinkLiveMapStore.getState().reset();
 });
 
 describe("LiveMapSection", () => {
@@ -242,9 +245,9 @@ describe("LiveMapSection", () => {
     expect(screen.getByRole("button", { name: "Встановити дім тут" })).toBeInTheDocument();
   });
 
-  it("Fly to here sends the right-clicked lat/lon and drops a target marker + track line, then closes the popup", async () => {
+  it("Fly to here sends the right-clicked lat/lon at the vehicle's current altitude by default, drops a target marker + track line, then closes the popup", async () => {
     localStorage.setItem(TOKEN_STORAGE_KEY, "test-token");
-    const { user, onFlyToHere } = getView(null);
+    const { user, onFlyToHere } = getView({ lat: 50, lon: 30, relativeAltM: 42, updatedAt: 0 });
 
     const viewer = viewerInstances.at(-1)!;
     const { Cartesian3 } = await import("cesium");
@@ -254,15 +257,38 @@ describe("LiveMapSection", () => {
       registeredClickHandlers[0]!({ position: { x: 120, y: 80 } });
     });
 
+    // Defaults to the vehicle's own current relative altitude, editable before sending.
+    expect(screen.getByLabelText("Висота польоту до точки (м)")).toHaveValue(42);
+
     await user.click(screen.getByRole("button", { name: "Летіти сюди" }));
 
     expect(onFlyToHere).toHaveBeenCalledTimes(1);
-    const [lat, lon] = onFlyToHere.mock.calls[0]!;
+    const [lat, lon, alt] = onFlyToHere.mock.calls[0]!;
     expect(lat).toBeCloseTo(52, 4);
     expect(lon).toBeCloseTo(31, 4);
+    expect(alt).toBe(42);
     // Target marker + track-line entity both added.
     expect(viewer.entities.add.mock.calls.length).toBe(entitiesBefore + 2);
     expect(screen.queryByRole("button", { name: "Летіти сюди" })).not.toBeInTheDocument();
+  });
+
+  it("Fly to here sends a user-edited altitude instead of the default", async () => {
+    localStorage.setItem(TOKEN_STORAGE_KEY, "test-token");
+    const { user, onFlyToHere } = getView({ lat: 50, lon: 30, relativeAltM: 42, updatedAt: 0 });
+
+    const viewer = viewerInstances.at(-1)!;
+    const { Cartesian3 } = await import("cesium");
+    viewer.camera.pickEllipsoid.mockReturnValue(Cartesian3.fromDegrees(31, 52, 0));
+    act(() => {
+      registeredClickHandlers[0]!({ position: { x: 120, y: 80 } });
+    });
+
+    const altInput = screen.getByLabelText("Висота польоту до точки (м)");
+    await user.clear(altInput);
+    await user.type(altInput, "75");
+    await user.click(screen.getByRole("button", { name: "Летіти сюди" }));
+
+    expect(onFlyToHere.mock.calls[0]![2]).toBe(75);
   });
 
   it("Set home here sends the right-clicked lat/lon and drops a home marker", async () => {
@@ -302,6 +328,58 @@ describe("LiveMapSection", () => {
     expect(screen.queryByRole("button", { name: "Летіти сюди" })).not.toBeInTheDocument();
     expect(onFlyToHere).not.toHaveBeenCalled();
     expect(onSetHomeHere).not.toHaveBeenCalled();
+  });
+
+  it("restores the Fly-to-here and Set-home-here markers after unmounting and remounting (e.g. switching sidebar sections and back)", async () => {
+    localStorage.setItem(TOKEN_STORAGE_KEY, "test-token");
+    const view1 = getView({ lat: 50, lon: 30, relativeAltM: 42, updatedAt: 0 });
+    const { Cartesian3 } = await import("cesium");
+
+    const viewer1 = viewerInstances.at(-1)!;
+    viewer1.camera.pickEllipsoid.mockReturnValue(Cartesian3.fromDegrees(31, 52, 0));
+    act(() => {
+      registeredClickHandlers[0]!({ position: { x: 120, y: 80 } });
+    });
+    await view1.user.click(screen.getByRole("button", { name: "Летіти сюди" }));
+
+    viewer1.camera.pickEllipsoid.mockReturnValue(Cartesian3.fromDegrees(33, 54, 0));
+    act(() => {
+      registeredClickHandlers[0]!({ position: { x: 140, y: 90 } });
+    });
+    await view1.user.click(screen.getByRole("button", { name: "Встановити дім тут" }));
+
+    view1.unmount();
+
+    // A fresh mount - simulating navigating to a different ArduPilot Setup sidebar section
+    // (which unmounts this component entirely) and back to Telemetry.
+    getView({ lat: 50, lon: 30, relativeAltM: 42, updatedAt: 1 });
+    const viewer2 = viewerInstances.at(-1)!;
+    expect(viewer2).not.toBe(viewer1); // genuinely a new Cesium Viewer instance, not reused
+
+    await vi.waitFor(() => {
+      const flyToCall = viewer2.entities.add.mock.calls.find(
+        ([opts]: [Record<string, unknown>]) => (opts.label as { text?: string } | undefined)?.text === "42 м",
+      );
+      expect(flyToCall).toBeDefined();
+    });
+    // Set-home-here's own marker (a house icon, no altitude label) - just confirm a third
+    // "real" entity beyond the vehicle marker/trail and the fly-to marker/line got added.
+    expect(viewer2.entities.add.mock.calls.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("does not re-animate the camera on a remount - snaps straight to the vehicle instead of flying in again", async () => {
+    localStorage.setItem(TOKEN_STORAGE_KEY, "test-token");
+    const view1 = getView({ lat: 50, lon: 30, relativeAltM: 42, updatedAt: 0 });
+    const viewer1 = viewerInstances.at(-1)!;
+    await vi.waitFor(() => expect(viewer1.camera.flyTo).toHaveBeenCalledTimes(1)); // the real first-ever fix
+
+    view1.unmount();
+
+    getView({ lat: 50, lon: 30, relativeAltM: 42, updatedAt: 1 });
+    const viewer2 = viewerInstances.at(-1)!;
+
+    await vi.waitFor(() => expect(viewer2.camera.setView).toHaveBeenCalledTimes(1));
+    expect(viewer2.camera.flyTo).not.toHaveBeenCalled();
   });
 
   it("does not render a heading label over the connected map", () => {
