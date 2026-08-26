@@ -12,8 +12,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { LanguageSwitcher } from "@/components/LanguageSwitcher/LanguageSwitcher";
-import { ThemeSwitcher } from "@/components/ThemeSwitcher/ThemeSwitcher";
+import { SettingsDialog } from "@/components/SettingsDialog/SettingsDialog";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -135,10 +134,7 @@ export function Sidebar() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <div className={cn("flex flex-wrap gap-2", collapsed && "flex-col")}>
-        <ThemeSwitcher compact={collapsed} />
-        <LanguageSwitcher compact={collapsed} />
-      </div>
+      <SettingsDialog collapsed={collapsed} />
     </aside>
   );
 }

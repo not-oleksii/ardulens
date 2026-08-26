@@ -55,16 +55,18 @@ describe("Sidebar", () => {
     expect(screen.getByRole("tab", { name: "Логи" })).toBeInTheDocument();
   });
 
-  it("still offers language switching once collapsed, via a compact popup showing the active language", async () => {
+  it("offers language and theme switching via the Settings dialog, reachable by accessible name even when collapsed", async () => {
     const { user, clickCollapse } = getView();
 
     await clickCollapse();
-    await user.click(screen.getByRole("button", { name: "Мова інтерфейсу" }));
+    await user.click(screen.getByRole("button", { name: "Налаштування застосунку" }));
 
-    expect(screen.getByRole("radio", { name: "EN" })).toBeInTheDocument();
+    expect(screen.getByRole("radiogroup", { name: "Мова інтерфейсу" })).toBeInTheDocument();
+    expect(screen.getByRole("radiogroup", { name: "Тема" })).toBeInTheDocument();
+
     await user.click(screen.getByRole("radio", { name: "EN" }));
 
-    expect(await screen.findByRole("button", { name: "Interface language" })).toHaveTextContent("EN");
+    expect(i18n.language).toBe("en");
   });
 
   it("expands again when the toggle is clicked a second time", async () => {

@@ -151,7 +151,10 @@ export function GeoTagView() {
                 <AlertDescription>{t("geotag.noCamRecords")}</AlertDescription>
               </Alert>
             ) : (
-              <p className="text-sm text-muted-foreground">{t("geotag.camRecordCount", { count: camTags.length })}</p>
+              <p className="text-sm text-muted-foreground">
+                {t("geotag.camRecordCount", { count: camTags.length })}
+                {photoNames !== null && <> · {t("geotag.photoCount", { count: photoNames.length })}</>}
+              </p>
             )}
 
             <div className="flex flex-wrap items-center gap-2">
@@ -165,10 +168,6 @@ export function GeoTagView() {
               <Alert variant="destructive">
                 <AlertDescription>{pickError}</AlertDescription>
               </Alert>
-            )}
-
-            {photoNames !== null && (
-              <p className="text-sm text-muted-foreground">{t("geotag.photoCount", { count: photoNames.length })}</p>
             )}
 
             {countMismatch && (
@@ -217,37 +216,39 @@ export function GeoTagView() {
                   </Table>
                 </div>
 
-                <Button type="button" onClick={() => void handleGeoTag()} disabled={!canGeoTag}>
-                  {t("geotag.geotagImages")}
-                </Button>
-              </>
-            )}
+                <div className="flex flex-col gap-3 rounded-lg border border-border p-3">
+                  <Button type="button" onClick={() => void handleGeoTag()} disabled={!canGeoTag} className="w-fit">
+                    {t("geotag.geotagImages")}
+                  </Button>
 
-            {progress && (
-              <div className="flex flex-col gap-1">
-                <p className="text-xs text-muted-foreground">{t("geotag.writing", { done: progress.done, total: progress.total })}</p>
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full bg-primary transition-[width]"
-                    style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }}
-                  />
-                </div>
-              </div>
-            )}
-
-            {writeResult && (
-              <Alert variant={writeResult.failed.length === 0 ? "good" : "warning"}>
-                <AlertDescription>
-                  <p>{t("geotag.done", { succeeded: writeResult.succeeded, total: writeResult.succeeded + writeResult.failed.length, folder: `${folderPath}/${GEOTAGGED_SUBFOLDER}` })}</p>
-                  {writeResult.failed.length > 0 && (
-                    <ul className="mt-1 list-inside list-disc font-mono text-xs">
-                      {writeResult.failed.map((f) => (
-                        <li key={f}>{f}</li>
-                      ))}
-                    </ul>
+                  {progress && (
+                    <div className="flex flex-col gap-1">
+                      <p className="text-xs text-muted-foreground">{t("geotag.writing", { done: progress.done, total: progress.total })}</p>
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                        <div
+                          className="h-full bg-primary transition-[width]"
+                          style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }}
+                        />
+                      </div>
+                    </div>
                   )}
-                </AlertDescription>
-              </Alert>
+
+                  {writeResult && (
+                    <Alert variant={writeResult.failed.length === 0 ? "good" : "warning"}>
+                      <AlertDescription>
+                        <p>{t("geotag.done", { succeeded: writeResult.succeeded, total: writeResult.succeeded + writeResult.failed.length, folder: `${folderPath}/${GEOTAGGED_SUBFOLDER}` })}</p>
+                        {writeResult.failed.length > 0 && (
+                          <ul className="mt-1 list-inside list-disc font-mono text-xs">
+                            {writeResult.failed.map((f) => (
+                              <li key={f}>{f}</li>
+                            ))}
+                          </ul>
+                        )}
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                </div>
+              </>
             )}
           </>
         )}

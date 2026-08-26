@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { isFlightMapData, isFlightMapError, isFlightMapInfo, type FlightMapResult } from "../../analysis/flight-map/types";
 import type { TrackPoint } from "../../analysis/flight-map/types";
 import { CESIUM_TOKEN_STORAGE_KEY } from "../../constants";
@@ -486,6 +487,7 @@ export function CesiumMapView() {
   }
 
   const hasNoMapData = Boolean(data && data.result === null);
+  const hasTrackData = Boolean(data && isFlightMapData(data.result));
 
   return (
     <Card>
@@ -518,62 +520,64 @@ export function CesiumMapView() {
           </Alert>
         )}
 
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[240px_1fr]">
-          <section className="flex flex-col gap-2 rounded-lg border border-border p-3">
-            <h3 className="text-sm font-medium">{t("map.legend.heading")}</h3>
-            <ul className="flex flex-col gap-2 text-sm">
-              <li className="flex items-center gap-2">
-                <Checkbox id="show-gcs" checked={showGcsTrack} onCheckedChange={toggleGcsTrackVisible} />
-                <span aria-hidden className="h-3 w-3 shrink-0 rounded-sm" style={{ background: "#3b82f6" }} />
-                <label htmlFor="show-gcs" className="flex-1">
-                  {t("map.legend.gcsTrack")}
-                </label>
-              </li>
-              <li className="flex items-center gap-2">
-                <Checkbox id="show-gps" checked={showGpsTrack} onCheckedChange={toggleGpsTrackVisible} />
-                <span aria-hidden className="h-3 w-3 shrink-0 rounded-sm" style={{ background: "#ef4444" }} />
-                <label htmlFor="show-gps" className="flex-1">
-                  {t("map.legend.gpsTrack")}
-                </label>
-              </li>
-              <li className="flex items-center gap-2">
-                <Checkbox
-                  id="show-cleaned"
-                  checked={showCleanedTrack}
-                  onCheckedChange={toggleCleanedTrackVisible}
-                />
-                <span aria-hidden className="h-3 w-3 shrink-0 rounded-sm" style={{ background: "#22c55e" }} />
-                <label htmlFor="show-cleaned" className="flex-1">
-                  {t("map.legend.cleanedTrack")}
-                </label>
-              </li>
-              <li className="flex items-center gap-2">
-                <Checkbox id="show-gps-loss" checked={showGpsLoss} onCheckedChange={toggleGpsLossVisible} />
-                <span aria-hidden className="flex shrink-0 gap-0.5">
-                  <span className="h-3 w-3 rounded-full" style={{ background: "#f97316" }} />
-                  <span className="h-3 w-3 rounded-full" style={{ background: "#22c55e" }} />
-                </span>
-                <label htmlFor="show-gps-loss" className="flex-1">
-                  {t("map.legend.gpsLoss")}
-                </label>
-              </li>
-              <li className="flex items-center gap-2">
-                <Checkbox
-                  id="show-current"
-                  checked={showCurrentPosition}
-                  onCheckedChange={toggleCurrentPositionVisible}
-                />
-                <span
-                  aria-hidden
-                  className="h-3 w-3 shrink-0 rounded-full"
-                  style={{ background: "#ffffff", border: "1px solid #000" }}
-                />
-                <label htmlFor="show-current" className="flex-1">
-                  {t("map.legend.currentPosition")}
-                </label>
-              </li>
-            </ul>
-          </section>
+        <div className={cn("grid grid-cols-1 gap-4", hasTrackData && "lg:grid-cols-[240px_1fr]")}>
+          {hasTrackData && (
+            <section className="flex flex-col gap-2 rounded-lg border border-border p-3">
+              <h3 className="text-sm font-medium">{t("map.legend.heading")}</h3>
+              <ul className="flex flex-col gap-2 text-sm">
+                <li className="flex items-center gap-2">
+                  <Checkbox id="show-gcs" checked={showGcsTrack} onCheckedChange={toggleGcsTrackVisible} />
+                  <span aria-hidden className="h-3 w-3 shrink-0 rounded-sm" style={{ background: "#3b82f6" }} />
+                  <label htmlFor="show-gcs" className="flex-1">
+                    {t("map.legend.gcsTrack")}
+                  </label>
+                </li>
+                <li className="flex items-center gap-2">
+                  <Checkbox id="show-gps" checked={showGpsTrack} onCheckedChange={toggleGpsTrackVisible} />
+                  <span aria-hidden className="h-3 w-3 shrink-0 rounded-sm" style={{ background: "#ef4444" }} />
+                  <label htmlFor="show-gps" className="flex-1">
+                    {t("map.legend.gpsTrack")}
+                  </label>
+                </li>
+                <li className="flex items-center gap-2">
+                  <Checkbox
+                    id="show-cleaned"
+                    checked={showCleanedTrack}
+                    onCheckedChange={toggleCleanedTrackVisible}
+                  />
+                  <span aria-hidden className="h-3 w-3 shrink-0 rounded-sm" style={{ background: "#22c55e" }} />
+                  <label htmlFor="show-cleaned" className="flex-1">
+                    {t("map.legend.cleanedTrack")}
+                  </label>
+                </li>
+                <li className="flex items-center gap-2">
+                  <Checkbox id="show-gps-loss" checked={showGpsLoss} onCheckedChange={toggleGpsLossVisible} />
+                  <span aria-hidden className="flex shrink-0 gap-0.5">
+                    <span className="h-3 w-3 rounded-full" style={{ background: "#f97316" }} />
+                    <span className="h-3 w-3 rounded-full" style={{ background: "#22c55e" }} />
+                  </span>
+                  <label htmlFor="show-gps-loss" className="flex-1">
+                    {t("map.legend.gpsLoss")}
+                  </label>
+                </li>
+                <li className="flex items-center gap-2">
+                  <Checkbox
+                    id="show-current"
+                    checked={showCurrentPosition}
+                    onCheckedChange={toggleCurrentPositionVisible}
+                  />
+                  <span
+                    aria-hidden
+                    className="h-3 w-3 shrink-0 rounded-full"
+                    style={{ background: "#ffffff", border: "1px solid #000" }}
+                  />
+                  <label htmlFor="show-current" className="flex-1">
+                    {t("map.legend.currentPosition")}
+                  </label>
+                </li>
+              </ul>
+            </section>
+          )}
 
           <div
             ref={containerRef}

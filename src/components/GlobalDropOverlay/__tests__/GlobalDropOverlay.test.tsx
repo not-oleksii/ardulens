@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FlightBinBuilder } from "../../../builders/FlightBinBuilder/FlightBinBuilder";
 import { SkylogFileBuilder } from "../../../builders/SkylogFileBuilder/SkylogFileBuilder";
@@ -74,6 +75,19 @@ describe("GlobalDropOverlay", () => {
 
     expect(await screen.findByText(/Скористайтесь \.bin/)).toBeInTheDocument();
     expect(useFileStore.getState().file?.name).toBe("old.bin");
+  });
+
+  it("dismisses the error banner when its close button is clicked", async () => {
+    useFileStore.getState().setFile({ name: "old.bin", buf: new ArrayBuffer(0) });
+    const { dropOnZone } = getView();
+    const buf = new SkylogFileBuilder().addBoard({ board: 1001 }).withoutExtendedLog().build();
+    dropOnZone(new File([buf], "raw.skylog"));
+    await screen.findByText(/Скористайтесь \.bin/);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Закрити" }));
+
+    expect(screen.queryByText(/Скористайтесь \.bin/)).not.toBeInTheDocument();
   });
 
   it("shows the parsing stage text while a dropped file is being parsed", async () => {
