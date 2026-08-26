@@ -1,4 +1,5 @@
 import { Settings } from "lucide-react";
+import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher/LanguageSwitcher";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher/ThemeSwitcher";
@@ -16,13 +17,18 @@ import { cn } from "@/lib/utils";
 interface SettingsDialogProps {
   /** Icon-rail mode: shows the trigger as an icon-only button, matching the sidebar's other actions. */
   collapsed?: boolean;
+  /** Extra page-specific settings appended below Theme/Language (e.g. ArduPilotSetupView's own
+   *  Dev Mode section) - a render prop so that content can close this dialog itself once its own
+   *  action (e.g. connecting) completes, without this component needing to know what it renders. */
+  children?: (close: () => void) => ReactNode;
 }
 
-export function SettingsDialog({ collapsed = false }: SettingsDialogProps) {
+export function SettingsDialog({ collapsed = false, children }: SettingsDialogProps) {
   const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
 
   return (
-    <Dialog>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button
           variant="ghost"
@@ -48,6 +54,7 @@ export function SettingsDialog({ collapsed = false }: SettingsDialogProps) {
             <span className="text-sm font-medium">{t("language.label")}</span>
             <LanguageSwitcher />
           </div>
+          {children?.(() => setOpen(false))}
         </div>
       </DialogContent>
     </Dialog>

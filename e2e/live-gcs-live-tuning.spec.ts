@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 test.describe("Live ArduPilot Setup - Live tuning", () => {
   test("is gated to ArduCopter only, showing a coming-soon notice for a plane vehicle", async ({ page }) => {
     await page.goto("/ardupilot-setup");
+    await page.getByRole("button", { name: "Налаштування застосунку" }).click();
     await page.getByRole("button", { name: "Режим розробника", exact: true }).click();
     await expect(page.getByText("Підключено: Dev mode (simulated vehicle)")).toBeVisible();
 
@@ -19,6 +20,7 @@ test.describe("Live ArduPilot Setup - Live tuning", () => {
 
   test("loads tuning parameters for a copter vehicle", async ({ page }) => {
     await page.goto("/ardupilot-setup");
+    await page.getByRole("button", { name: "Налаштування застосунку" }).click();
     await page.getByRole("button", { name: "Режим розробника (мультикоптер)", exact: true }).click();
     await expect(page.getByText("Підключено: Dev mode (simulated vehicle)")).toBeVisible();
 

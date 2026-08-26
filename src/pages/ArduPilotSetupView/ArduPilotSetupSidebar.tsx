@@ -9,6 +9,7 @@ import {
   Cog,
   Compass,
   Flag,
+  FlaskConical,
   Gauge,
   HardDrive,
   Joystick,
@@ -36,6 +37,7 @@ import { SettingsDialog } from "@/components/SettingsDialog/SettingsDialog";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { VERIFIED_FRAME_PRESETS } from "../../mavlink/frameDiagrams/frameDiagrams";
 
 export type ArduPilotSetupSection =
   | "telemetry"
@@ -109,9 +111,26 @@ function categoryKeyFor(section: ArduPilotSetupSection): string | null {
 interface ArduPilotSetupSidebarProps {
   activeSection: ArduPilotSetupSection;
   onSelect: (section: ArduPilotSetupSection) => void;
+  // Dev Mode (simulated-vehicle testing, no real hardware needed) lives in the Settings dialog
+  // rather than the header - see SettingsDialog's own `children` render-prop doc comment.
+  isConnected: boolean;
+  isBusy: boolean;
+  devFramePresetKey: string;
+  setDevFramePresetKey: (key: string) => void;
+  onDevMode: () => void;
+  onDevModeCopter: () => void;
 }
 
-export function ArduPilotSetupSidebar({ activeSection, onSelect }: ArduPilotSetupSidebarProps) {
+export function ArduPilotSetupSidebar({
+  activeSection,
+  onSelect,
+  isConnected,
+  isBusy,
+  devFramePresetKey,
+  setDevFramePresetKey,
+  onDevMode,
+  onDevModeCopter,
+}: ArduPilotSetupSidebarProps) {
   const { t } = useTranslation();
   const [collapsed, setCollapsed] = useState(false);
   // Every category starts closed - the active section on first mount is always "telemetry"
@@ -250,7 +269,58 @@ export function ArduPilotSetupSidebar({ activeSection, onSelect }: ArduPilotSetu
           })}
         </TabsList>
       </Tabs>
-      <SettingsDialog collapsed={collapsed} />
+      <SettingsDialog collapsed={collapsed}>
+        {(closeSettings) =>
+          !isConnected && (
+            <div className="flex flex-col gap-2 border-t border-border pt-4">
+              <span className="text-sm font-medium">{t("ardupilotSetup.connect.devModeSectionHeading")}</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  aria-label={t("ardupilotSetup.connect.devFramePresetLabel")}
+                  className="flex h-8 min-w-0 rounded-md border border-input bg-transparent px-2 text-xs shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
+                  value={devFramePresetKey}
+                  disabled={isBusy}
+                  onChange={(e) => setDevFramePresetKey(e.target.value)}
+                >
+                  {VERIFIED_FRAME_PRESETS.map((preset) => (
+                    <option key={preset.key} value={preset.key} className="bg-card text-card-foreground">
+                      {preset.label}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="gap-1"
+                  disabled={isBusy}
+                  onClick={() => {
+                    onDevModeCopter();
+                    closeSettings();
+                  }}
+                >
+                  <FlaskConical className="h-3.5 w-3.5" />
+                  {t("ardupilotSetup.connect.devModeCopter")}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="gap-1"
+                  disabled={isBusy}
+                  onClick={() => {
+                    onDevMode();
+                    closeSettings();
+                  }}
+                >
+                  <FlaskConical className="h-3.5 w-3.5" />
+                  {t("ardupilotSetup.connect.devMode")}
+                </Button>
+              </div>
+            </div>
+          )
+        }
+      </SettingsDialog>
     </aside>
   );
 }
