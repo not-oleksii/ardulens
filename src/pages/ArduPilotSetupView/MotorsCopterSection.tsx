@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -616,9 +617,9 @@ export function MotorsCopterSection({
                 <span>
                   {t("ardupilotSetup.motorsServos.wizard.rebootSummaryFrame", { frame: `${frameClassLabel} / ${frameTypeLabel}` })}
                 </span>
-                <span className={frameConfirmed ? "text-primary" : "text-muted-foreground"}>
+                <Badge variant={frameConfirmed ? "good" : "neutral"}>
                   {frameConfirmed ? t("ardupilotSetup.motorsServos.wizard.confirmed") : t("ardupilotSetup.motorsServos.wizard.pending")}
-                </span>
+                </Badge>
               </div>
               {motorNumbers.map((n) => {
                 const entry = params[`SERVO${n}_REVERSED`];
@@ -627,9 +628,9 @@ export function MotorsCopterSection({
                 return (
                   <div key={n} className="flex items-center justify-between gap-2">
                     <span>{t("ardupilotSetup.motorsServos.wizard.reversedMotorLabel", { motor: n })}</span>
-                    <span className={confirmed ? "text-primary" : "text-muted-foreground"}>
+                    <Badge variant={confirmed ? "good" : "neutral"}>
                       {confirmed ? t("ardupilotSetup.motorsServos.wizard.confirmed") : t("ardupilotSetup.motorsServos.wizard.pending")}
-                    </span>
+                    </Badge>
                   </div>
                 );
               })}

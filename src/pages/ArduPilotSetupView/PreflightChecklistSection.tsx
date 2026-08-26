@@ -71,7 +71,7 @@ export function PreflightChecklistSection({ sensorHealth }: PreflightChecklistSe
         const healthy = (sensorHealth.health & bit) !== 0;
         const label = sensorLabel(t, bit);
         const icon = healthy ? (
-          <CircleCheck className="h-3 w-3 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+          <CircleCheck className="h-3 w-3 shrink-0 text-ardulens-status-good" aria-hidden="true" />
         ) : (
           <CircleAlert className="h-3 w-3 shrink-0 text-destructive" aria-hidden="true" />
         );

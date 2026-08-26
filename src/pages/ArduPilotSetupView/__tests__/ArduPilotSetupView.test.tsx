@@ -2571,7 +2571,7 @@ describe("ArduPilotSetupView", () => {
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERIAL1_PROTOCOL", 2, MavParamType.INT8, 0, 2, 1) });
       await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERIAL1_OPTIONS", 0, MavParamType.INT16, 1, 2, 2) });
 
-      expect(await screen.findByDisplayValue("MAVLink2")).toBeInTheDocument();
+      expect(await screen.findByText("MAVLink2")).toBeInTheDocument();
 
       await user.click(screen.getByRole("button", { name: "Налаштувати опції" }));
       const optionsDialog = screen.getByRole("dialog");
@@ -2592,6 +2592,50 @@ describe("ArduPilotSetupView", () => {
           return bytes[7] === ParamSet.MSG_ID;
         });
         expect(setRequest).toBeDefined();
+      });
+    });
+
+    it("picking a different protocol from the dropdown stages it, and Save all + confirm sends the new value via PARAM_SET", async () => {
+      const sampleXml = `<?xml version="1.0"?><paramfile><vehicles><parameters name="ArduSub">
+        <param humanName="Telem1 Protocol" name="SERIAL1_PROTOCOL" documentation="Protocol selection">
+          <values>
+            <value code="1">MAVLink1</value>
+            <value code="2">MAVLink2</value>
+          </values>
+        </param>
+      </parameters></vehicles></paramfile>`;
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, text: () => Promise.resolve(sampleXml) }));
+
+      const invoked = vi.fn();
+      mockBackend(invoked);
+      const view = getView();
+      await view.clickConnect();
+      await emit(STATUS_EVENT, { kind: "connected", detail: "udp:0.0.0.0:14550" });
+      await within(view.getStatusAlert()).findByText("Підключено: udp:0.0.0.0:14550");
+      await emit(DATA_EVENT, { bytes: sampleSubHeartbeatBytes() });
+      await view.user.click(screen.getByRole("tab", { name: "Послідовні порти" }));
+      const { user } = view;
+
+      await emit(DATA_EVENT, { bytes: buildParamValueBytes("SERIAL1_PROTOCOL", 2, MavParamType.INT8, 0, 1, 1) });
+      expect(await screen.findByText("MAVLink2")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("combobox"));
+      await user.click(screen.getByRole("option", { name: "MAVLink1" }));
+
+      const saveAllButton = await screen.findByRole("button", { name: "Зберегти все (1)" });
+      await user.click(saveAllButton);
+      await user.click(screen.getByRole("button", { name: "Надіслати зміни" }));
+
+      await vi.waitFor(() => {
+        const setRequest = invoked.mock.calls.find(([cmd, payload]) => {
+          if (cmd !== "send_bytes") return false;
+          const bytes = (payload as { bytes: number[] }).bytes;
+          return bytes[7] === ParamSet.MSG_ID;
+        });
+        expect(setRequest).toBeDefined();
+        const bytes = (setRequest![1] as { bytes: number[] }).bytes;
+        const payload = new Uint8Array(bytes.slice(10));
+        expect(paramWireBitsToValue(readParamValueBits(payload), MavParamType.INT8)).toBe(1);
       });
     });
   });
