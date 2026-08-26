@@ -29,6 +29,24 @@ if (typeof window.matchMedia !== "function") {
   });
 }
 
+// jsdom implements none of the Pointer Events capture API - Radix's Select (and other
+// pointer-driven Radix primitives) call hasPointerCapture/setPointerCapture/
+// releasePointerCapture on the elements it interacts with, which throws under jsdom without
+// these. Also no scrollIntoView, which Select calls when opening to bring the selected item
+// into view. All are no-ops here since jsdom has no real layout/scrolling to act on anyway.
+if (typeof Element.prototype.hasPointerCapture !== "function") {
+  Element.prototype.hasPointerCapture = () => false;
+}
+if (typeof Element.prototype.setPointerCapture !== "function") {
+  Element.prototype.setPointerCapture = () => {};
+}
+if (typeof Element.prototype.releasePointerCapture !== "function") {
+  Element.prototype.releasePointerCapture = () => {};
+}
+if (typeof Element.prototype.scrollIntoView !== "function") {
+  Element.prototype.scrollIntoView = () => {};
+}
+
 afterEach(() => {
   cleanup();
 });
