@@ -1916,10 +1916,6 @@ export function ArduPilotSetupView() {
         onDisconnect={() => void handleDisconnect()}
         onReboot={handleReboot}
         rebootLastCommandAck={rebootLastCommandAck}
-        onDevMode={() => void handleConnectMock()}
-        onDevModeCopter={() => void handleConnectMockCopter()}
-        devFramePresetKey={devFramePresetKey}
-        setDevFramePresetKey={setDevFramePresetKey}
         isRecording={recordingStartedAt !== null}
         recordingStartedAt={recordingStartedAt}
         recordingStats={recordingStats}
@@ -1941,7 +1937,16 @@ export function ArduPilotSetupView() {
       />
 
       <div className="flex flex-1 overflow-hidden">
-        <ArduPilotSetupSidebar activeSection={activeSection} onSelect={handleSelectSection} />
+        <ArduPilotSetupSidebar
+          activeSection={activeSection}
+          onSelect={handleSelectSection}
+          isConnected={isConnected}
+          isBusy={status === "connecting"}
+          devFramePresetKey={devFramePresetKey}
+          setDevFramePresetKey={setDevFramePresetKey}
+          onDevMode={() => void handleConnectMock()}
+          onDevModeCopter={() => void handleConnectMockCopter()}
+        />
 
         <main className="min-w-0 flex-1 overflow-y-auto px-6 py-4">
           {!isConnected ? (

@@ -429,6 +429,11 @@ function getView() {
   const getRefreshPortsButton = () => screen.getByRole("button", { name: "Оновити порти" });
   const getConnectButton = () => screen.getByRole("button", { name: "Підключити" });
   const getDisconnectButton = () => screen.getByRole("button", { name: "Відключити" });
+  // Dev Mode connect controls live inside the Settings dialog, not the header - opening
+  // Settings first is a no-op if it's already open (e.g. a test picked a frame preset before
+  // connecting), so callers never need to track the dialog's open state themselves.
+  const getSettingsButton = () => screen.getByRole("button", { name: "Налаштування застосунку" });
+  const openSettings = () => user.click(getSettingsButton());
   const getDevModeButton = () => screen.getByRole("button", { name: "Режим розробника" });
   const getDevModeCopterButton = () => screen.getByRole("button", { name: "Режим розробника (мультикоптер)" });
   const getDevFramePresetSelect = () => screen.getByLabelText("Тип рами для тестового мультикоптера");
@@ -453,8 +458,14 @@ function getView() {
   const clickRefreshPorts = () => user.click(getRefreshPortsButton());
   const clickConnect = () => user.click(getConnectButton());
   const clickDisconnect = () => user.click(getDisconnectButton());
-  const clickDevMode = () => user.click(getDevModeButton());
-  const clickDevModeCopter = () => user.click(getDevModeCopterButton());
+  async function clickDevMode() {
+    if (!screen.queryByRole("button", { name: "Режим розробника" })) await openSettings();
+    await user.click(getDevModeButton());
+  }
+  async function clickDevModeCopter() {
+    if (!screen.queryByRole("button", { name: "Режим розробника (мультикоптер)" })) await openSettings();
+    await user.click(getDevModeCopterButton());
+  }
   const clickParametersNav = () => user.click(getParametersNavButton());
   const clickTelemetryNav = () => user.click(getTelemetryNavButton());
   const clickCompassCalNav = () => user.click(getCompassCalNavButton());
@@ -475,6 +486,8 @@ function getView() {
     getRefreshPortsButton,
     getConnectButton,
     getDisconnectButton,
+    getSettingsButton,
+    openSettings,
     getDevModeButton,
     getDevModeCopterButton,
     getDevFramePresetSelect,
@@ -3636,8 +3649,9 @@ describe("ArduPilotSetupView", () => {
   describe("Dev Mode frame-preset selector", () => {
     it("starts the simulated Copter seeded with whichever verified frame preset is selected, not just the Quad X default", async () => {
       mockBackend();
-      const { user, clickDevModeCopter, clickMotorsNav, getDevFramePresetSelect, getStatusAlert } = getView();
+      const { user, openSettings, clickDevModeCopter, clickMotorsNav, getDevFramePresetSelect, getStatusAlert } = getView();
 
+      await openSettings();
       const presetSelect = getDevFramePresetSelect() as HTMLSelectElement;
       fireEvent.change(presetSelect, { target: { value: "3_1" } }); // Octa X (8 motors)
 
@@ -3662,12 +3676,12 @@ describe("ArduPilotSetupView", () => {
   });
 
   describe("browser build (no Tauri runtime)", () => {
-    it("hides live vehicle connect controls but keeps Dev Mode available", () => {
+    it("hides live vehicle connect controls but keeps Dev Mode available", async () => {
       // The file-wide beforeEach's mockWindows("main") simulates a Tauri desktop runtime -
       // undo that here to exercise what a plain browser tab (run-web) actually sees.
       Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
 
-      const { getDevModeButton, getDevModeCopterButton } = getView();
+      const { openSettings, getDevModeButton, getDevModeCopterButton } = getView();
 
       expect(screen.queryByRole("button", { name: "USB / Серійний порт" })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "UDP (WiFi / SITL)" })).not.toBeInTheDocument();
@@ -3676,6 +3690,9 @@ describe("ArduPilotSetupView", () => {
         screen.getByText(/Підключення до реального апарата.*потребує десктоп-застосунку/),
       ).toBeInTheDocument();
 
+      // Dev Mode lives in the Settings dialog, not the header - it needs no Tauri runtime at
+      // all (it's a pure in-process mock), so it stays reachable in the plain browser build.
+      await openSettings();
       expect(getDevModeButton()).toBeInTheDocument();
       expect(getDevModeCopterButton()).toBeInTheDocument();
     });
@@ -4358,7 +4375,7 @@ describe("ArduPilotSetupView", () => {
 
     it("disconnecting mid-recording finalizes it - Save/View become available without an explicit Stop", async () => {
       mockBackend();
-      const { user, clickDisconnect } = await connectCopter();
+      const { user, clickDisconnect, clickDevModeCopter } = await connectCopter();
       await user.click(screen.getByRole("button", { name: "Записати сесію" }));
       await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
 
@@ -4367,7 +4384,7 @@ describe("ArduPilotSetupView", () => {
       // Disconnecting unmounts the header's connected-state controls entirely (back to the
       // not-connected connect form) - reconnect to see the finalized recording's Save/View
       // buttons, proving the bytes captured before disconnect weren't discarded.
-      await user.click(screen.getByRole("button", { name: "Режим розробника (мультикоптер)" }));
+      await clickDevModeCopter();
       await within(screen.getByRole("banner")).findByText("Підключено: Dev mode (simulated vehicle)");
       expect(screen.getByRole("button", { name: "Зберегти .tlog" })).toBeInTheDocument();
     });

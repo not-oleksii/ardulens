@@ -699,6 +699,7 @@
       "recordingElapsed": "{{time}} - {{packets}} packets",
       "saveRecording": "Save .tlog",
       "viewRecording": "View in Logs",
+      "devModeSectionHeading": "Test without hardware",
       "devMode": "Dev Mode",
       "devModeCopter": "Dev Mode (Copter)",
       "devFramePresetLabel": "Dev Copter frame type",

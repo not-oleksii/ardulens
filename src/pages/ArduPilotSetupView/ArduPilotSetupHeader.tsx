@@ -1,4 +1,4 @@
-import { ArrowLeft, Circle, Download, FlaskConical, ListVideo, RotateCw, Square } from "lucide-react";
+import { ArrowLeft, Circle, Download, ListVideo, RotateCw, Square } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
@@ -6,7 +6,6 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { VERIFIED_FRAME_PRESETS } from "../../mavlink/frameDiagrams/frameDiagrams";
 import { mavResultLabel } from "../../mavlink/labels/labels";
 import { MavResult } from "../../mavlink/registry/registry";
 import type { SerialPortInfo } from "../../services/mavlinkTransport/types";
@@ -44,10 +43,6 @@ export interface ArduPilotSetupHeaderProps {
   onDisconnect: () => void;
   onReboot: () => void;
   rebootLastCommandAck: MavResult | null;
-  onDevMode: () => void;
-  onDevModeCopter: () => void;
-  devFramePresetKey: string;
-  setDevFramePresetKey: (key: string) => void;
   isRecording: boolean;
   recordingStartedAt: number | null;
   recordingStats: { packetCount: number; byteCount: number } | null;
@@ -87,10 +82,6 @@ export function ArduPilotSetupHeader({
   onDisconnect,
   onReboot,
   rebootLastCommandAck,
-  onDevMode,
-  onDevModeCopter,
-  devFramePresetKey,
-  setDevFramePresetKey,
   isRecording,
   recordingStartedAt,
   recordingStats,
@@ -296,47 +287,17 @@ export function ArduPilotSetupHeader({
           </Button>
         </>
       ) : (
-        <>
-          {liveAvailable && (
-            <Button
-              type="button"
-              size="sm"
-              className="shrink-0"
-              onClick={onConnect}
-              disabled={isBusy || (mode === "serial" && !selectedPort)}
-            >
-              {t("ardupilotSetup.connect.connect")}
-            </Button>
-          )}
-          <Button type="button" size="sm" variant="outline" className="shrink-0 gap-1" onClick={onDevMode} disabled={isBusy}>
-            <FlaskConical className="h-3.5 w-3.5" />
-            {t("ardupilotSetup.connect.devMode")}
-          </Button>
-          <select
-            aria-label={t("ardupilotSetup.connect.devFramePresetLabel")}
-            className={SELECT_CLASSNAME}
-            value={devFramePresetKey}
-            disabled={isBusy}
-            onChange={(e) => setDevFramePresetKey(e.target.value)}
-          >
-            {VERIFIED_FRAME_PRESETS.map((preset) => (
-              <option key={preset.key} value={preset.key} className="bg-card text-card-foreground">
-                {preset.label}
-              </option>
-            ))}
-          </select>
+        liveAvailable && (
           <Button
             type="button"
             size="sm"
-            variant="outline"
-            className="shrink-0 gap-1"
-            onClick={onDevModeCopter}
-            disabled={isBusy}
+            className="shrink-0"
+            onClick={onConnect}
+            disabled={isBusy || (mode === "serial" && !selectedPort)}
           >
-            <FlaskConical className="h-3.5 w-3.5" />
-            {t("ardupilotSetup.connect.devModeCopter")}
+            {t("ardupilotSetup.connect.connect")}
           </Button>
-        </>
+        )
       )}
 
       {/* This banner is docked at the top of EVERY section for the whole session, unlike a

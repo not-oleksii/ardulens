@@ -699,6 +699,7 @@
       "recordingElapsed": "{{time}} - {{packets}} пакетів",
       "saveRecording": "Зберегти .tlog",
       "viewRecording": "Переглянути в Логах",
+      "devModeSectionHeading": "Тестування без апарата",
       "devMode": "Режим розробника",
       "devModeCopter": "Режим розробника (мультикоптер)",
       "devFramePresetLabel": "Тип рами для тестового мультикоптера",

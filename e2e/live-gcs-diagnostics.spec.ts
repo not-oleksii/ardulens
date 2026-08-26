@@ -5,6 +5,7 @@ import { expect, test } from "@playwright/test";
 // since the category's max-height collapse isn't hit-testable by Playwright until expanded).
 async function connectAndOpenDiagnostics(page: import("@playwright/test").Page) {
   await page.goto("/ardupilot-setup");
+  await page.getByRole("button", { name: "Налаштування застосунку" }).click();
   await page.getByRole("button", { name: "Режим розробника", exact: true }).click();
   await expect(page.getByText("Підключено: Dev mode (simulated vehicle)")).toBeVisible();
   await page.getByRole("button", { name: "Діагностика" }).click();
