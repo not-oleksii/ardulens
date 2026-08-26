@@ -480,7 +480,7 @@ export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetu
               {t("ardupilotSetup.rcSetup.channelsHeading")}
             </h4>
             <p className="text-xs text-muted-foreground">{t("ardupilotSetup.rcSetup.assignIntro")}</p>
-            <div className="flex flex-col gap-2">
+            <div className="flex max-h-[420px] flex-col gap-2 overflow-y-auto">
               {Array.from({ length: RC_OPTION_CHANNEL_COUNT }, (_, i) => i + 1).map((channel) => {
                 const color = colorForRcChannel(channel);
                 const pwm = live[channel];

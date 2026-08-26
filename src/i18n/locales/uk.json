@@ -27,7 +27,12 @@
     "confirmDiscardTitle": "Скасувати прогрес GeoTag?",
     "confirmDiscardDescription": "У вас є незбережений прогрес у GeoTag (обрана папка з фото) для поточного файлу - перехід далі скасує його.",
     "confirmDiscardStay": "Залишитися",
-    "confirmDiscardChange": "Продовжити і скасувати прогрес"
+    "confirmDiscardChange": "Продовжити і скасувати прогрес",
+    "settings": "Мова та тема"
+  },
+  "settings": {
+    "title": "Налаштування",
+    "description": "Оберіть мову інтерфейсу та тему застосунку."
   },
   "home": {
     "title": "ArduLens",
@@ -37,7 +42,8 @@
       "subtitle": "або клікніть, щоб вибрати файл",
       "reading": "Читання файлу...",
       "parsing": "Розбір файлу...",
-      "replaceHint": "Відпустіть, щоб замінити завантажений файл"
+      "replaceHint": "Відпустіть, щоб замінити завантажений файл",
+      "dismissError": "Закрити"
     },
     "ardupilotSetupCta": "Налаштувати підключений апарат"
   },

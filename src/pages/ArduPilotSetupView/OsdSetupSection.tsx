@@ -305,7 +305,7 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
             ))}
           </div>
 
-          <div className="flex flex-wrap items-center gap-4 text-xs">
+          <div className="flex flex-wrap items-center gap-4 rounded-lg border border-border p-2 text-xs">
             <label className="flex items-center gap-1.5">
               <input
                 type="checkbox"
@@ -326,7 +326,7 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
             </label>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 text-xs">
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-2 text-xs">
             <span className="text-muted-foreground">{t("ardupilotSetup.osdSetup.presetsHeading")}</span>
             {OSD_PRESETS.map((preset) => (
               <Button key={preset.id} type="button" size="sm" variant="outline" onClick={() => handleApplyPreset(preset)}>

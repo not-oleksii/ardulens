@@ -1,3 +1,4 @@
+import { X } from "lucide-react";
 import { useState, type DragEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -101,8 +102,16 @@ export function GlobalDropOverlay({ children }: { children: ReactNode }) {
 
       {error && (
         <div className="absolute inset-x-0 top-4 z-50 mx-auto max-w-md px-4">
-          <Alert variant="destructive">
+          <Alert variant="destructive" className="pr-8">
             <AlertDescription>{error}</AlertDescription>
+            <button
+              type="button"
+              aria-label={t("home.drop.dismissError")}
+              onClick={() => setError(null)}
+              className="absolute top-3 right-3 rounded-xs opacity-70 outline-none transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <X className="size-3.5" />
+            </button>
           </Alert>
         </div>
       )}

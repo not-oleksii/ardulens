@@ -129,6 +129,8 @@ describe("CesiumMapView", () => {
 
     expect(await screen.findByText("У цьому файлі немає окремих повідомлень GPS/POS для карти (телеметрія skylog має лише одну об'єднану позицію).")).toBeInTheDocument();
     expect(screen.queryByText("Розбір файлу...")).not.toBeInTheDocument();
+    // No track data means no track visibility to control - the legend would be dead weight.
+    expect(screen.queryByText("Треки")).not.toBeInTheDocument();
   });
 
   it("surfaces a parse error instead of leaving it unhandled when the worker call throws", async () => {
@@ -162,5 +164,7 @@ describe("CesiumMapView", () => {
     const viewerInstance = getLastViewer();
     expect(viewerInstance).toBeDefined();
     await vi.waitFor(() => expect(viewerInstance!.entities.add).toHaveBeenCalled());
+    // Real track data is loaded, so the legend controlling track visibility should show.
+    expect(await screen.findByText("Треки")).toBeInTheDocument();
   });
 });

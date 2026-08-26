@@ -27,7 +27,12 @@
     "confirmDiscardTitle": "Discard your GeoTag progress?",
     "confirmDiscardDescription": "You have unsaved GeoTag progress (a picked photo folder) for the current file - continuing will discard it.",
     "confirmDiscardStay": "Stay",
-    "confirmDiscardChange": "Continue and discard progress"
+    "confirmDiscardChange": "Continue and discard progress",
+    "settings": "Language & theme"
+  },
+  "settings": {
+    "title": "Settings",
+    "description": "Choose the interface language and app theme."
   },
   "home": {
     "title": "ArduLens",
@@ -37,7 +42,8 @@
       "subtitle": "or click to choose a file",
       "reading": "Reading file...",
       "parsing": "Parsing file...",
-      "replaceHint": "Drop to replace the loaded file"
+      "replaceHint": "Drop to replace the loaded file",
+      "dismissError": "Dismiss"
     },
     "ardupilotSetupCta": "Set up a live vehicle"
   },
