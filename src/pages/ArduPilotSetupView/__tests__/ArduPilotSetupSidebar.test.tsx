@@ -20,7 +20,7 @@ describe("ArduPilotSetupSidebar", () => {
   it("offers language and theme switching via the Settings dialog", async () => {
     const { user } = getView();
 
-    await user.click(screen.getByRole("button", { name: "Мова та тема" }));
+    await user.click(screen.getByRole("button", { name: "Налаштування застосунку" }));
 
     expect(screen.getByRole("radiogroup", { name: "Мова інтерфейсу" })).toBeInTheDocument();
     expect(screen.getByRole("radiogroup", { name: "Тема" })).toBeInTheDocument();

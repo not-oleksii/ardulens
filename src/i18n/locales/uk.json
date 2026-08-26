@@ -28,7 +28,7 @@
     "confirmDiscardDescription": "У вас є незбережений прогрес у GeoTag (обрана папка з фото) для поточного файлу - перехід далі скасує його.",
     "confirmDiscardStay": "Залишитися",
     "confirmDiscardChange": "Продовжити і скасувати прогрес",
-    "settings": "Мова та тема"
+    "settings": "Налаштування застосунку"
   },
   "settings": {
     "title": "Налаштування",

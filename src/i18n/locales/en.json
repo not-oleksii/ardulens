@@ -28,7 +28,7 @@
     "confirmDiscardDescription": "You have unsaved GeoTag progress (a picked photo folder) for the current file - continuing will discard it.",
     "confirmDiscardStay": "Stay",
     "confirmDiscardChange": "Continue and discard progress",
-    "settings": "Language & theme"
+    "settings": "Settings"
   },
   "settings": {
     "title": "Settings",
