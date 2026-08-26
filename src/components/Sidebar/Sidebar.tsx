@@ -39,18 +39,31 @@ export function Sidebar() {
   const file = useFileStore((s) => s.file);
   const clearFile = useFileStore((s) => s.clearFile);
   const [collapsed, setCollapsed] = useState(false);
-  const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
+  // GeoTagView sets useUnsavedChangesStore's hasUnsaved while it has a picked photo folder
+  // (real work worth protecting) - both actions below would otherwise silently discard it with
+  // no warning: "Change file" replaces the shared file outright, and switching tabs unmounts
+  // GeoTagView just as completely (App.tsx's LogViewerRoot renders only ONE tab component at a
+  // time - VIEWS[activeTab] - so a tab switch is just as destructive as changing the file, even
+  // though it doesn't touch the file itself).
+  const [pendingDiscard, setPendingDiscard] = useState<{ tab: Tab } | { changeFile: true } | null>(null);
 
-  // GeoTagView sets this while it has a picked photo folder (real work worth protecting) -
-  // "Change file" would otherwise silently discard it with no warning at all.
   function handleChangeFileClick() {
-    if (useUnsavedChangesStore.getState().hasUnsaved) setConfirmDiscardOpen(true);
+    if (useUnsavedChangesStore.getState().hasUnsaved) setPendingDiscard({ changeFile: true });
     else clearFile();
   }
 
-  function confirmDiscardAndChangeFile() {
-    setConfirmDiscardOpen(false);
-    clearFile();
+  function handleTabChange(value: string) {
+    const tab = value as Tab;
+    if (tab === activeTab) return;
+    if (useUnsavedChangesStore.getState().hasUnsaved) setPendingDiscard({ tab });
+    else setActiveTab(tab);
+  }
+
+  function confirmDiscard() {
+    if (!pendingDiscard) return;
+    if ("changeFile" in pendingDiscard) clearFile();
+    else setActiveTab(pendingDiscard.tab);
+    setPendingDiscard(null);
   }
 
   return (
@@ -71,12 +84,7 @@ export function Sidebar() {
           {collapsed ? <ChevronsRight className="h-4 w-4" /> : <ChevronsLeft className="h-4 w-4" />}
         </Button>
       </div>
-      <Tabs
-        value={activeTab}
-        onValueChange={(value) => setActiveTab(value as Tab)}
-        orientation="vertical"
-        className="flex-1"
-      >
+      <Tabs value={activeTab} onValueChange={handleTabChange} orientation="vertical" className="flex-1">
         <TabsList>
           {VISIBLE_TABS.map((tab) => {
             const Icon = TAB_ICONS[tab];
@@ -111,17 +119,17 @@ export function Sidebar() {
         {!collapsed && <span>{t("sidebar.changeFile")}</span>}
       </Button>
 
-      <Dialog open={confirmDiscardOpen} onOpenChange={setConfirmDiscardOpen}>
+      <Dialog open={pendingDiscard !== null} onOpenChange={(open) => !open && setPendingDiscard(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t("sidebar.confirmDiscardTitle")}</DialogTitle>
             <DialogDescription>{t("sidebar.confirmDiscardDescription")}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setConfirmDiscardOpen(false)}>
+            <Button type="button" variant="outline" onClick={() => setPendingDiscard(null)}>
               {t("sidebar.confirmDiscardStay")}
             </Button>
-            <Button type="button" variant="destructive" onClick={confirmDiscardAndChangeFile}>
+            <Button type="button" variant="destructive" onClick={confirmDiscard}>
               {t("sidebar.confirmDiscardChange")}
             </Button>
           </DialogFooter>
