@@ -77,75 +77,94 @@ export function VehicleStatusBar({ vehicle, battery, gps, armCommandAck, onArm, 
   return (
     <div
       role="status"
-      className="flex shrink-0 flex-wrap items-center gap-4 border-b border-border bg-muted/40 px-4 py-1.5 text-xs"
+      className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border bg-muted/40 px-4 py-1.5 text-xs"
     >
-      <Button
-        type="button"
-        size="sm"
-        variant={vehicle.armed ? "destructive" : "default"}
-        onClick={handleArmBadgeClick}
-        className="h-6 px-2 text-xs font-bold tracking-wide"
-      >
-        {vehicle.armed ? t("ardupilotSetup.vehicle.disarm") : t("ardupilotSetup.vehicle.arm")}
-      </Button>
+      {/* Safety/control group - the items a pilot actually acts on (arm, mode) plus any
+          rejection feedback for those actions. Grouped and given priority position (leftmost)
+          since these are what this bar exists for, per its own doc comment. */}
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant={vehicle.armed ? "destructive" : "default"}
+          onClick={handleArmBadgeClick}
+          className="h-6 px-2 text-xs font-bold tracking-wide"
+        >
+          {vehicle.armed ? t("ardupilotSetup.vehicle.disarm") : t("ardupilotSetup.vehicle.arm")}
+        </Button>
 
-      <span className="text-muted-foreground">{mavTypeLabel(t, vehicle.type)}</span>
-      <span className="text-muted-foreground">{mavAutopilotLabel(t, vehicle.autopilot)}</span>
-      <span className="text-muted-foreground">{mavStateLabel(t, vehicle.systemStatus)}</span>
-
-      <span className="flex items-center gap-1">
-        {vehicle.armed ? (
-          <ShieldAlert className="h-3.5 w-3.5 text-destructive" aria-hidden="true" />
-        ) : (
-          <ShieldCheck className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
-        )}
-        {modeNames ? (
-          <select
-            value={vehicle.customMode in modeNames ? vehicle.customMode : ""}
-            onChange={(e) => setPendingMode(Number(e.target.value))}
-            aria-label={t("ardupilotSetup.vehicle.mode")}
-            className="rounded-md border border-border bg-background px-1.5 py-0.5 font-mono text-xs font-semibold"
-          >
-            {/* The vehicle's actual current value always stays selectable, even if it's a
-                mode number this app doesn't have a name for (matches MotorsCopterSection's
-                frame class/type selects). */}
-            {!(vehicle.customMode in modeNames) && <option value="">{vehicle.customMode}</option>}
-            {Object.entries(modeNames).map(([code, label]) => (
-              <option key={code} value={code}>
-                {label}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <span className="font-mono font-semibold">{flightModeLabel(vehicle.type, vehicle.customMode)}</span>
-        )}
-      </span>
-
-      {armCommandAck && armCommandAck.result !== MavResult.ACCEPTED && (
-        <span role="alert" className="font-semibold text-destructive">
-          {t("ardupilotSetup.vehicle.armCommandRejected", { result: mavResultLabel(t, armCommandAck.result) })}
+        <span className="flex items-center gap-1">
+          {vehicle.armed ? (
+            <ShieldAlert className="h-3.5 w-3.5 text-destructive" aria-hidden="true" />
+          ) : (
+            <ShieldCheck className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+          )}
+          {modeNames ? (
+            <select
+              value={vehicle.customMode in modeNames ? vehicle.customMode : ""}
+              onChange={(e) => setPendingMode(Number(e.target.value))}
+              aria-label={t("ardupilotSetup.vehicle.mode")}
+              className="rounded-md border border-border bg-background px-1.5 py-0.5 font-mono text-xs font-semibold"
+            >
+              {/* The vehicle's actual current value always stays selectable, even if it's a
+                  mode number this app doesn't have a name for (matches MotorsCopterSection's
+                  frame class/type selects). */}
+              {!(vehicle.customMode in modeNames) && <option value="">{vehicle.customMode}</option>}
+              {Object.entries(modeNames).map(([code, label]) => (
+                <option key={code} value={code}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="font-mono font-semibold">{flightModeLabel(vehicle.type, vehicle.customMode)}</span>
+          )}
         </span>
-      )}
 
-      <span
-        className={cn("flex items-center gap-1 font-mono", isLowBattery ? "text-destructive" : "text-muted-foreground")}
-        title={t("ardupilotSetup.telemetry.batteryVoltage")}
-      >
-        <BatteryMedium className="h-3.5 w-3.5" aria-hidden="true" />
-        {battery ? (
-          <>
-            {battery.voltageV.toFixed(2)} V
-            {battery.remainingPercent !== null && ` (${battery.remainingPercent}%)`}
-          </>
-        ) : (
-          "-"
+        {armCommandAck && armCommandAck.result !== MavResult.ACCEPTED && (
+          <span role="alert" className="font-semibold text-destructive">
+            {t("ardupilotSetup.vehicle.armCommandRejected", { result: mavResultLabel(t, armCommandAck.result) })}
+          </span>
         )}
-      </span>
+      </div>
 
-      <span className="flex items-center gap-1 font-mono text-muted-foreground" title={t("ardupilotSetup.telemetry.gpsFixLabel")}>
-        <Satellite className="h-3.5 w-3.5" aria-hidden="true" />
-        {gps ? `${gpsFixTypeLabel(t, gps.fixType)} (${gps.satellitesVisible})` : gpsFixTypeLabel(t, GpsFixType.NO_GPS)}
-      </span>
+      <span aria-hidden="true" className="h-4 w-px shrink-0 bg-border" />
+
+      {/* Live telemetry readouts - the things that actually change every heartbeat, grouped
+          separately from the mostly-static identity strip below so a glance at this side of
+          the divider is enough to catch a low-battery/no-GPS state. */}
+      <div className="flex items-center gap-3">
+        <span
+          className={cn("flex items-center gap-1 font-mono", isLowBattery ? "text-destructive" : "text-muted-foreground")}
+          title={t("ardupilotSetup.telemetry.batteryVoltage")}
+        >
+          <BatteryMedium className="h-3.5 w-3.5" aria-hidden="true" />
+          {battery ? (
+            <>
+              {battery.voltageV.toFixed(2)} V
+              {battery.remainingPercent !== null && ` (${battery.remainingPercent}%)`}
+            </>
+          ) : (
+            "-"
+          )}
+        </span>
+
+        <span className="flex items-center gap-1 font-mono text-muted-foreground" title={t("ardupilotSetup.telemetry.gpsFixLabel")}>
+          <Satellite className="h-3.5 w-3.5" aria-hidden="true" />
+          {gps ? `${gpsFixTypeLabel(t, gps.fixType)} (${gps.satellitesVisible})` : gpsFixTypeLabel(t, GpsFixType.NO_GPS)}
+        </span>
+      </div>
+
+      <span aria-hidden="true" className="h-4 w-px shrink-0 bg-border" />
+
+      {/* Vehicle identity - static once connected (airframe, autopilot, system status),
+          pushed last since it's the least actionable/least frequently useful of the three
+          groups. */}
+      <div className="flex items-center gap-3 text-muted-foreground">
+        <span>{mavTypeLabel(t, vehicle.type)}</span>
+        <span>{mavAutopilotLabel(t, vehicle.autopilot)}</span>
+        <span>{mavStateLabel(t, vehicle.systemStatus)}</span>
+      </div>
 
       <Dialog open={confirmArmOpen} onOpenChange={setConfirmArmOpen}>
         <DialogContent>
