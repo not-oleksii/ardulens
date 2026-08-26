@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { Badge } from "@/components/ui/badge";
 import { MavSysStatusSensor } from "../../mavlink/registry/registry";
 import type { SensorHealthTelemetry } from "../../stores/mavlinkTelemetryStore/types";
 
@@ -32,9 +33,9 @@ export function VehicleHealthSection({ sensorHealth }: VehicleHealthSectionProps
 
   return (
     <div className="flex flex-col gap-1 rounded-md border border-destructive/40 bg-card/95 p-1.5 text-xs shadow-md">
-      <span className="w-fit rounded-full bg-destructive px-2 py-0.5 font-bold tracking-wide text-destructive-foreground">
+      <Badge variant="critical" className="font-bold tracking-wide">
         {t("ardupilotSetup.health.prearmFailing")}
-      </span>
+      </Badge>
     </div>
   );
 }

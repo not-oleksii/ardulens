@@ -4,6 +4,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { MavParamType, MavType } from "../../mavlink/registry/registry";
 import { fetchParamDocs, vehicleFolderForMavType, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
@@ -98,17 +99,18 @@ export function SerialPortsSection({ vehicleType, onLoad, onSetParam }: SerialPo
     if (values) {
       return (
         <span className="flex items-center gap-1.5">
-          <select
-            className="w-full min-w-0 rounded-md border border-border bg-background px-2 py-1 text-xs"
-            value={value}
-            onChange={(e) => stageChange(name, Number(e.target.value))}
-          >
-            {Object.entries(values).map(([code, label]) => (
-              <option key={code} value={code}>
-                {label}
-              </option>
-            ))}
-          </select>
+          <Select value={String(value)} onValueChange={(v) => stageChange(name, Number(v))}>
+            <SelectTrigger className="h-7 w-full min-w-0 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(values).map(([code, label]) => (
+                <SelectItem key={code} value={code}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <ModifiedFromDefaultDot name={name} value={value} />
         </span>
       );
