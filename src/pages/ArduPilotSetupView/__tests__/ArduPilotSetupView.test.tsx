@@ -4495,6 +4495,11 @@ describe("ArduPilotSetupView", () => {
       expect(
         await screen.findByText("Команду перезавантаження надіслано - зачекайте кілька секунд, поки апарат перезапуститься та перепідключиться."),
       ).toBeInTheDocument();
+
+      // Both facts are real and non-contradictory (accepted-and-saved, then reboot-sent) - one
+      // combined Alert instead of two stacked same-variant boxes.
+      expect(screen.getByText("Калібрування прийнято - зміщення збережено на апараті.")).toBeInTheDocument();
+      expect(screen.getAllByRole("alert").filter((a) => a.textContent?.includes("Калібрування прийнято"))).toHaveLength(1);
     });
 
     it("sends DO_CANCEL_MAG_CAL when Cancel is clicked mid-calibration", async () => {

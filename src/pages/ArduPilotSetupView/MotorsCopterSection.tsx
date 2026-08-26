@@ -579,9 +579,14 @@ export function MotorsCopterSection({
                   : t("ardupilotSetup.motorsServos.wizard.rebootSummaryNoneReversed")}
               </p>
             </div>
-            <Alert variant="warning" className="shrink-0">
-              <AlertDescription>{t("ardupilotSetup.motorsServos.rebootRequiredWarning")}</AlertDescription>
-            </Alert>
+            {/* Once the reboot's actually been sent, "still needs a reboot" is no longer true -
+                the rebootSent Alert below takes over as the current-state message instead of
+                stacking on top of this one, which would otherwise read as contradictory. */}
+            {!rebootSent && (
+              <Alert variant="warning" className="shrink-0">
+                <AlertDescription>{t("ardupilotSetup.motorsServos.rebootRequiredWarning")}</AlertDescription>
+              </Alert>
+            )}
             <Button
               type="button"
               size="sm"

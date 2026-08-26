@@ -200,26 +200,51 @@ export function LogsView() {
                 </AlertDescription>
               </Alert>
 
-              {view.fmt === "skylog" && view.boards.length > 1 && (
-                <Alert variant="warning">
-                  <AlertDescription>
-                    {t("logs.messages.multiBoard", { boards: view.boards.join(", ") })}
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              {findingsSummary.flightsAffected > 0 && (
-                <Alert variant={findingsSummary.critical > 0 ? "destructive" : "warning"}>
-                  <AlertDescription>
-                    {t("logs.messages.findingsRollup", {
+              {/* Every format/finding/data-quality note about the CURRENTLY shown flights, as
+                  one bulleted banner instead of one full-width Alert per note - up to 4 of these
+                  used to stack (this app never has both multiBoard and binManualTime at once,
+                  since a file is exactly one format, but findingsRollup and teleportRemoved can
+                  each independently join whichever format note applies), reading as a wall of
+                  same-weight colored banners before the user ever reached the table. Severity
+                  follows the worst note present, so a critical finding still reads as urgent. */}
+              {(() => {
+                const notes: { key: string; text: string; severity: "warning" | "destructive" }[] = [];
+                if (view.fmt === "skylog" && view.boards.length > 1) {
+                  notes.push({ key: "multiBoard", text: t("logs.messages.multiBoard", { boards: view.boards.join(", ") }), severity: "warning" });
+                }
+                if (view.fmt === "bin") {
+                  notes.push({ key: "binManualTime", text: t("logs.messages.binManualTime"), severity: "warning" });
+                }
+                const removed = view.flights.reduce((sum, f) => sum + trackStats(f).removed, 0);
+                if (removed > 0) {
+                  notes.push({ key: "teleportRemoved", text: t("logs.messages.teleportRemoved", { count: removed }), severity: "warning" });
+                }
+                if (findingsSummary.flightsAffected > 0) {
+                  notes.push({
+                    key: "findingsRollup",
+                    text: t("logs.messages.findingsRollup", {
                       count: findingsSummary.flightsAffected,
                       total: view.flights.length,
                       critical: findingsSummary.critical,
                       warning: findingsSummary.warning,
-                    })}
-                  </AlertDescription>
-                </Alert>
-              )}
+                    }),
+                    severity: findingsSummary.critical > 0 ? "destructive" : "warning",
+                  });
+                }
+                if (notes.length === 0) return null;
+                const worst = notes.some((n) => n.severity === "destructive") ? "destructive" : "warning";
+                return (
+                  <Alert variant={worst}>
+                    <AlertDescription>
+                      <ul className="list-disc space-y-0.5 pl-4">
+                        {notes.map((n) => (
+                          <li key={n.key}>{n.text}</li>
+                        ))}
+                      </ul>
+                    </AlertDescription>
+                  </Alert>
+                );
+              })()}
 
               {boardFilter.trim() && view.flights.length === 0 && (
                 <Alert variant="warning">
@@ -229,32 +254,13 @@ export function LogsView() {
                 </Alert>
               )}
 
-              {(() => {
-                const removed = view.flights.reduce((sum, f) => sum + trackStats(f).removed, 0);
-                return removed > 0 ? (
-                  <Alert variant="warning">
-                    <AlertDescription>{t("logs.messages.teleportRemoved", { count: removed })}</AlertDescription>
-                  </Alert>
-                ) : null;
-              })()}
-
-              {view.fmt === "bin" && (
-                <Alert variant="warning">
-                  <AlertDescription>{t("logs.messages.binManualTime")}</AlertDescription>
-                </Alert>
-              )}
-
               {view.all.length > 0 && (
                 <Collapsible open={columnsOpen} onOpenChange={setColumnsOpen}>
                   <div className="flex items-center justify-end">
                     <CollapsibleTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        aria-label={t("logs.columns.toggle")}
-                        aria-pressed={columnsOpen}
-                      >
+                      <Button variant="outline" size="sm" aria-pressed={columnsOpen} className="gap-1.5">
                         <SlidersHorizontal className="h-4 w-4" />
+                        {t("logs.columns.buttonLabel")}
                       </Button>
                     </CollapsibleTrigger>
                   </div>
