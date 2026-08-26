@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import i18n from "../../../i18n/i18n";
 import { useFileStore } from "../../../stores/fileStore/fileStore";
 import { useUnsavedChangesStore } from "../../../stores/unsavedChangesStore/unsavedChangesStore";
+import { useUiStore } from "../../../stores/uiStore/uiStore";
 import { Sidebar } from "../Sidebar";
 
 function getView() {
@@ -16,14 +17,25 @@ function getView() {
   const clickCollapse = () => user.click(getCollapseButton());
   const clickExpand = () => user.click(getExpandButton());
   const clickChangeFile = () => user.click(getChangeFileButton());
+  const clickTab = (name: string) => user.click(screen.getByRole("tab", { name }));
 
-  return { user, getCollapseButton, getExpandButton, getChangeFileButton, clickCollapse, clickExpand, clickChangeFile };
+  return {
+    user,
+    getCollapseButton,
+    getExpandButton,
+    getChangeFileButton,
+    clickCollapse,
+    clickExpand,
+    clickChangeFile,
+    clickTab,
+  };
 }
 
 describe("Sidebar", () => {
   afterEach(async () => {
     useFileStore.getState().clearFile();
     useUnsavedChangesStore.getState().setUnsaved(false);
+    useUiStore.getState().setActiveTab("logs");
     await i18n.changeLanguage("uk");
   });
 
@@ -127,8 +139,48 @@ describe("Sidebar", () => {
     const { user, clickChangeFile } = getView();
 
     await clickChangeFile();
-    await user.click(screen.getByRole("button", { name: "Змінити файл і скасувати прогрес" }));
+    await user.click(screen.getByRole("button", { name: "Продовжити і скасувати прогрес" }));
 
     expect(useFileStore.getState().file).toBeNull();
+  });
+
+  it("switches tabs normally when there's no unsaved GeoTag progress", async () => {
+    const { clickTab } = getView();
+
+    await clickTab("Графіки");
+
+    expect(useUiStore.getState().activeTab).toBe("graphs");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("confirms before switching tabs when there's unsaved GeoTag progress - App.tsx mounts only one tab at a time, so switching away from GeoTag would silently drop it same as 'Change file' would", async () => {
+    useUnsavedChangesStore.getState().setUnsaved(true);
+    const { clickTab } = getView();
+
+    await clickTab("Графіки");
+
+    expect(useUiStore.getState().activeTab).toBe("logs"); // unchanged until confirmed
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("cancelling a tab-switch confirmation keeps the original tab active", async () => {
+    useUnsavedChangesStore.getState().setUnsaved(true);
+    const { user, clickTab } = getView();
+
+    await clickTab("Графіки");
+    await user.click(screen.getByRole("button", { name: "Залишитися" }));
+
+    expect(useUiStore.getState().activeTab).toBe("logs");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("confirming a tab-switch actually switches tabs", async () => {
+    useUnsavedChangesStore.getState().setUnsaved(true);
+    const { user, clickTab } = getView();
+
+    await clickTab("Графіки");
+    await user.click(screen.getByRole("button", { name: "Продовжити і скасувати прогрес" }));
+
+    expect(useUiStore.getState().activeTab).toBe("graphs");
   });
 });

@@ -24,10 +24,10 @@
     "expand": "Розгорнути бічну панель",
     "changeFile": "Змінити файл",
     "currentFile": "Файл: {{name}}",
-    "confirmDiscardTitle": "Змінити файл?",
-    "confirmDiscardDescription": "У вас є незбережений прогрес у GeoTag (обрана папка з фото) для поточного файлу - зміна файлу скасує його.",
+    "confirmDiscardTitle": "Скасувати прогрес GeoTag?",
+    "confirmDiscardDescription": "У вас є незбережений прогрес у GeoTag (обрана папка з фото) для поточного файлу - перехід далі скасує його.",
     "confirmDiscardStay": "Залишитися",
-    "confirmDiscardChange": "Змінити файл і скасувати прогрес"
+    "confirmDiscardChange": "Продовжити і скасувати прогрес"
   },
   "home": {
     "title": "ArduLens",

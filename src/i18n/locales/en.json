@@ -24,10 +24,10 @@
     "expand": "Expand sidebar",
     "changeFile": "Change file",
     "currentFile": "File: {{name}}",
-    "confirmDiscardTitle": "Change file?",
-    "confirmDiscardDescription": "You have unsaved GeoTag progress (a picked photo folder) for the current file - changing files will discard it.",
+    "confirmDiscardTitle": "Discard your GeoTag progress?",
+    "confirmDiscardDescription": "You have unsaved GeoTag progress (a picked photo folder) for the current file - continuing will discard it.",
     "confirmDiscardStay": "Stay",
-    "confirmDiscardChange": "Change file and discard progress"
+    "confirmDiscardChange": "Continue and discard progress"
   },
   "home": {
     "title": "ArduLens",
