@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { join } from "@tauri-apps/api/path";
 import { open } from "@tauri-apps/plugin-dialog";
 import { exists, mkdir, readDir, readFile, writeFile } from "@tauri-apps/plugin-fs";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import { useDerivedFromFile } from "../../hooks/useDerivedFromFile/useDerivedFro
 import { isTauriRuntime } from "../../services/mavlinkTransport/mavlinkTransport";
 import { getCoreWorker } from "../../services/coreWorkerClient/coreWorkerClient";
 import { useFileStore } from "../../stores/fileStore/fileStore";
+import { useUnsavedChangesStore } from "../../stores/unsavedChangesStore/unsavedChangesStore";
 
 const IMAGE_NAME_PATTERN = /\.(jpe?g)$/i;
 const GEOTAGGED_SUBFOLDER = "_geotagged";
@@ -68,6 +69,15 @@ export function GeoTagView() {
     setProgress(null);
     setWriteResult(null);
   }
+
+  // A picked photo folder (and any progress/result from it) is real work a user did in this
+  // session - "Change file" in the Sidebar would otherwise discard it with zero warning, same
+  // class of silent-loss bug the resetKeyFile guard above already fixes for a NEW file loading
+  // out from under it, just triggered by a different action.
+  useEffect(() => {
+    useUnsavedChangesStore.getState().setUnsaved(folderPath !== null);
+    return () => useUnsavedChangesStore.getState().setUnsaved(false);
+  }, [folderPath]);
 
   const tauriAvailable = isTauriRuntime();
   const countMismatch = photoNames !== null && camTags !== null && photoNames.length !== camTags.length;

@@ -15,9 +15,11 @@ import { useTranslation } from "react-i18next";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher/LanguageSwitcher";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher/ThemeSwitcher";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { useFileStore } from "../../stores/fileStore/fileStore";
+import { useUnsavedChangesStore } from "../../stores/unsavedChangesStore/unsavedChangesStore";
 import { VISIBLE_TABS, useUiStore, type Tab } from "../../stores/uiStore/uiStore";
 
 const TAB_ICONS = {
@@ -34,8 +36,22 @@ export function Sidebar() {
   const { t } = useTranslation();
   const activeTab = useUiStore((s) => s.activeTab);
   const setActiveTab = useUiStore((s) => s.setActiveTab);
+  const file = useFileStore((s) => s.file);
   const clearFile = useFileStore((s) => s.clearFile);
   const [collapsed, setCollapsed] = useState(false);
+  const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
+
+  // GeoTagView sets this while it has a picked photo folder (real work worth protecting) -
+  // "Change file" would otherwise silently discard it with no warning at all.
+  function handleChangeFileClick() {
+    if (useUnsavedChangesStore.getState().hasUnsaved) setConfirmDiscardOpen(true);
+    else clearFile();
+  }
+
+  function confirmDiscardAndChangeFile() {
+    setConfirmDiscardOpen(false);
+    clearFile();
+  }
 
   return (
     <aside
@@ -79,16 +95,38 @@ export function Sidebar() {
           })}
         </TabsList>
       </Tabs>
+      {!collapsed && file && (
+        <p className="truncate px-2 text-xs text-muted-foreground" title={file.name}>
+          {t("sidebar.currentFile", { name: file.name })}
+        </p>
+      )}
       <Button
         variant="ghost"
         aria-label={t("sidebar.changeFile")}
         title={collapsed ? t("sidebar.changeFile") : undefined}
         className={cn("gap-2", collapsed ? "justify-center px-0" : "justify-start")}
-        onClick={clearFile}
+        onClick={handleChangeFileClick}
       >
         <Upload className="h-4 w-4 shrink-0" />
         {!collapsed && <span>{t("sidebar.changeFile")}</span>}
       </Button>
+
+      <Dialog open={confirmDiscardOpen} onOpenChange={setConfirmDiscardOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("sidebar.confirmDiscardTitle")}</DialogTitle>
+            <DialogDescription>{t("sidebar.confirmDiscardDescription")}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmDiscardOpen(false)}>
+              {t("sidebar.confirmDiscardStay")}
+            </Button>
+            <Button type="button" variant="destructive" onClick={confirmDiscardAndChangeFile}>
+              {t("sidebar.confirmDiscardChange")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <div className={cn("flex flex-wrap gap-2", collapsed && "flex-col")}>
         <ThemeSwitcher compact={collapsed} />
         <LanguageSwitcher compact={collapsed} />

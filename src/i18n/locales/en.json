@@ -22,7 +22,12 @@
   "sidebar": {
     "collapse": "Collapse sidebar",
     "expand": "Expand sidebar",
-    "changeFile": "Change file"
+    "changeFile": "Change file",
+    "currentFile": "File: {{name}}",
+    "confirmDiscardTitle": "Change file?",
+    "confirmDiscardDescription": "You have unsaved GeoTag progress (a picked photo folder) for the current file - changing files will discard it.",
+    "confirmDiscardStay": "Stay",
+    "confirmDiscardChange": "Change file and discard progress"
   },
   "home": {
     "title": "ArduLens",
@@ -1015,7 +1020,8 @@
       "noMatch": "No flights match \"{{filter}}\". Boards in the log: {{boards}}.",
       "teleportRemoved": "Dropped {{count}} points as teleport/spoofing (EW).",
       "binManualTime": ".bin: takeoff/landing time is manual (GPS time can be spoofed); duration comes from the onboard clock.",
-      "parseError": "Parse error: {{message}}"
+      "parseError": "Parse error: {{message}}",
+      "findingsRollup": "{{count}} of {{total}} flights have findings ({{critical}} critical, {{warning}} warnings) - see the \"Issues\" column for details."
     },
     "table": {
       "issuesHeading": "Issues",

@@ -184,6 +184,26 @@ describe("LogsView", () => {
     expect(await screen.findByText(/Скористайтесь \.bin/)).toBeInTheDocument();
   });
 
+  it("resets the board filter (and other per-file UI state) when a different file is loaded", async () => {
+    loadFile("sample-log.skylog", sampleSkylogBuf());
+    const { typeBoardFilter, getBoardFilterInput } = getView();
+    await screen.findByText("3570");
+    await typeBoardFilter("3526");
+    expect(screen.queryByText("3570")).not.toBeInTheDocument();
+
+    loadFile("sample-flight.bin", sampleBinBuf());
+    // Waiting on the new file's own summary text first (rather than going straight for the
+    // table) reliably settles the real worker-based re-parse before the next assertion - a
+    // bare findByRole("table") here intermittently timed out even at 5s, on top of the
+    // already-resolved skylog parse from earlier in this same test.
+    await screen.findByText(/sample-flight\.bin/);
+    expect(await screen.findByRole("table")).toBeInTheDocument();
+
+    // A board filter left over from the OLD file would otherwise silently keep filtering the
+    // NEW one too, with no indication it's stale rather than intentionally applied.
+    expect(getBoardFilterInput()).toHaveValue("");
+  });
+
   describe("customizable columns", () => {
     it("shows every column by default, with no toggle for the board column", async () => {
       loadFile("sample-flight.bin", sampleBinBuf());

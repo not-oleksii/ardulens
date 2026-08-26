@@ -41,6 +41,22 @@ export function LogsView() {
   const [forced, setForced] = useState<{ file: LoadedFile; result: ParseResult } | null>(null);
   const [forcing, setForcing] = useState(false);
 
+  // Reset the per-file UI selections whenever a different file is loaded - same "adjust state
+  // during render" pattern GraphsView/GeoTagView already use, so a board filter, forced-parse
+  // result, or copied-row highlight from the PREVIOUS file never lingers onto a new one (e.g. a
+  // board filter that happens to also exist in the new file would otherwise silently keep
+  // filtering it, with no indication the filter is stale rather than intentional).
+  const [resetKeyFile, setResetKeyFile] = useState(file);
+  if (file !== resetKeyFile) {
+    setResetKeyFile(file);
+    setBoardFilter("");
+    setCopiedKey(null);
+    setColumnIndices(DEFAULT_COLUMN_INDICES);
+    setColumnsOpen(false);
+    setForced(null);
+    setForcing(false);
+  }
+
   const forcedResult = forced && forced.file === file ? forced.result : null;
   const result = forcedResult ?? parsed;
 
@@ -85,6 +101,23 @@ export function LogsView() {
 
   const computed = useMemo(() => (view ? view.flights.map((f) => ({ f, r: computeRow(f) })) : []), [view]);
   const rowFindings = useMemo(() => computed.map((x) => runAdvisors(x.f)), [computed]);
+  // A per-row FindingsBadge is easy to miss on a long multi-board table - this rolls every
+  // row's own findings up into one line above the table, so a critical/warning issue anywhere
+  // is visible without scrolling through every row first.
+  const findingsSummary = useMemo(() => {
+    let critical = 0;
+    let warning = 0;
+    let flightsAffected = 0;
+    for (const findings of rowFindings) {
+      if (findings.length === 0) continue;
+      flightsAffected++;
+      for (const f of findings) {
+        if (f.severity === "critical") critical++;
+        else if (f.severity === "warning") warning++;
+      }
+    }
+    return { critical, warning, flightsAffected };
+  }, [rowFindings]);
 
   const displayedColumns = useMemo(
     () => columnIndices.map((i) => t(`metrics.${METRICS[i]!.key}`)),
@@ -171,6 +204,19 @@ export function LogsView() {
                 <Alert variant="warning">
                   <AlertDescription>
                     {t("logs.messages.multiBoard", { boards: view.boards.join(", ") })}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {findingsSummary.flightsAffected > 0 && (
+                <Alert variant={findingsSummary.critical > 0 ? "destructive" : "warning"}>
+                  <AlertDescription>
+                    {t("logs.messages.findingsRollup", {
+                      count: findingsSummary.flightsAffected,
+                      total: view.flights.length,
+                      critical: findingsSummary.critical,
+                      warning: findingsSummary.warning,
+                    })}
                   </AlertDescription>
                 </Alert>
               )}
