@@ -273,8 +273,55 @@ export function ArduPilotSetupSidebar({
         {(closeSettings) =>
           !isConnected && (
             <div className="flex flex-col gap-2 border-t border-border pt-4">
-              <span className="text-sm font-medium">{t("ardupilotSetup.connect.devModeSectionHeading")}</span>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm font-medium">{t("ardupilotSetup.connect.devModeSectionHeading")}</span>
+                <p className="text-xs text-muted-foreground">{t("ardupilotSetup.connect.devModeDescription")}</p>
+              </div>
+
+              <div className="flex flex-col gap-2 rounded-lg border border-border p-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-col">
+                    <span className="text-xs font-semibold">{t("ardupilotSetup.connect.devModePlaneLabel")}</span>
+                    <span className="text-xs text-muted-foreground">{t("ardupilotSetup.connect.devModePlaneHint")}</span>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0 gap-1"
+                    disabled={isBusy}
+                    onClick={() => {
+                      onDevMode();
+                      closeSettings();
+                    }}
+                  >
+                    <FlaskConical className="h-3.5 w-3.5" />
+                    {t("ardupilotSetup.connect.devMode")}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2 rounded-lg border border-border p-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-col">
+                    <span className="text-xs font-semibold">{t("ardupilotSetup.connect.devModeCopterLabel")}</span>
+                    <span className="text-xs text-muted-foreground">{t("ardupilotSetup.connect.devModeCopterHint")}</span>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0 gap-1"
+                    disabled={isBusy}
+                    onClick={() => {
+                      onDevModeCopter();
+                      closeSettings();
+                    }}
+                  >
+                    <FlaskConical className="h-3.5 w-3.5" />
+                    {t("ardupilotSetup.connect.devModeCopter")}
+                  </Button>
+                </div>
                 <select
                   aria-label={t("ardupilotSetup.connect.devFramePresetLabel")}
                   className="flex h-8 min-w-0 rounded-md border border-input bg-transparent px-2 text-xs shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
@@ -288,34 +335,6 @@ export function ArduPilotSetupSidebar({
                     </option>
                   ))}
                 </select>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="gap-1"
-                  disabled={isBusy}
-                  onClick={() => {
-                    onDevModeCopter();
-                    closeSettings();
-                  }}
-                >
-                  <FlaskConical className="h-3.5 w-3.5" />
-                  {t("ardupilotSetup.connect.devModeCopter")}
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="gap-1"
-                  disabled={isBusy}
-                  onClick={() => {
-                    onDevMode();
-                    closeSettings();
-                  }}
-                >
-                  <FlaskConical className="h-3.5 w-3.5" />
-                  {t("ardupilotSetup.connect.devMode")}
-                </Button>
               </div>
             </div>
           )

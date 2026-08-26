@@ -4,7 +4,7 @@ test.describe("Live ArduPilot Setup - Mission download", () => {
   test("downloading the mission from the vehicle shows its waypoints", async ({ page }) => {
     await page.goto("/ardupilot-setup");
     await page.getByRole("button", { name: "Налаштування застосунку" }).click();
-    await page.getByRole("button", { name: "Режим розробника", exact: true }).click();
+    await page.getByRole("button", { name: "Підключити (літак)", exact: true }).click();
     await expect(page.getByText("Підключено: Dev mode (simulated vehicle)")).toBeVisible();
 
     await page.getByRole("button", { name: "Планування" }).click();

@@ -51,7 +51,7 @@ describe("ArduPilotSetupSidebar", () => {
     await user.click(screen.getByRole("button", { name: "Налаштування застосунку" }));
     expect(screen.getByLabelText("Тип рами для тестового мультикоптера")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Режим розробника (мультикоптер)" }));
+    await user.click(screen.getByRole("button", { name: "Підключити (мультикоптер)" }));
 
     expect(onDevModeCopter).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -63,6 +63,6 @@ describe("ArduPilotSetupSidebar", () => {
     await user.click(screen.getByRole("button", { name: "Налаштування застосунку" }));
 
     expect(screen.queryByLabelText("Тип рами для тестового мультикоптера")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Режим розробника" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Підключити (літак)" })).not.toBeInTheDocument();
   });
 });

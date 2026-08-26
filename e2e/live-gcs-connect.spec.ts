@@ -9,7 +9,7 @@ test.describe("Live ArduPilot Setup - connecting via Dev Mode", () => {
     await expect(page.getByRole("heading", { name: "Налаштування ArduPilot" })).toBeVisible();
 
     await page.getByRole("button", { name: "Налаштування застосунку" }).click();
-    await page.getByRole("button", { name: "Режим розробника", exact: true }).click();
+    await page.getByRole("button", { name: "Підключити (літак)", exact: true }).click();
 
     await expect(page.getByText("Підключено: Dev mode (simulated vehicle)")).toBeVisible();
     // Telemetry is the default/starting section - visible immediately, no nav click needed.
@@ -19,7 +19,7 @@ test.describe("Live ArduPilot Setup - connecting via Dev Mode", () => {
   test("sidebar sections become reachable once connected", async ({ page }) => {
     await page.goto("/ardupilot-setup");
     await page.getByRole("button", { name: "Налаштування застосунку" }).click();
-    await page.getByRole("button", { name: "Режим розробника", exact: true }).click();
+    await page.getByRole("button", { name: "Підключити (літак)", exact: true }).click();
     await expect(page.getByText("Підключено: Dev mode (simulated vehicle)")).toBeVisible();
 
     // "Параметри" lives inside the collapsed "Діагностика" sidebar category - a real click
