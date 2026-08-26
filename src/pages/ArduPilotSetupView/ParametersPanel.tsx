@@ -203,6 +203,14 @@ export function ParametersPanel({
   const isComplete = expectedCount !== null && receivedCount >= expectedCount;
   const pendingEntries = Object.entries(pendingChanges);
   const hasPendingChanges = pendingEntries.length > 0;
+  // Whether the firmware-defaults toolbar group has anything to actually show - mirrors the
+  // union of that group's own inner conditions exactly, so the group (and its divider) never
+  // renders empty for a phase none of them cover (e.g. "loaded").
+  const hasDefaultsControls =
+    (hasStarted && (defaultsPhase === "idle" || defaultsPhase === "error")) ||
+    defaultsPhase === "opening" ||
+    defaultsPhase === "downloading" ||
+    (defaultsPhase === "error" && defaultsError !== null);
 
   // Switching sidebar sections unmounts this component and discards `pendingChanges` with no
   // warning otherwise - this lets ArduPilotSetupView gate the switch behind a confirmation.
@@ -304,65 +312,87 @@ export function ParametersPanel({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.parameters.heading")}</h3>
         <div className="flex items-center gap-2">
-          {hasStarted && (
-            <span className="font-mono text-xs text-muted-foreground">
-              {t("ardupilotSetup.parameters.progress", { received: receivedCount, total: expectedCount ?? "?" })}
-            </span>
-          )}
-          {hasStarted && !isComplete && (
-            <Button type="button" size="sm" variant="outline" onClick={onRequestMissing}>
-              {t("ardupilotSetup.parameters.requestMissing")}
-            </Button>
-          )}
-          {!hasStarted && (
-            <Button type="button" size="sm" onClick={onLoadParameters}>
-              {t("ardupilotSetup.parameters.load")}
-            </Button>
-          )}
+          {/* Load/progress group - where things stand with the download itself. */}
+          <div className="flex items-center gap-2">
+            {hasStarted && (
+              <span className="font-mono text-xs text-muted-foreground">
+                {t("ardupilotSetup.parameters.progress", { received: receivedCount, total: expectedCount ?? "?" })}
+              </span>
+            )}
+            {hasStarted && !isComplete && (
+              <Button type="button" size="sm" variant="outline" onClick={onRequestMissing}>
+                {t("ardupilotSetup.parameters.requestMissing")}
+              </Button>
+            )}
+            {!hasStarted && (
+              <Button type="button" size="sm" onClick={onLoadParameters}>
+                {t("ardupilotSetup.parameters.load")}
+              </Button>
+            )}
+          </div>
+
+          {/* File I/O group - a local .param backup, independent of anything on the vehicle. */}
           {hasStarted && (
             <>
-              <Button type="button" size="sm" variant="outline" onClick={handleSaveToFile}>
-                {t("ardupilotSetup.parameters.saveToFile")}
-              </Button>
-              <Button type="button" size="sm" variant="outline" onClick={handleLoadFromFileClick}>
-                {t("ardupilotSetup.parameters.loadFromFile")}
-              </Button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".param,.txt"
-                data-testid="param-file-input"
-                className="hidden"
-                onChange={(e) => void handleFileSelected(e)}
-              />
+              <span aria-hidden="true" className="h-4 w-px shrink-0 bg-border" />
+              <div className="flex items-center gap-2">
+                <Button type="button" size="sm" variant="outline" onClick={handleSaveToFile}>
+                  {t("ardupilotSetup.parameters.saveToFile")}
+                </Button>
+                <Button type="button" size="sm" variant="outline" onClick={handleLoadFromFileClick}>
+                  {t("ardupilotSetup.parameters.loadFromFile")}
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".param,.txt"
+                  data-testid="param-file-input"
+                  className="hidden"
+                  onChange={(e) => void handleFileSelected(e)}
+                />
+              </div>
             </>
           )}
-          {hasStarted && (defaultsPhase === "idle" || defaultsPhase === "error") && (
-            <Button type="button" size="sm" variant="outline" onClick={onLoadParamDefaults}>
-              {t(defaultsPhase === "error" ? "ardupilotSetup.parameters.retryDefaults" : "ardupilotSetup.parameters.loadDefaults")}
-            </Button>
+
+          {/* Firmware-defaults group - only appears once there's something to show about it. */}
+          {hasDefaultsControls && (
+            <>
+              <span aria-hidden="true" className="h-4 w-px shrink-0 bg-border" />
+              <div className="flex items-center gap-2">
+                {hasStarted && (defaultsPhase === "idle" || defaultsPhase === "error") && (
+                  <Button type="button" size="sm" variant="outline" onClick={onLoadParamDefaults}>
+                    {t(defaultsPhase === "error" ? "ardupilotSetup.parameters.retryDefaults" : "ardupilotSetup.parameters.loadDefaults")}
+                  </Button>
+                )}
+                {(defaultsPhase === "opening" || defaultsPhase === "downloading") && (
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {t("ardupilotSetup.parameters.defaultsLoading", {
+                      received: formatBytes(defaultsBytesReceived),
+                      total: defaultsTotalBytes ? formatBytes(defaultsTotalBytes) : "?",
+                    })}
+                  </span>
+                )}
+                {defaultsPhase === "error" && defaultsError && (
+                  <span className="text-xs text-destructive" title={defaultsError}>
+                    {t("ardupilotSetup.parameters.defaultsErrorLabel")}
+                  </span>
+                )}
+              </div>
+            </>
           )}
-          {(defaultsPhase === "opening" || defaultsPhase === "downloading") && (
-            <span className="font-mono text-xs text-muted-foreground">
-              {t("ardupilotSetup.parameters.defaultsLoading", {
-                received: formatBytes(defaultsBytesReceived),
-                total: defaultsTotalBytes ? formatBytes(defaultsTotalBytes) : "?",
-              })}
-            </span>
-          )}
-          {defaultsPhase === "error" && defaultsError && (
-            <span className="text-xs text-destructive" title={defaultsError}>
-              {t("ardupilotSetup.parameters.defaultsErrorLabel")}
-            </span>
-          )}
+
+          {/* Pending-edits group - only appears once there's something staged to review. */}
           {hasPendingChanges && (
             <>
-              <Button type="button" size="sm" variant="ghost" onClick={handleResetAll}>
-                {t("ardupilotSetup.parameters.reset")}
-              </Button>
-              <Button type="button" size="sm" onClick={() => setConfirmOpen(true)}>
-                {t("ardupilotSetup.parameters.saveAll", { count: pendingEntries.length })}
-              </Button>
+              <span aria-hidden="true" className="h-4 w-px shrink-0 bg-border" />
+              <div className="flex items-center gap-2">
+                <Button type="button" size="sm" variant="ghost" onClick={handleResetAll}>
+                  {t("ardupilotSetup.parameters.reset")}
+                </Button>
+                <Button type="button" size="sm" onClick={() => setConfirmOpen(true)}>
+                  {t("ardupilotSetup.parameters.saveAll", { count: pendingEntries.length })}
+                </Button>
+              </div>
             </>
           )}
         </div>
