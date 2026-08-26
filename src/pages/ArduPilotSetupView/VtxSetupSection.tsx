@@ -168,7 +168,10 @@ export function VtxSetupSection({ vehicleType, onLoad, onSetParam }: VtxSetupSec
         </div>
       </div>
 
-      <Alert variant="warning" className="shrink-0">
+      {/* A compatibility caveat (which hardware even responds to these settings), not a warning
+          about consequences of a specific action - info, not warning, so it doesn't visually
+          compete with unlockedWarning's own real regulatory caution below once params load. */}
+      <Alert variant="info" className="shrink-0">
         <AlertDescription>{t("ardupilotSetup.vtxSetup.supportDisclaimer")}</AlertDescription>
       </Alert>
 

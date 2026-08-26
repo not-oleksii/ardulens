@@ -40,7 +40,7 @@ function getView() {
 
   const getBoardFilterInput = () => screen.getByLabelText(/Фільтр за бортом/);
   const getTable = () => screen.findByRole("table");
-  const getColumnsToggleButton = () => screen.getByRole("button", { name: "Показати/сховати фільтр стовпців таблиці" });
+  const getColumnsToggleButton = () => screen.getByRole("button", { name: "Стовпці" });
   const getColumnChip = (name: string | RegExp) => screen.getByRole("button", { name });
   const getColumnHeader = (name: string | RegExp) => screen.getByRole("columnheader", { name });
 
@@ -118,6 +118,23 @@ describe("LogsView", () => {
 
     await user.click(badge);
     expect(await screen.findByText(/Помітна просадка напруги під газом/)).toBeInTheDocument();
+  });
+
+  it("consolidates the format/findings/data-quality notes into one banner instead of stacking one Alert per note", async () => {
+    // sample-flight.bin (see sampleBinBuf above) has BOTH a voltage sag (a finding) and GPS
+    // teleports rejected - together with it being a .bin file, that's 3 separate notes that
+    // used to be 3 separate full-width Alerts, stacked one after another.
+    loadFile("sample-flight.bin", sampleBinBuf());
+    const { getTable } = getView();
+    await getTable();
+
+    const alerts = screen.getAllByRole("alert");
+    // The summary Alert (always present) + this one consolidated notes Alert - not one per note.
+    expect(alerts).toHaveLength(2);
+    const notesAlert = alerts[1]!;
+    expect(notesAlert).toHaveTextContent(/вильотів мають зауваження/);
+    expect(notesAlert).toHaveTextContent("Відкинуто 4 точок як телепорт/спуфінг (РЕБ).");
+    expect(notesAlert).toHaveTextContent(/вручну/);
   });
 
   it("shows a quiet 'no issues' indicator for a clean flight", async () => {

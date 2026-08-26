@@ -1003,6 +1003,7 @@
     },
     "columns": {
       "toggle": "Show/hide table columns filter",
+      "buttonLabel": "Columns",
       "heading": "Table columns",
       "hint": "Add or remove columns - changes apply to the table below immediately.",
       "reset": "Reset",
