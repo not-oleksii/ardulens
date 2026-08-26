@@ -124,68 +124,93 @@ export function TelemetrySection({
                 </TabsList>
                 <TabsContent value="stats">
                   {battery || gps || gps2 || position || ekf || vibration ? (
-                    <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-                      <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.batteryVoltage")}</dt>
-                      <dd className="font-mono">{battery ? `${battery.voltageV.toFixed(2)} V` : "-"}</dd>
-                      <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.batteryCurrent")}</dt>
-                      <dd className="font-mono">
-                        {battery && battery.currentA !== null ? `${battery.currentA.toFixed(1)} A` : "-"}
-                      </dd>
-                      <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.batteryRemaining")}</dt>
-                      <dd className="font-mono">
-                        {battery && battery.remainingPercent !== null ? `${battery.remainingPercent}%` : "-"}
-                      </dd>
-                      <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.groundspeed")}</dt>
-                      <dd className="font-mono">{vfrHud ? `${vfrHud.groundspeed.toFixed(1)} m/s` : "-"}</dd>
-                      <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.gpsFixLabel")}</dt>
-                      <dd>{gps ? gpsFixTypeLabel(t, gps.fixType) : "-"}</dd>
-                      <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.satellites")}</dt>
-                      <dd className="font-mono">{gps ? gps.satellitesVisible : "-"}</dd>
-                      {/* GPS2 rows only appear once a GPS2_RAW packet has actually arrived - most
-                          vehicles only have one GPS receiver, so this stays absent rather than
-                          showing a permanent "no second GPS" placeholder. */}
-                      {gps2 && (
-                        <>
-                          <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.gps2FixLabel")}</dt>
-                          <dd>{gpsFixTypeLabel(t, gps2.fixType)}</dd>
-                          <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.satellites2")}</dt>
-                          <dd className="font-mono">{gps2.satellitesVisible}</dd>
-                        </>
-                      )}
-                      <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.position")}</dt>
-                      <dd className="font-mono">{position ? `${position.lat.toFixed(6)}, ${position.lon.toFixed(6)}` : "-"}</dd>
-                      {/* Vibration/EKF variance rows only appear once the vehicle actually sends
-                          VIBRATION/EKF_STATUS_REPORT - not every ArduPilot build streams these by
-                          default, so a permanent "-" placeholder would be misleading. */}
-                      {vibration && (
-                        <>
-                          <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.vibration")}</dt>
-                          <dd className={`font-mono ${vibrationClassName(Math.max(vibration.x, vibration.y, vibration.z))}`}>
-                            {vibration.x.toFixed(1)} / {vibration.y.toFixed(1)} / {vibration.z.toFixed(1)} m/s²
+                    <div className="flex flex-col gap-3">
+                      <div className="flex flex-col gap-1">
+                        <h4 className="text-xs font-bold tracking-wide uppercase text-muted-foreground">
+                          {t("ardupilotSetup.telemetry.groupPower")}
+                        </h4>
+                        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+                          <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.batteryVoltage")}</dt>
+                          <dd className="font-mono">{battery ? `${battery.voltageV.toFixed(2)} V` : "-"}</dd>
+                          <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.batteryCurrent")}</dt>
+                          <dd className="font-mono">
+                            {battery && battery.currentA !== null ? `${battery.currentA.toFixed(1)} A` : "-"}
                           </dd>
-                        </>
-                      )}
-                      {vibration && (vibration.clippingX > 0 || vibration.clippingY > 0 || vibration.clippingZ > 0) && (
-                        <>
-                          <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.vibrationClipping")}</dt>
-                          <dd className="font-mono text-destructive font-semibold">
-                            {vibration.clippingX} / {vibration.clippingY} / {vibration.clippingZ}
+                          <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.batteryRemaining")}</dt>
+                          <dd className="font-mono">
+                            {battery && battery.remainingPercent !== null ? `${battery.remainingPercent}%` : "-"}
                           </dd>
-                        </>
+                        </dl>
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <h4 className="text-xs font-bold tracking-wide uppercase text-muted-foreground">
+                          {t("ardupilotSetup.telemetry.groupNavigation")}
+                        </h4>
+                        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+                          <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.groundspeed")}</dt>
+                          <dd className="font-mono">{vfrHud ? `${vfrHud.groundspeed.toFixed(1)} m/s` : "-"}</dd>
+                          <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.gpsFixLabel")}</dt>
+                          <dd>{gps ? gpsFixTypeLabel(t, gps.fixType) : "-"}</dd>
+                          <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.satellites")}</dt>
+                          <dd className="font-mono">{gps ? gps.satellitesVisible : "-"}</dd>
+                          {/* GPS2 rows only appear once a GPS2_RAW packet has actually arrived -
+                              most vehicles only have one GPS receiver, so this stays absent
+                              rather than showing a permanent "no second GPS" placeholder. */}
+                          {gps2 && (
+                            <>
+                              <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.gps2FixLabel")}</dt>
+                              <dd>{gpsFixTypeLabel(t, gps2.fixType)}</dd>
+                              <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.satellites2")}</dt>
+                              <dd className="font-mono">{gps2.satellitesVisible}</dd>
+                            </>
+                          )}
+                          <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.position")}</dt>
+                          <dd className="font-mono">{position ? `${position.lat.toFixed(6)}, ${position.lon.toFixed(6)}` : "-"}</dd>
+                        </dl>
+                      </div>
+
+                      {/* This whole group only appears once the vehicle actually sends
+                          VIBRATION/EKF_STATUS_REPORT - not every ArduPilot build streams these
+                          by default, so a permanent "-" placeholder section would be misleading. */}
+                      {(vibration || ekf) && (
+                        <div className="flex flex-col gap-1">
+                          <h4 className="text-xs font-bold tracking-wide uppercase text-muted-foreground">
+                            {t("ardupilotSetup.telemetry.groupHealth")}
+                          </h4>
+                          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+                            {vibration && (
+                              <>
+                                <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.vibration")}</dt>
+                                <dd className={`font-mono ${vibrationClassName(Math.max(vibration.x, vibration.y, vibration.z))}`}>
+                                  {vibration.x.toFixed(1)} / {vibration.y.toFixed(1)} / {vibration.z.toFixed(1)} m/s²
+                                </dd>
+                              </>
+                            )}
+                            {vibration && (vibration.clippingX > 0 || vibration.clippingY > 0 || vibration.clippingZ > 0) && (
+                              <>
+                                <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.vibrationClipping")}</dt>
+                                <dd className="font-mono text-destructive font-semibold">
+                                  {vibration.clippingX} / {vibration.clippingY} / {vibration.clippingZ}
+                                </dd>
+                              </>
+                            )}
+                            {ekf && (
+                              <>
+                                <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.ekfVariance")}</dt>
+                                <dd
+                                  className={`font-mono ${ekfVarianceClassName(
+                                    Math.max(ekf.velocityVariance, ekf.posHorizVariance, ekf.posVertVariance, ekf.compassVariance),
+                                  )}`}
+                                >
+                                  {Math.max(ekf.velocityVariance, ekf.posHorizVariance, ekf.posVertVariance, ekf.compassVariance).toFixed(2)}
+                                </dd>
+                              </>
+                            )}
+                          </dl>
+                        </div>
                       )}
-                      {ekf && (
-                        <>
-                          <dt className="text-muted-foreground">{t("ardupilotSetup.telemetry.ekfVariance")}</dt>
-                          <dd
-                            className={`font-mono ${ekfVarianceClassName(
-                              Math.max(ekf.velocityVariance, ekf.posHorizVariance, ekf.posVertVariance, ekf.compassVariance),
-                            )}`}
-                          >
-                            {Math.max(ekf.velocityVariance, ekf.posHorizVariance, ekf.posVertVariance, ekf.compassVariance).toFixed(2)}
-                          </dd>
-                        </>
-                      )}
-                    </dl>
+                    </div>
                   ) : (
                     <p className="text-xs text-muted-foreground">{t("ardupilotSetup.telemetry.waitingForTelemetry")}</p>
                   )}
