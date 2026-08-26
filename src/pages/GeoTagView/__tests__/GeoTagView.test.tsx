@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DataflashBuilder } from "../../../builders/DataflashBuilder/DataflashBuilder";
 import { useFileStore } from "../../../stores/fileStore/fileStore";
+import { useUnsavedChangesStore } from "../../../stores/unsavedChangesStore/unsavedChangesStore";
 import { GeoTagView } from "../GeoTagView";
 
 interface MockDirEntry {
@@ -64,6 +65,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.clearAllMocks();
   useFileStore.getState().clearFile();
+  useUnsavedChangesStore.getState().setUnsaved(false);
   Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
 });
 
@@ -106,6 +108,24 @@ describe("GeoTagView", () => {
     expect(screen.getByText("a.JPEG")).toBeInTheDocument();
     expect(screen.getByText("b.jpg")).toBeInTheDocument();
     expect(screen.queryByText("notes.txt")).not.toBeInTheDocument();
+  });
+
+  it("marks unsaved changes once a photo folder is picked, and clears them on unmount", async () => {
+    useFileStore.getState().setFile({ name: "sample.bin", buf: buildBinWithCamRecords(2) });
+    mockOpen.mockResolvedValue("/photos");
+    mockReadDir.mockResolvedValue([dirEntry("a.jpg"), dirEntry("b.jpg")]);
+    const user = userEvent.setup();
+    const { unmount } = render(<GeoTagView />);
+    await screen.findByText(/У логу знайдено записів спрацювань камери: 2/);
+    expect(useUnsavedChangesStore.getState().hasUnsaved).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "Виберіть папку з фото..." }));
+    await screen.findByText(/У папці знайдено JPEG-фото: 2/);
+
+    expect(useUnsavedChangesStore.getState().hasUnsaved).toBe(true);
+
+    unmount();
+    expect(useUnsavedChangesStore.getState().hasUnsaved).toBe(false);
   });
 
   it("shows a mismatch error and hides GeoTag Images when photo/CAM counts differ", async () => {

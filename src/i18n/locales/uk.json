@@ -22,7 +22,12 @@
   "sidebar": {
     "collapse": "Згорнути бічну панель",
     "expand": "Розгорнути бічну панель",
-    "changeFile": "Змінити файл"
+    "changeFile": "Змінити файл",
+    "currentFile": "Файл: {{name}}",
+    "confirmDiscardTitle": "Змінити файл?",
+    "confirmDiscardDescription": "У вас є незбережений прогрес у GeoTag (обрана папка з фото) для поточного файлу - зміна файлу скасує його.",
+    "confirmDiscardStay": "Залишитися",
+    "confirmDiscardChange": "Змінити файл і скасувати прогрес"
   },
   "home": {
     "title": "ArduLens",
@@ -1015,7 +1020,8 @@
       "noMatch": "Вильотів за фільтром \"{{filter}}\" немає. Борти в лозі: {{boards}}.",
       "teleportRemoved": "Відкинуто {{count}} точок як телепорт/спуфінг (РЕБ).",
       "binManualTime": ".bin: час взльоту/посадки - вручну (GPS-час підмінюється РЕБ); тривалість - з бортового годинника.",
-      "parseError": "Помилка розбору: {{message}}"
+      "parseError": "Помилка розбору: {{message}}",
+      "findingsRollup": "{{count}} з {{total}} вильотів мають зауваження (критичних: {{critical}}, попереджень: {{warning}}) - деталі в стовпці «Зауваження»."
     },
     "table": {
       "issuesHeading": "Зауваження",

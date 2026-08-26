@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import i18n from "../../../i18n/i18n";
 import { useFileStore } from "../../../stores/fileStore/fileStore";
+import { useUnsavedChangesStore } from "../../../stores/unsavedChangesStore/unsavedChangesStore";
 import { Sidebar } from "../Sidebar";
 
 function getView() {
@@ -22,6 +23,7 @@ function getView() {
 describe("Sidebar", () => {
   afterEach(async () => {
     useFileStore.getState().clearFile();
+    useUnsavedChangesStore.getState().setUnsaved(false);
     await i18n.changeLanguage("uk");
   });
 
@@ -77,5 +79,56 @@ describe("Sidebar", () => {
     await clickCollapse();
 
     expect(getChangeFileButton()).toBeInTheDocument();
+  });
+
+  it("shows the current file's name, and nothing when no file is loaded", async () => {
+    getView();
+    expect(screen.queryByText(/Файл:/)).not.toBeInTheDocument();
+
+    useFileStore.getState().setFile({ name: "flight.bin", buf: new ArrayBuffer(0) });
+    expect(await screen.findByText("Файл: flight.bin")).toBeInTheDocument();
+  });
+
+  it("hides the filename once collapsed (same as the other labels)", async () => {
+    useFileStore.getState().setFile({ name: "flight.bin", buf: new ArrayBuffer(0) });
+    const { clickCollapse } = getView();
+
+    await clickCollapse();
+
+    expect(screen.queryByText("Файл: flight.bin")).not.toBeInTheDocument();
+  });
+
+  it("confirms before discarding unsaved GeoTag progress when 'Change file' is clicked", async () => {
+    useFileStore.getState().setFile({ name: "flight.bin", buf: new ArrayBuffer(0) });
+    useUnsavedChangesStore.getState().setUnsaved(true);
+    const { clickChangeFile } = getView();
+
+    await clickChangeFile();
+
+    expect(useFileStore.getState().file).not.toBeNull(); // not cleared yet
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("cancelling the confirmation keeps the file loaded", async () => {
+    useFileStore.getState().setFile({ name: "flight.bin", buf: new ArrayBuffer(0) });
+    useUnsavedChangesStore.getState().setUnsaved(true);
+    const { user, clickChangeFile } = getView();
+
+    await clickChangeFile();
+    await user.click(screen.getByRole("button", { name: "Залишитися" }));
+
+    expect(useFileStore.getState().file).not.toBeNull();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("confirming the discard actually clears the file", async () => {
+    useFileStore.getState().setFile({ name: "flight.bin", buf: new ArrayBuffer(0) });
+    useUnsavedChangesStore.getState().setUnsaved(true);
+    const { user, clickChangeFile } = getView();
+
+    await clickChangeFile();
+    await user.click(screen.getByRole("button", { name: "Змінити файл і скасувати прогрес" }));
+
+    expect(useFileStore.getState().file).toBeNull();
   });
 });
