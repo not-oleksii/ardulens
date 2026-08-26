@@ -434,8 +434,8 @@ function getView() {
   // connecting), so callers never need to track the dialog's open state themselves.
   const getSettingsButton = () => screen.getByRole("button", { name: "Налаштування застосунку" });
   const openSettings = () => user.click(getSettingsButton());
-  const getDevModeButton = () => screen.getByRole("button", { name: "Режим розробника" });
-  const getDevModeCopterButton = () => screen.getByRole("button", { name: "Режим розробника (мультикоптер)" });
+  const getDevModeButton = () => screen.getByRole("button", { name: "Підключити (літак)" });
+  const getDevModeCopterButton = () => screen.getByRole("button", { name: "Підключити (мультикоптер)" });
   const getDevFramePresetSelect = () => screen.getByLabelText("Тип рами для тестового мультикоптера");
   // Scoped to the header (role="banner", the top-level <header>) rather than a bare
   // screen.getByRole("alert") - the live map embedded on the Telemetry page (see
@@ -459,11 +459,11 @@ function getView() {
   const clickConnect = () => user.click(getConnectButton());
   const clickDisconnect = () => user.click(getDisconnectButton());
   async function clickDevMode() {
-    if (!screen.queryByRole("button", { name: "Режим розробника" })) await openSettings();
+    if (!screen.queryByRole("button", { name: "Підключити (літак)" })) await openSettings();
     await user.click(getDevModeButton());
   }
   async function clickDevModeCopter() {
-    if (!screen.queryByRole("button", { name: "Режим розробника (мультикоптер)" })) await openSettings();
+    if (!screen.queryByRole("button", { name: "Підключити (мультикоптер)" })) await openSettings();
     await user.click(getDevModeCopterButton());
   }
   const clickParametersNav = () => user.click(getParametersNavButton());

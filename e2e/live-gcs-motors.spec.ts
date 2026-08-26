@@ -9,7 +9,7 @@ test.describe("Live ArduPilot Setup - Motors & servos (plane)", () => {
   }) => {
     await page.goto("/ardupilot-setup");
     await page.getByRole("button", { name: "Налаштування застосунку" }).click();
-    await page.getByRole("button", { name: "Режим розробника", exact: true }).click();
+    await page.getByRole("button", { name: "Підключити (літак)", exact: true }).click();
     await expect(page.getByText("Підключено: Dev mode (simulated vehicle)")).toBeVisible();
 
     await page.getByRole("button", { name: "Налаштування", exact: true }).click();
@@ -27,7 +27,7 @@ test.describe("Live ArduPilot Setup - Motors & servos (copter)", () => {
   test("loading motor config opens the setup wizard on the frame step", async ({ page }) => {
     await page.goto("/ardupilot-setup");
     await page.getByRole("button", { name: "Налаштування застосунку" }).click();
-    await page.getByRole("button", { name: "Режим розробника (мультикоптер)", exact: true }).click();
+    await page.getByRole("button", { name: "Підключити (мультикоптер)", exact: true }).click();
     await expect(page.getByText("Підключено: Dev mode (simulated vehicle)")).toBeVisible();
 
     await page.getByRole("button", { name: "Налаштування", exact: true }).click();
