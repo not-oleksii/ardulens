@@ -83,7 +83,10 @@ export function RcCalSection({
         </Alert>
       )}
 
-      {active && (
+      {/* Suppressed once the vehicle has actually rejected the calibration attempt (armedRejection
+          above) - "move your sticks now" reads as actively contradicting "this was just
+          rejected" when both show at once. */}
+      {active && !armedRejection && (
         <Alert variant="warning" className="shrink-0">
           <AlertDescription>{t("ardupilotSetup.rcCal.movePrompt")}</AlertDescription>
         </Alert>

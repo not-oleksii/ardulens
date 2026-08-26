@@ -339,8 +339,24 @@ export function ArduPilotSetupHeader({
         </>
       )}
 
-      <Alert variant={status === "error" ? "destructive" : "info"} className="min-w-0 flex-1 py-1.5">
-        <AlertDescription>
+      {/* This banner is docked at the top of EVERY section for the whole session, unlike a
+          section's own Alerts which appear only while relevant - the full bordered/tinted Alert
+          treatment here means the steady-state "connected" case (the vast majority of a
+          session's time) always carries the same visual weight as a genuinely alert-worthy
+          section warning below it. Stays the SAME `Alert` element across every status (not a
+          separate lighter component swapped in for "connected") specifically so a test - or any
+          code - holding a reference to it across a status transition doesn't lose it to a
+          React unmount/remount; only the classes strip down to a borderless, unpadded, muted
+          treatment once connected, the compact-status convention VehicleStatusBar's own
+          always-visible telemetry row already uses. */}
+      <Alert
+        variant={status === "error" ? "destructive" : "info"}
+        className={cn(
+          "min-w-0 flex-1",
+          status === "connected" ? "border-transparent bg-transparent px-0 py-0 text-muted-foreground [&>svg]:size-3.5" : "py-1.5",
+        )}
+      >
+        <AlertDescription className={status === "connected" ? "text-xs text-muted-foreground" : undefined}>
           {status === "idle" && t("ardupilotSetup.connect.statusIdle")}
           {status === "connecting" &&
             (scanningPort

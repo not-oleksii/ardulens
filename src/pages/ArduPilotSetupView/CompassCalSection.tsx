@@ -92,17 +92,19 @@ export function CompassCalSection({ progress, reports, lastCommandAck, onStart, 
 
       {accepted ? (
         <div className="flex flex-col gap-2">
+          {/* Both lines can be true at once (accepted-and-saved, then reboot-sent are two real,
+              sequential, non-contradictory facts) - one Alert with two lines instead of two
+              stacked same-variant Alert boxes reading as one continuous blue block. */}
           <Alert variant="info">
-            <AlertDescription>{t("ardupilotSetup.compassCal.saved")}</AlertDescription>
+            <AlertDescription className="flex flex-col gap-1">
+              <span>{t("ardupilotSetup.compassCal.saved")}</span>
+              {rebootSent && <span>{t("ardupilotSetup.compassCal.rebootSent")}</span>}
+            </AlertDescription>
           </Alert>
-          {!rebootSent ? (
+          {!rebootSent && (
             <Button type="button" size="sm" variant="outline" className="w-fit" onClick={handleReboot}>
               {t("ardupilotSetup.compassCal.reboot")}
             </Button>
-          ) : (
-            <Alert variant="info">
-              <AlertDescription>{t("ardupilotSetup.compassCal.rebootSent")}</AlertDescription>
-            </Alert>
           )}
         </div>
       ) : (
