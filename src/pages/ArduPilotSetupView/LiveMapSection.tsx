@@ -28,7 +28,7 @@ import { flightCommandLabel, mavResultLabel } from "../../mavlink/labels/labels"
 import { MavCmd, MavResult } from "../../mavlink/registry/registry";
 import { useMavlinkLiveMapStore } from "../../stores/mavlinkLiveMapStore/mavlinkLiveMapStore";
 import type { PositionTelemetry } from "../../stores/mavlinkTelemetryStore/types";
-import { pickLatLon } from "./cesiumPicking";
+import { pickLatLon } from "../../utils/cesiumPicking/cesiumPicking";
 import { TokenlessPositionRadar } from "./TokenlessPositionRadar";
 
 // Identical arrow icon to CesiumMapView's ARROW_ICON - rotation=0 points north, paired with

@@ -142,7 +142,7 @@ export function HomeView() {
             <p className="max-w-md text-muted-foreground">{t("home.description")}</p>
           </div>
 
-          <div className="flex w-full max-w-3xl flex-col items-stretch justify-center gap-4 sm:flex-row sm:items-start">
+          <div className="flex w-full max-w-3xl flex-col items-stretch justify-center gap-4 sm:flex-row">
             <HomeCard
               testId={`${HOME_DROPZONE_TEST_ID}-card`}
               icon={<FileText className="h-8 w-8" />}

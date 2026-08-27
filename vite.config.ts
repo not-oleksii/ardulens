@@ -76,8 +76,23 @@ export default defineConfig({
   },
   build: {
     outDir: 'app/dist',
-    rollupOptions: {
+    rolldownOptions: {
       input: 'app/index.html',
+      output: {
+        // Rolldown's automatic chunk-splitter can mis-group its own CJS-interop
+        // runtime helper with an unrelated app chunk once enough lazy routes share
+        // react/jsx-runtime (reproduced: adding the Ground Station route made it fuse
+        // the helper into a shared store chunk, so the runtime's own `t(...)` wrapper
+        // call resolved to a non-function import and crashed every route at startup).
+        // Pinning react/react-dom/scheduler to one stable chunk keeps that helper
+        // co-located with the code that needs it, regardless of how many lazy routes
+        // pull it in. Cesium is deliberately left alone so it keeps its own separate,
+        // lazy-loaded chunk instead of ballooning this one.
+        manualChunks(id) {
+          if (id.includes('node_modules/react') || id.includes('node_modules/scheduler')) return 'react-vendor'
+          return undefined
+        },
+      },
     },
   },
 })

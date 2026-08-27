@@ -1228,7 +1228,27 @@
   "groundStation": {
     "backToHome": "Back to Home",
     "heading": "Ground Station",
-    "description": "Plan beacon and antenna placement for a flying site, and preview line-of-sight coverage over real terrain.",
-    "comingSoon": "Site planning and coverage preview are coming soon."
+    "emptyState": "Select or create a site to start planning.",
+    "sites": {
+      "heading": "Saved sites",
+      "new": "New site",
+      "empty": "No sites yet - create one to start planning.",
+      "rename": "Rename",
+      "delete": "Delete",
+      "namePlaceholder": "Site name",
+      "cancel": "Cancel",
+      "create": "Create",
+      "newDialogTitle": "New site",
+      "newDialogDescription": "Give this flying location a name - you'll place its home position and devices next.",
+      "confirmDeleteTitle": "Delete this site?",
+      "confirmDeleteDescription": "This permanently deletes \"{{name}}\" - its home position and every placed device.",
+      "confirmDelete": "Delete site"
+    },
+    "map": {
+      "setHome": "Set Home",
+      "settingHomeHint": "Click the map to place home",
+      "noHome": "No home set yet",
+      "homeAltitude": "Alt (m)"
+    }
   }
 }
