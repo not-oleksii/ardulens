@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 test.describe("Offline log analysis - Graphs", () => {
   test("selecting a parameter from the tree plots it", async ({ page }) => {
     await page.goto("/");
+    await page.getByTestId("home-card").click();
     await page.getByRole("button", { name: "Приклад .bin" }).click();
     await page.getByRole("tab", { name: "Графіки" }).click();
 
@@ -17,6 +18,7 @@ test.describe("Offline log analysis - Graphs", () => {
 
   test("removing the only plotted parameter shows the empty state again", async ({ page }) => {
     await page.goto("/");
+    await page.getByTestId("home-card").click();
     await page.getByRole("button", { name: "Приклад .bin" }).click();
     await page.getByRole("tab", { name: "Графіки" }).click();
     await page.getByRole("button", { name: "Живлення" }).click();

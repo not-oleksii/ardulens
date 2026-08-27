@@ -23,6 +23,9 @@ const CompareView = lazy(() => import("./pages/CompareView/CompareView").then((m
 const ArduPilotSetupView = lazy(() =>
   import("./pages/ArduPilotSetupView/ArduPilotSetupView").then((m) => ({ default: m.ArduPilotSetupView })),
 );
+const GroundStationView = lazy(() =>
+  import("./pages/GroundStationView/GroundStationView").then((m) => ({ default: m.GroundStationView })),
+);
 
 const VIEWS = {
   logs: LogsView,
@@ -72,6 +75,7 @@ function App() {
         <Routes>
           <Route path="/" element={<LogViewerRoot />} />
           <Route path="/ardupilot-setup" element={<ArduPilotSetupView />} />
+          <Route path="/ground-station" element={<GroundStationView />} />
         </Routes>
       </Suspense>
       <Toaster />

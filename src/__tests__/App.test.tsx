@@ -18,12 +18,14 @@ function getView(initialPath = "/") {
     </MemoryRouter>,
   );
 
+  const getLogsCard = () => screen.getByTestId(`${HOME_DROPZONE_TEST_ID}-card`);
+  const enterLogs = () => user.click(getLogsCard());
   const getSampleBinButton = () => screen.getByRole("button", { name: /Приклад \.bin|Sample \.bin/ });
   const clickSampleBin = () => user.click(getSampleBinButton());
-  const getArduPilotSetupLink = () => screen.getByRole("link", { name: /Налаштувати підключений апарат|Set up a live vehicle/ });
+  const getArduPilotSetupLink = () => screen.getByRole("link", { name: /Налаштування апарата|Vehicle Setup/ });
   const clickArduPilotSetupLink = () => user.click(getArduPilotSetupLink());
 
-  return { user, getSampleBinButton, clickSampleBin, getArduPilotSetupLink, clickArduPilotSetupLink };
+  return { user, getLogsCard, enterLogs, getSampleBinButton, clickSampleBin, getArduPilotSetupLink, clickArduPilotSetupLink };
 }
 
 beforeEach(() => {
@@ -45,15 +47,17 @@ afterEach(async () => {
 });
 
 describe("App", () => {
-  it("shows the home screen (no sidebar/tabs) when no file is loaded yet", () => {
+  it("shows the 3-way chooser (no sidebar/tabs) when no file is loaded yet", () => {
     getView();
     expect(screen.getByRole("heading", { name: "ArduLens", level: 1 })).toBeInTheDocument();
-    expect(screen.getByTestId(`${HOME_DROPZONE_TEST_ID}-dropzone`)).toBeInTheDocument();
+    expect(screen.getByTestId(`${HOME_DROPZONE_TEST_ID}-card`)).toBeInTheDocument();
+    expect(screen.queryByTestId(`${HOME_DROPZONE_TEST_ID}-dropzone`)).not.toBeInTheDocument();
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
   });
 
   it("enters the app (sidebar + Logs tab) once a file is loaded via the home screen", async () => {
-    const { clickSampleBin } = getView();
+    const { enterLogs, clickSampleBin } = getView();
+    await enterLogs();
 
     await clickSampleBin();
 
@@ -62,7 +66,8 @@ describe("App", () => {
   });
 
   it("only shows tabs with real functionality, hiding work-in-progress pages", async () => {
-    const { clickSampleBin } = getView();
+    const { enterLogs, clickSampleBin } = getView();
+    await enterLogs();
     await clickSampleBin();
     await screen.findByRole("heading", { name: "Дані з логів" });
 
@@ -83,8 +88,9 @@ describe("App", () => {
   });
 
   it("keeps the switched language once inside the app", async () => {
-    const { user, clickSampleBin } = getView();
+    const { user, enterLogs, clickSampleBin } = getView();
     await user.click(screen.getByRole("radio", { name: "EN" }));
+    await enterLogs();
 
     await clickSampleBin();
 
@@ -115,6 +121,29 @@ describe("App", () => {
       getView("/ardupilot-setup");
 
       expect(await screen.findByRole("heading", { name: "Налаштування ArduPilot" }, { timeout: 9000 })).toBeInTheDocument();
+      expect(screen.queryByTestId(`${HOME_DROPZONE_TEST_ID}-dropzone`)).not.toBeInTheDocument();
+    },
+    10000,
+  );
+
+  it(
+    "navigates to the Ground Station page from the home screen",
+    async () => {
+      const { user } = getView();
+
+      await user.click(screen.getByRole("link", { name: /Наземна станція/ }));
+
+      expect(await screen.findByRole("heading", { name: "Наземна станція" }, { timeout: 9000 })).toBeInTheDocument();
+    },
+    10000,
+  );
+
+  it(
+    "renders the Ground Station page directly at /ground-station, independent of the file store",
+    async () => {
+      getView("/ground-station");
+
+      expect(await screen.findByRole("heading", { name: "Наземна станція" }, { timeout: 9000 })).toBeInTheDocument();
       expect(screen.queryByTestId(`${HOME_DROPZONE_TEST_ID}-dropzone`)).not.toBeInTheDocument();
     },
     10000,

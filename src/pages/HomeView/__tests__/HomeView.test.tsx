@@ -24,11 +24,16 @@ function getView() {
     </MemoryRouter>,
   );
 
+  const getLogsCard = () => screen.getByTestId(`${HOME_DROPZONE_TEST_ID}-card`);
+  const getVehicleSetupLink = () => screen.getByRole("link", { name: /Налаштування апарата/ });
+  const getGroundStationLink = () => screen.getByRole("link", { name: /Наземна станція/ });
+  const getBackButton = () => screen.getByRole("button", { name: "Назад" });
   const getFileInput = () => screen.getByTestId(`${HOME_DROPZONE_TEST_ID}-file-input`);
   const getSampleBinButton = () => screen.getByRole("button", { name: "Приклад .bin" });
   const getSampleSkylogButton = () => screen.getByRole("button", { name: "Приклад .skylog" });
-  const getArduPilotSetupLink = () => screen.getByRole("link", { name: "Налаштувати підключений апарат" });
 
+  const enterLogs = () => user.click(getLogsCard());
+  const clickBack = () => user.click(getBackButton());
   const uploadFile = (file: File) => user.upload(getFileInput(), file);
   const dropFileOnZone = (file: File) => dropFile(`${HOME_DROPZONE_TEST_ID}-dropzone`, file);
   const clickSampleBin = () => user.click(getSampleBinButton());
@@ -36,10 +41,15 @@ function getView() {
 
   return {
     user,
+    getLogsCard,
+    getVehicleSetupLink,
+    getGroundStationLink,
+    getBackButton,
     getFileInput,
     getSampleBinButton,
     getSampleSkylogButton,
-    getArduPilotSetupLink,
+    enterLogs,
+    clickBack,
     uploadFile,
     dropFileOnZone,
     clickSampleBin,
@@ -53,19 +63,36 @@ afterEach(() => {
 });
 
 describe("HomeView", () => {
-  it("renders the title, description, and dropzone", () => {
+  it("shows the 3-way chooser (Logs/Vehicle Setup/Ground Station) with no dropzone yet", () => {
     getView();
     expect(screen.getByRole("heading", { name: "ArduLens" })).toBeInTheDocument();
-    expect(screen.getByTestId(`${HOME_DROPZONE_TEST_ID}-dropzone`)).toBeInTheDocument();
+    expect(screen.getByText("Аналіз логів")).toBeInTheDocument();
+    expect(screen.getByText("Налаштування апарата")).toBeInTheDocument();
+    expect(screen.getByText("Наземна станція")).toBeInTheDocument();
+    expect(screen.queryByTestId(`${HOME_DROPZONE_TEST_ID}-dropzone`)).not.toBeInTheDocument();
   });
 
-  it("links to the ArduPilot Setup page", () => {
-    const { getArduPilotSetupLink } = getView();
-    expect(getArduPilotSetupLink()).toHaveAttribute("href", "/ardupilot-setup");
+  it("links Vehicle Setup to /ardupilot-setup and Ground Station to /ground-station", () => {
+    const { getVehicleSetupLink, getGroundStationLink } = getView();
+    expect(getVehicleSetupLink()).toHaveAttribute("href", "/ardupilot-setup");
+    expect(getGroundStationLink()).toHaveAttribute("href", "/ground-station");
+  });
+
+  it("clicking Analyze Logs reveals the dropzone, and Back returns to the chooser", async () => {
+    const { enterLogs, clickBack } = getView();
+
+    await enterLogs();
+    expect(screen.getByTestId(`${HOME_DROPZONE_TEST_ID}-dropzone`)).toBeInTheDocument();
+    expect(screen.queryByText("Наземна станція")).not.toBeInTheDocument();
+
+    await clickBack();
+    expect(screen.queryByTestId(`${HOME_DROPZONE_TEST_ID}-dropzone`)).not.toBeInTheDocument();
+    expect(screen.getByText("Наземна станція")).toBeInTheDocument();
   });
 
   it("uploading a valid file sets the shared file store", async () => {
-    const { uploadFile } = getView();
+    const { enterLogs, uploadFile } = getView();
+    await enterLogs();
     const buf = new FlightBinBuilder().build();
     const file = new File([buf], "flight.bin", { type: "application/octet-stream" });
 
@@ -75,7 +102,8 @@ describe("HomeView", () => {
   });
 
   it("dropping a valid file onto the drop zone sets the shared file store", async () => {
-    const { dropFileOnZone } = getView();
+    const { enterLogs, dropFileOnZone } = getView();
+    await enterLogs();
     const buf = new FlightBinBuilder().build();
     const file = new File([buf], "flight.bin", { type: "application/octet-stream" });
 
@@ -86,7 +114,8 @@ describe("HomeView", () => {
   });
 
   it("clicking the sample .bin button loads a sample flight into the shared file store", async () => {
-    const { clickSampleBin } = getView();
+    const { enterLogs, clickSampleBin } = getView();
+    await enterLogs();
 
     await clickSampleBin();
 
@@ -95,7 +124,8 @@ describe("HomeView", () => {
   });
 
   it("clicking the sample .skylog button loads a sample multi-board skylog into the shared file store", async () => {
-    const { clickSampleSkylog } = getView();
+    const { enterLogs, clickSampleSkylog } = getView();
+    await enterLogs();
 
     await clickSampleSkylog();
 
@@ -104,7 +134,8 @@ describe("HomeView", () => {
   });
 
   it("shows an error and does NOT enter the app for an invalid file", async () => {
-    const { uploadFile } = getView();
+    const { enterLogs, uploadFile } = getView();
+    await enterLogs();
     const buf = new SkylogFileBuilder().addBoard({ board: 1001 }).withoutExtendedLog().build();
 
     await uploadFile(new File([buf], "raw.skylog"));
@@ -122,7 +153,8 @@ describe("HomeView", () => {
       parseFile: () => pending,
     } as unknown as ReturnType<typeof getCoreWorker>);
 
-    const { clickSampleBin, getSampleBinButton } = getView();
+    const { enterLogs, clickSampleBin, getSampleBinButton } = getView();
+    await enterLogs();
     const clickPromise = clickSampleBin();
 
     expect(await screen.findByText("Розбір файлу...")).toBeInTheDocument();

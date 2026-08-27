@@ -35,7 +35,22 @@
   },
   "home": {
     "title": "ArduLens",
-    "description": "Drop a .skylog or .bin file to get a summarized flight table, graphs, automated flight-health advisories, and a 3D flight map - everything runs locally, nothing leaves your computer.",
+    "description": "Everything runs locally - nothing leaves your computer.",
+    "backToChooser": "Back",
+    "cards": {
+      "logs": {
+        "title": "Analyze Logs",
+        "description": "Drop a .skylog or .bin file to get a summarized flight table, graphs, automated flight-health advisories, and a 3D flight map."
+      },
+      "vehicleSetup": {
+        "title": "Vehicle Setup",
+        "description": "Connect to a real ArduPilot vehicle for live telemetry, parameters, calibration, and motor/servo setup."
+      },
+      "groundStation": {
+        "title": "Ground Station",
+        "description": "Plan beacon and antenna placement for a flying site, and preview line-of-sight coverage over real terrain."
+      }
+    },
     "drop": {
       "title": "Drop a log: .skylog / .bin / .tlog",
       "subtitle": "or click to choose a file",
@@ -43,8 +58,7 @@
       "parsing": "Parsing file...",
       "replaceHint": "Drop to replace the loaded file",
       "dismissError": "Dismiss"
-    },
-    "ardupilotSetupCta": "Set up a live vehicle"
+    }
   },
   "ardupilotSetup": {
     "heading": "ArduPilot Setup",
@@ -1210,5 +1224,11 @@
   "compare": {
     "heading": "Compare",
     "description": "Side-by-side comparison of multiple flights - coming soon."
+  },
+  "groundStation": {
+    "backToHome": "Back to Home",
+    "heading": "Ground Station",
+    "description": "Plan beacon and antenna placement for a flying site, and preview line-of-sight coverage over real terrain.",
+    "comingSoon": "Site planning and coverage preview are coming soon."
   }
 }
