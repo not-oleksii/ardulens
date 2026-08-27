@@ -59,6 +59,16 @@ vi.mock("cesium", async (importOriginal) => {
   };
 });
 
+// jsdom doesn't implement a real Canvas 2D context (no `canvas` native module in this project) -
+// the coverage raster's rasterToCanvas() only needs createImageData/putImageData to not throw,
+// not to actually rasterize anything, so a minimal stand-in is enough here.
+beforeEach(() => {
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+    createImageData: (w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4) }),
+    putImageData: vi.fn(),
+  } as unknown as CanvasRenderingContext2D);
+});
+
 function getView() {
   const user = userEvent.setup();
   render(
@@ -250,5 +260,38 @@ describe("GroundStationView", () => {
     await user.click(within(dialog).getByRole("button", { name: "Видалити пристрій" }));
 
     expect(screen.queryByText("Маячок 1")).not.toBeInTheDocument();
+  });
+
+  it("toggling Show coverage draws a coverage overlay and flips the button to Hide coverage", async () => {
+    const { createSite, typeToken, clickSaveToken, simulateMapRightClick, user } = getView();
+    await createSite("Home field");
+    await typeToken("test-token");
+    await clickSaveToken();
+    simulateMapRightClick(50.1, 30.1);
+    await user.click(screen.getByRole("button", { name: "Додати маячок тут" }));
+    await screen.findByText("Маячок 1");
+    const addCallsBefore = viewerInstances.at(-1)!.entities.add.mock.calls.length;
+
+    await user.click(await screen.findByRole("button", { name: "Показати покриття" }));
+
+    expect(await screen.findByRole("button", { name: "Приховати покриття" })).toBeInTheDocument();
+    const rectangleCalls = viewerInstances.at(-1)!.entities.add.mock.calls.slice(addCallsBefore).filter(([opts]) => "rectangle" in opts);
+    expect(rectangleCalls.length).toBe(1);
+  });
+
+  it("toggling coverage back off removes the overlay entity", async () => {
+    const { createSite, typeToken, clickSaveToken, simulateMapRightClick, user } = getView();
+    await createSite("Home field");
+    await typeToken("test-token");
+    await clickSaveToken();
+    simulateMapRightClick(50.1, 30.1);
+    await user.click(screen.getByRole("button", { name: "Додати маячок тут" }));
+    await user.click(await screen.findByRole("button", { name: "Показати покриття" }));
+    await screen.findByRole("button", { name: "Приховати покриття" });
+
+    await user.click(screen.getByRole("button", { name: "Приховати покриття" }));
+
+    expect(await screen.findByRole("button", { name: "Показати покриття" })).toBeInTheDocument();
+    expect(viewerInstances.at(-1)!.entities.remove).toHaveBeenCalled();
   });
 });
