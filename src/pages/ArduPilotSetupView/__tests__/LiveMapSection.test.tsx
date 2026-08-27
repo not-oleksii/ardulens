@@ -29,7 +29,11 @@ const { MockViewer, MockScreenSpaceEventHandler, viewerInstances, registeredClic
     camera = { flyTo: vi.fn(), setView: vi.fn(), pickEllipsoid: vi.fn(), getPickRay: vi.fn() };
     scene = { canvas: {}, globe: { ellipsoid: {}, pick: vi.fn() } };
     terrainProvider = {};
-    destroy = vi.fn();
+    #destroyed = false;
+    destroy = vi.fn(() => {
+      this.#destroyed = true;
+    });
+    isDestroyed = vi.fn(() => this.#destroyed);
     constructor() {
       viewerInstances.push(this);
     }

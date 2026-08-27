@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -8,11 +8,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import type { MavParamType, MavType } from "../../mavlink/registry/registry";
-import { fetchParamDocs, vehicleFolderForMavType, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
+import { vehicleFolderForMavType } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
 import { ParamLoadProgress } from "./ParamLoadProgress";
 import { SERIAL_PORT_INDICES, SERIAL_PORT_PARAM_NAMES, serialBaudParam, serialOptionsParam, serialProtocolParam } from "./serialPortsParams";
+import { useParamDocs } from "./useParamDocs";
+import { useStagedParamChanges } from "./useStagedParamChanges";
 
 interface SerialPortsSectionProps {
   vehicleType: MavType;
@@ -23,62 +25,29 @@ interface SerialPortsSectionProps {
 export function SerialPortsSection({ vehicleType, onLoad, onSetParam }: SerialPortsSectionProps) {
   const { t } = useTranslation();
   const params = useMavlinkParameterStore((s) => s.params);
-  const [docs, setDocs] = useState<ParamDocsMap | null>(null);
-  const [pendingChanges, setPendingChanges] = useState<Record<string, number>>({});
-  const [confirmOpen, setConfirmOpen] = useState(false);
   const [optionsPort, setOptionsPort] = useState<number | null>(null);
   const [editingName, setEditingName] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
 
   const vehicleFolder = vehicleFolderForMavType(vehicleType);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchParamDocs(vehicleFolder)
-      .then((result) => {
-        if (!cancelled) setDocs(result);
-      })
-      .catch(() => {
-        // Enum/bitmask labels are a nice-to-have - the raw numeric codes still work without them.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [vehicleFolder]);
+  // Enum/bitmask labels are a nice-to-have - the raw numeric codes still work without them.
+  const { docs } = useParamDocs(vehicleFolder);
+  const {
+    pendingChanges,
+    pendingEntries,
+    hasPendingChanges,
+    confirmOpen,
+    setConfirmOpen,
+    stageChange,
+    resetAll: handleResetAll,
+    confirmSaveAll: handleConfirmSaveAll,
+  } = useStagedParamChanges({ params, onSetParam });
 
   function shownValue(name: string): number | undefined {
     return pendingChanges[name] ?? params[name]?.value;
   }
 
-  function stageChange(name: string, value: number) {
-    const original = params[name]?.value;
-    setPendingChanges((prev) => {
-      const next = { ...prev };
-      if (original !== undefined && value === original) {
-        delete next[name];
-      } else {
-        next[name] = value;
-      }
-      return next;
-    });
-  }
-
-  function handleResetAll() {
-    setPendingChanges({});
-  }
-
-  function handleConfirmSaveAll() {
-    for (const [name, value] of Object.entries(pendingChanges)) {
-      const type = params[name]?.type;
-      if (type !== undefined) onSetParam(name, value, type);
-    }
-    setPendingChanges({});
-    setConfirmOpen(false);
-  }
-
   const hasAnyLoaded = SERIAL_PORT_PARAM_NAMES.some((name) => params[name] !== undefined);
-  const pendingEntries = Object.entries(pendingChanges);
-  const hasPendingChanges = pendingEntries.length > 0;
 
   function startEdit(name: string, currentValue: number) {
     setEditingName(name);

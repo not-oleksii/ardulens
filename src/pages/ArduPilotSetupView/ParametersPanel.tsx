@@ -1,6 +1,6 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
+import { useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -10,17 +10,11 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import type { MavParamType, MavType } from "../../mavlink/registry/registry";
-import {
-  fetchParamDocs,
-  paramDocsPageUrl,
-  vehicleFolderForMavType,
-  type ArduPilotVehicleFolder,
-  type ParamDoc,
-  type ParamDocsMap,
-} from "../../services/ardupilotParamDocs/ardupilotParamDocs";
+import { paramDocsPageUrl, vehicleFolderForMavType, type ParamDoc } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import { useMavlinkParamDefaultsStore } from "../../stores/mavlinkParamDefaultsStore/mavlinkParamDefaultsStore";
-import { useUnsavedChangesStore } from "../../stores/unsavedChangesStore/unsavedChangesStore";
+import { useParamDocs } from "./useParamDocs";
+import { useStagedParamChanges } from "./useStagedParamChanges";
 
 interface ParametersPanelProps {
   vehicleType: MavType;
@@ -107,15 +101,6 @@ export function ParametersPanel({
   const [search, setSearch] = useState("");
   const [editingName, setEditingName] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
-  // Edits are staged here (not sent) until "Save all" is confirmed - lets the user change
-  // several parameters and review a single From/To list before anything reaches the vehicle.
-  const [pendingChanges, setPendingChanges] = useState<Record<string, number>>({});
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  // Both tagged with the folder they're for, so a stale result from a previous vehicle type
-  // is never shown while the new one is still loading - without needing to reset state
-  // synchronously inside the effect itself (which cascading-render lint rightly flags).
-  const [docsState, setDocsState] = useState<{ folder: ArduPilotVehicleFolder; docs: ParamDocsMap } | null>(null);
-  const [docsErrorFolder, setDocsErrorFolder] = useState<ArduPilotVehicleFolder | null>(null);
   const [categorySelection, setCategorySelection] = useState<CategorySelection>({ kind: "all" });
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [categoriesCollapsed, setCategoriesCollapsed] = useState(false);
@@ -126,26 +111,23 @@ export function ParametersPanel({
   const [onlyModified, setOnlyModified] = useState(false);
 
   const vehicleFolder = vehicleFolderForMavType(vehicleType);
-  const docs = docsState?.folder === vehicleFolder ? docsState.docs : null;
-  const docsFailed = docsErrorFolder === vehicleFolder;
-  const docsLoading = !docs && !docsFailed;
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchParamDocs(vehicleFolder)
-      .then((result) => {
-        if (!cancelled) setDocsState({ folder: vehicleFolder, docs: result });
-      })
-      .catch(() => {
-        // Descriptions are a nice-to-have enhancement - the param list itself works fine
-        // without them, but the failure is surfaced (rather than silently doing nothing) so
-        // a real fetch problem is visible instead of looking like the feature is just broken.
-        if (!cancelled) setDocsErrorFolder(vehicleFolder);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [vehicleFolder]);
+  const { docs, docsLoading, docsFailed } = useParamDocs(vehicleFolder);
+  // Edits are staged here (not sent) until "Save all" is confirmed - lets the user change
+  // several parameters and review a single From/To list before anything reaches the vehicle.
+  // trackUnsaved: true - switching sidebar sections unmounts this component and would otherwise
+  // discard pendingChanges with no warning; this lets ArduPilotSetupView gate the switch behind
+  // a confirmation instead.
+  const {
+    pendingChanges,
+    setPendingChanges,
+    pendingEntries,
+    hasPendingChanges,
+    confirmOpen,
+    setConfirmOpen,
+    stageChange,
+    resetAll: handleResetAll,
+    confirmSaveAll: handleConfirmSaveAll,
+  } = useStagedParamChanges({ params, onSetParam, trackUnsaved: true });
 
   // Sorting/filtering a full (1000+ param) list is cheap once, but re-doing it on every
   // render (e.g. while typing in an unrelated field) adds up - memoized so it only re-runs
@@ -201,8 +183,6 @@ export function ParametersPanel({
   const receivedCount = entries.length;
   const hasStarted = expectedCount !== null || receivedCount > 0;
   const isComplete = expectedCount !== null && receivedCount >= expectedCount;
-  const pendingEntries = Object.entries(pendingChanges);
-  const hasPendingChanges = pendingEntries.length > 0;
   // Whether the firmware-defaults toolbar group has anything to actually show - mirrors the
   // union of that group's own inner conditions exactly, so the group (and its divider) never
   // renders empty for a phase none of them cover (e.g. "loaded").
@@ -211,16 +191,6 @@ export function ParametersPanel({
     defaultsPhase === "opening" ||
     defaultsPhase === "downloading" ||
     (defaultsPhase === "error" && defaultsError !== null);
-
-  // Switching sidebar sections unmounts this component and discards `pendingChanges` with no
-  // warning otherwise - this lets ArduPilotSetupView gate the switch behind a confirmation.
-  // Cleared on unmount too, since by that point the edits are gone either way (confirmed or
-  // navigated past the guard) and a stale `true` must not leak into whichever section mounts
-  // next.
-  useEffect(() => {
-    useUnsavedChangesStore.getState().setUnsaved(hasPendingChanges);
-    return () => useUnsavedChangesStore.getState().setUnsaved(false);
-  }, [hasPendingChanges]);
 
   const rowVirtualizer = useVirtualizer({
     count: filtered.length,
@@ -238,29 +208,7 @@ export function ParametersPanel({
     setEditingName(null);
     const parsed = Number(editingValue);
     if (!Number.isFinite(parsed)) return;
-    const original = params[name]?.value;
-    setPendingChanges((prev) => {
-      const next = { ...prev };
-      if (original !== undefined && parsed === original) {
-        delete next[name]; // editing back to the original value un-stages it
-      } else {
-        next[name] = parsed;
-      }
-      return next;
-    });
-  }
-
-  function handleResetAll() {
-    setPendingChanges({});
-  }
-
-  function handleConfirmSaveAll() {
-    for (const [name, value] of pendingEntries) {
-      const type = params[name]?.type;
-      if (type !== undefined) onSetParam(name, value, type);
-    }
-    setPendingChanges({});
-    setConfirmOpen(false);
+    stageChange(name, parsed);
   }
 
   // Exports every currently-loaded parameter as a plain NAME,VALUE file (the common .param

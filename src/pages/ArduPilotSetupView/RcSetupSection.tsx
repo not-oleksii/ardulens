@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { COPTER_MODE_NAMES, PLANE_MODE_NAMES } from "../../constants";
 import type { MavParamType, MavType } from "../../mavlink/registry/registry";
-import { fetchParamDocs, vehicleFolderForMavType, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
+import { vehicleFolderForMavType } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import { AUX_FUNCTION_NAMES_COPTER, AUX_FUNCTION_NAMES_PLANE } from "./auxFunctionNames";
 import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
@@ -21,6 +21,8 @@ import {
   RCMAP_AXIS_LABELS,
   RCMAP_PARAM_NAMES,
 } from "./rcSetupParams";
+import { useParamDocs } from "./useParamDocs";
+import { useStagedParamChanges } from "./useStagedParamChanges";
 
 const CUSTOM_CODE_VALUE = "custom";
 const NONE_VALUE = "none";
@@ -117,11 +119,8 @@ const FLTMODE_BAND_EDGES = [SCALE_MIN, ...FLTMODE_BAND_UPPER_BOUNDS, SCALE_MAX];
 export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetupSectionProps) {
   const { t } = useTranslation();
   const params = useMavlinkParameterStore((s) => s.params);
-  const [docs, setDocs] = useState<ParamDocsMap | null>(null);
   const [editingName, setEditingName] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
-  const [pendingChanges, setPendingChanges] = useState<Record<string, number>>({});
-  const [confirmOpen, setConfirmOpen] = useState(false);
   // A channel picking "Custom code..." from its function <select> drops into this inline
   // numeric-entry mode instead (see buildFunctionOptions) - used both as the fallback when the
   // docs-driven RCx_OPTION enum hasn't loaded, and to reach a real firmware option code the
@@ -132,56 +131,23 @@ export function RcSetupSection({ vehicleType, live, onLoad, onSetParam }: RcSetu
   const vehicleFolder = vehicleFolderForMavType(vehicleType);
   const modeNamesFallback = vehicleFolder === "ArduCopter" ? COPTER_MODE_NAMES : vehicleFolder === "ArduPlane" ? PLANE_MODE_NAMES : null;
   const failsafeParamNames = failsafeParamNamesFor(vehicleFolder);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchParamDocs(vehicleFolder)
-      .then((result) => {
-        if (!cancelled) setDocs(result);
-      })
-      .catch(() => {
-        // Enum labels are a nice-to-have - the raw numeric codes still work without them.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [vehicleFolder]);
-
-  // useCallback (not a plain function) so it stays referentially stable across the pure PWM-tick
-  // re-renders RcSetupSection gets at 10Hz while this tab is open - handleChannelFunctionChange
-  // below depends on it, and needs to stay stable itself for ChannelFunctionSelect's memo to work.
-  const stageChange = useCallback(
-    (name: string, value: number) => {
-      const original = params[name]?.value;
-      setPendingChanges((prev) => {
-        const next = { ...prev };
-        if (original !== undefined && value === original) {
-          delete next[name];
-        } else {
-          next[name] = value;
-        }
-        return next;
-      });
-    },
-    [params],
-  );
-
-  function handleResetAll() {
-    setPendingChanges({});
-  }
-
-  function handleConfirmSaveAll() {
-    for (const [name, value] of Object.entries(pendingChanges)) {
-      const type = params[name]?.type;
-      if (type !== undefined) onSetParam(name, value, type);
-    }
-    setPendingChanges({});
-    setConfirmOpen(false);
-  }
+  // Enum labels are a nice-to-have - the raw numeric codes still work without them.
+  const { docs } = useParamDocs(vehicleFolder);
+  // stageChange stays referentially stable across the pure PWM-tick re-renders RcSetupSection
+  // gets at 10Hz while this tab is open - handleChannelFunctionChange below depends on it, and
+  // needs to stay stable itself for ChannelFunctionSelect's memo to work.
+  const {
+    pendingChanges,
+    pendingEntries,
+    hasPendingChanges,
+    confirmOpen,
+    setConfirmOpen,
+    stageChange,
+    resetAll: handleResetAll,
+    confirmSaveAll: handleConfirmSaveAll,
+  } = useStagedParamChanges({ params, onSetParam });
 
   const hasAnyLoaded = RC_SETUP_PARAM_NAMES.some((name) => params[name] !== undefined);
-  const pendingEntries = Object.entries(pendingChanges);
-  const hasPendingChanges = pendingEntries.length > 0;
 
   const fltModeChEntry = params.FLTMODE_CH;
   const fltModeChannel = fltModeChEntry ? (pendingChanges.FLTMODE_CH ?? fltModeChEntry.value) : null;

@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -7,10 +6,12 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHeader, TableHead, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import type { MavParamType, MavType } from "../../mavlink/registry/registry";
-import { fetchParamDocs, vehicleFolderForMavType, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
+import { vehicleFolderForMavType } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
 import { ParamLoadProgress } from "./ParamLoadProgress";
+import { useParamDocs } from "./useParamDocs";
+import { useStagedParamChanges } from "./useStagedParamChanges";
 import { VTX_BAND_FALLBACK_VALUES, VTX_ENABLE_FALLBACK_VALUES, VTX_OPTIONS_BITS, VTX_PARAM_NAMES, VTX_TYPES_BITS } from "./vtxSetupParams";
 
 interface VtxSetupSectionProps {
@@ -22,60 +23,26 @@ interface VtxSetupSectionProps {
 export function VtxSetupSection({ vehicleType, onLoad, onSetParam }: VtxSetupSectionProps) {
   const { t } = useTranslation();
   const params = useMavlinkParameterStore((s) => s.params);
-  const [docs, setDocs] = useState<ParamDocsMap | null>(null);
-  const [pendingChanges, setPendingChanges] = useState<Record<string, number>>({});
-  const [confirmOpen, setConfirmOpen] = useState(false);
-
   const vehicleFolder = vehicleFolderForMavType(vehicleType);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchParamDocs(vehicleFolder)
-      .then((result) => {
-        if (!cancelled) setDocs(result);
-      })
-      .catch(() => {
-        // Enum labels (VTX_ENABLE/VTX_BAND) are a nice-to-have - the hardcoded fallback below
-        // still works without them, same pattern OsdSetupSection uses.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [vehicleFolder]);
+  // Enum labels (VTX_ENABLE/VTX_BAND) are a nice-to-have - the hardcoded fallback values below
+  // still work without them.
+  const { docs } = useParamDocs(vehicleFolder);
+  const {
+    pendingChanges,
+    pendingEntries,
+    hasPendingChanges,
+    confirmOpen,
+    setConfirmOpen,
+    stageChange,
+    resetAll: handleResetAll,
+    confirmSaveAll: handleConfirmSaveAll,
+  } = useStagedParamChanges({ params, onSetParam });
 
   function shownValue(name: string): number | undefined {
     return pendingChanges[name] ?? params[name]?.value;
   }
 
-  function stageChange(name: string, value: number) {
-    const original = params[name]?.value;
-    setPendingChanges((prev) => {
-      const next = { ...prev };
-      if (original !== undefined && value === original) {
-        delete next[name];
-      } else {
-        next[name] = value;
-      }
-      return next;
-    });
-  }
-
-  function handleResetAll() {
-    setPendingChanges({});
-  }
-
-  function handleConfirmSaveAll() {
-    for (const [name, value] of Object.entries(pendingChanges)) {
-      const type = params[name]?.type;
-      if (type !== undefined) onSetParam(name, value, type);
-    }
-    setPendingChanges({});
-    setConfirmOpen(false);
-  }
-
   const hasAnyLoaded = VTX_PARAM_NAMES.some((name) => params[name] !== undefined);
-  const pendingEntries = Object.entries(pendingChanges);
-  const hasPendingChanges = pendingEntries.length > 0;
 
   function numberField(name: string, unit?: string) {
     const entry = params[name];

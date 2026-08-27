@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -8,17 +8,11 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import type { MavParamType, MavType } from "../../mavlink/registry/registry";
-import {
-  fetchParamDocs,
-  paramDocsPageUrl,
-  vehicleFolderForMavType,
-  type ArduPilotVehicleFolder,
-  type ParamDoc,
-  type ParamDocsMap,
-} from "../../services/ardupilotParamDocs/ardupilotParamDocs";
+import { paramDocsPageUrl, vehicleFolderForMavType, type ParamDoc } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import { useMavlinkParamDefaultsStore } from "../../stores/mavlinkParamDefaultsStore/mavlinkParamDefaultsStore";
-import { useUnsavedChangesStore } from "../../stores/unsavedChangesStore/unsavedChangesStore";
+import { useParamDocs } from "./useParamDocs";
+import { useStagedParamChanges } from "./useStagedParamChanges";
 
 interface ParameterTreeSectionProps {
   vehicleType: MavType;
@@ -173,30 +167,25 @@ export function ParameterTreeSection({ vehicleType, onLoadParameters, onSetParam
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState<string | null>(null);
-  const [docsState, setDocsState] = useState<{ folder: ArduPilotVehicleFolder; docs: ParamDocsMap } | null>(null);
-  // Same shape/semantics as ParametersPanel's own pendingChanges - staged here (not sent) until
-  // "Save all" is confirmed.
-  const [pendingChanges, setPendingChanges] = useState<Record<string, number>>({});
-  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const vehicleFolder = vehicleFolderForMavType(vehicleType);
-  const docs = docsState?.folder === vehicleFolder ? docsState.docs : null;
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchParamDocs(vehicleFolder)
-      .then((result) => {
-        if (!cancelled) setDocsState({ folder: vehicleFolder, docs: result });
-      })
-      .catch(() => {
-        // Descriptions are a nice-to-have here too (see ParametersPanel's identical comment) -
-        // fetchParamDocs is internally cached, so this costs nothing extra once that panel (or
-        // this one) has already fetched this vehicle family's docs once this session.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [vehicleFolder]);
+  // fetchParamDocs is internally cached, so this costs nothing extra once ParametersPanel (or
+  // this section) has already fetched this vehicle family's docs once this session.
+  const { docs } = useParamDocs(vehicleFolder);
+  // Same shape/semantics as ParametersPanel's own pendingChanges - staged here (not sent) until
+  // "Save all" is confirmed. trackUnsaved: true for the same reason as ParametersPanel's
+  // identical guard - switching sidebar sections unmounts this component and would otherwise
+  // silently discard pendingChanges.
+  const {
+    pendingChanges,
+    pendingEntries,
+    hasPendingChanges,
+    confirmOpen,
+    setConfirmOpen,
+    stageChange,
+    resetAll: handleResetAll,
+    confirmSaveAll: handleConfirmSaveAll,
+  } = useStagedParamChanges({ params, onSetParam, trackUnsaved: true });
 
   const names = useMemo(() => Object.keys(params).sort(), [params]);
   const tree = useMemo(() => buildParamTree(names), [names]);
@@ -205,17 +194,8 @@ export function ParameterTreeSection({ vehicleType, onLoadParameters, onSetParam
 
   const selected = selectedPath ? params[selectedPath] : undefined;
   const selectedDoc = selectedPath ? docs?.[selectedPath] : undefined;
-  const pendingEntries = Object.entries(pendingChanges);
-  const hasPendingChanges = pendingEntries.length > 0;
   const shownValue = selected ? (pendingChanges[selected.name] ?? selected.value) : undefined;
   const isModified = selected ? pendingChanges[selected.name] !== undefined : false;
-
-  // Same reasoning as ParametersPanel's identical effect: switching sidebar sections unmounts
-  // this component and would otherwise silently discard pendingChanges.
-  useEffect(() => {
-    useUnsavedChangesStore.getState().setUnsaved(hasPendingChanges);
-    return () => useUnsavedChangesStore.getState().setUnsaved(false);
-  }, [hasPendingChanges]);
 
   function toggle(path: string, open: boolean) {
     setExpanded((prev) => {
@@ -236,26 +216,7 @@ export function ParameterTreeSection({ vehicleType, onLoadParameters, onSetParam
     const parsed = Number(editingValue);
     setEditingValue(null);
     if (!Number.isFinite(parsed)) return;
-    const name = selected.name;
-    setPendingChanges((prev) => {
-      const next = { ...prev };
-      if (parsed === selected.value) delete next[name]; // editing back to the original un-stages it
-      else next[name] = parsed;
-      return next;
-    });
-  }
-
-  function handleResetAll() {
-    setPendingChanges({});
-  }
-
-  function handleConfirmSaveAll() {
-    for (const [name, value] of pendingEntries) {
-      const type = params[name]?.type;
-      if (type !== undefined) onSetParam(name, value, type);
-    }
-    setPendingChanges({});
-    setConfirmOpen(false);
+    stageChange(selected.name, parsed);
   }
 
   return (

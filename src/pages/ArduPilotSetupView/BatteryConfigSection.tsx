@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -6,12 +6,14 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import type { MavParamType, MavType } from "../../mavlink/registry/registry";
-import { fetchParamDocs, vehicleFolderForMavType, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
+import { vehicleFolderForMavType } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import type { BatteryTelemetry } from "../../stores/mavlinkTelemetryStore/types";
 import { BATTERY_ENUM_PARAMS, BATTERY_PARAM_NAMES } from "./batteryParams";
 import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
 import { ParamLoadProgress } from "./ParamLoadProgress";
+import { useParamDocs } from "./useParamDocs";
+import { useStagedParamChanges } from "./useStagedParamChanges";
 
 interface BatteryConfigSectionProps {
   vehicleType: MavType;
@@ -23,27 +25,22 @@ interface BatteryConfigSectionProps {
 export function BatteryConfigSection({ vehicleType, battery, onLoad, onSetParam }: BatteryConfigSectionProps) {
   const { t } = useTranslation();
   const params = useMavlinkParameterStore((s) => s.params);
-  const [docs, setDocs] = useState<ParamDocsMap | null>(null);
   const [editingName, setEditingName] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
-  const [pendingChanges, setPendingChanges] = useState<Record<string, number>>({});
-  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const vehicleFolder = vehicleFolderForMavType(vehicleType);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchParamDocs(vehicleFolder)
-      .then((result) => {
-        if (!cancelled) setDocs(result);
-      })
-      .catch(() => {
-        // Enum labels are a nice-to-have - the raw numeric codes still work without them.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [vehicleFolder]);
+  // Enum labels are a nice-to-have - the raw numeric codes still work without them.
+  const { docs } = useParamDocs(vehicleFolder);
+  const {
+    pendingChanges,
+    pendingEntries,
+    hasPendingChanges,
+    confirmOpen,
+    setConfirmOpen,
+    stageChange,
+    resetAll: handleResetAll,
+    confirmSaveAll: handleConfirmSaveAll,
+  } = useStagedParamChanges({ params, onSetParam });
 
   function startEdit(name: string, currentValue: number) {
     setEditingName(name);
@@ -57,35 +54,7 @@ export function BatteryConfigSection({ vehicleType, battery, onLoad, onSetParam 
     stageChange(name, parsed);
   }
 
-  function stageChange(name: string, value: number) {
-    const original = params[name]?.value;
-    setPendingChanges((prev) => {
-      const next = { ...prev };
-      if (original !== undefined && value === original) {
-        delete next[name];
-      } else {
-        next[name] = value;
-      }
-      return next;
-    });
-  }
-
-  function handleResetAll() {
-    setPendingChanges({});
-  }
-
-  function handleConfirmSaveAll() {
-    for (const [name, value] of Object.entries(pendingChanges)) {
-      const type = params[name]?.type;
-      if (type !== undefined) onSetParam(name, value, type);
-    }
-    setPendingChanges({});
-    setConfirmOpen(false);
-  }
-
   const hasAnyLoaded = BATTERY_PARAM_NAMES.some((name) => params[name] !== undefined);
-  const pendingEntries = Object.entries(pendingChanges);
-  const hasPendingChanges = pendingEntries.length > 0;
 
   function renderField(name: string) {
     const entry = params[name];

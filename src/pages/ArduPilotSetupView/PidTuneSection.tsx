@@ -14,6 +14,7 @@ import { ComingSoonSection } from "./ComingSoonSection";
 import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
 import { ParamLoadProgress } from "./ParamLoadProgress";
 import { pidConfigForVehicleFolder, type PidAxis } from "./pidGroups";
+import { useStagedParamChanges } from "./useStagedParamChanges";
 
 interface PidTuneSectionProps {
   vehicleType: MavType;
@@ -42,8 +43,16 @@ export function PidTuneSection({ vehicleType, onLoad, onSetParam }: PidTuneSecti
   // Same stage-then-confirm pattern as ParametersPanel - a PID change takes effect immediately
   // on the vehicle once sent, so it's worth a deliberate "Save all" review rather than writing
   // on every keystroke.
-  const [pendingChanges, setPendingChanges] = useState<Record<string, number>>({});
-  const [confirmOpen, setConfirmOpen] = useState(false);
+  const {
+    pendingChanges,
+    pendingEntries,
+    hasPendingChanges,
+    confirmOpen,
+    setConfirmOpen,
+    stageChange,
+    resetAll: handleResetAll,
+    confirmSaveAll: handleConfirmSaveAll,
+  } = useStagedParamChanges({ params, onSetParam });
 
   const vehicleFolder = vehicleFolderForMavType(vehicleType);
   const config = pidConfigForVehicleFolder(vehicleFolder);
@@ -62,29 +71,7 @@ export function PidTuneSection({ vehicleType, onLoad, onSetParam }: PidTuneSecti
     setEditingName(null);
     const parsed = Number(editingValue);
     if (!Number.isFinite(parsed)) return;
-    const original = params[name]?.value;
-    setPendingChanges((prev) => {
-      const next = { ...prev };
-      if (original !== undefined && parsed === original) {
-        delete next[name];
-      } else {
-        next[name] = parsed;
-      }
-      return next;
-    });
-  }
-
-  function handleResetAll() {
-    setPendingChanges({});
-  }
-
-  function handleConfirmSaveAll() {
-    for (const [name, value] of Object.entries(pendingChanges)) {
-      const type = params[name]?.type;
-      if (type !== undefined) onSetParam(name, value, type);
-    }
-    setPendingChanges({});
-    setConfirmOpen(false);
+    stageChange(name, parsed);
   }
 
   // Deep-links to the currently loaded flight log's Graphs page, with the matching
@@ -110,8 +97,6 @@ export function PidTuneSection({ vehicleType, onLoad, onSetParam }: PidTuneSecti
   }
 
   const hasAnyResolved = config.axes.some((axis) => axis.terms.some((term) => resolveTerm(term.candidates) !== null));
-  const pendingEntries = Object.entries(pendingChanges);
-  const hasPendingChanges = pendingEntries.length > 0;
 
   function renderAxis(axis: PidAxis) {
     const presetKey = supportsRatePresets ? AXIS_PRESET_KEYS[axis.key] : undefined;
