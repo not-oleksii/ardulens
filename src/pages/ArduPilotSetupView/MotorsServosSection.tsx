@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { MavParamType, type MavType } from "../../mavlink/registry/registry";
-import { fetchParamDocs, vehicleFolderForMavType, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
+import { vehicleFolderForMavType } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import { useUnsavedChangesStore } from "../../stores/unsavedChangesStore/unsavedChangesStore";
 import { ComingSoonSection } from "./ComingSoonSection";
@@ -15,6 +15,8 @@ import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
 import { MotorsCopterSection } from "./MotorsCopterSection";
 import { ParamLoadProgress } from "./ParamLoadProgress";
 import { colorForRcChannel } from "./rcChannelColors";
+import { useParamDocs } from "./useParamDocs";
+import { useStagedParamChanges } from "./useStagedParamChanges";
 
 interface MotorsServosSectionProps {
   vehicleType: MavType;
@@ -72,36 +74,23 @@ export function MotorsServosSection({
 }: MotorsServosSectionProps) {
   const { t } = useTranslation();
   const params = useMavlinkParameterStore((s) => s.params);
-  const [docs, setDocs] = useState<ParamDocsMap | null>(null);
   const [editingCell, setEditingCell] = useState<{ channel: number; field: EditableField } | null>(null);
   const [editingValue, setEditingValue] = useState("");
-  // Min/Trim/Max/Reverse/Function edits stage here (same shape/semantics as ParametersPanel's
-  // own pendingChanges) instead of sending immediately - unified in Wave 2 of the UI/UX audit.
-  // The hold-to-test button below is NOT staged - that's a live test command, not config, and
-  // must stay instant per the same audit's own safety-critical-controls note.
-  const [pendingChanges, setPendingChanges] = useState<Record<string, number>>({});
-  const [confirmOpen, setConfirmOpen] = useState(false);
   const vehicleFolder = vehicleFolderForMavType(vehicleType);
   const isPlane = vehicleFolder === "ArduPlane";
   const isCopter = vehicleFolder === "ArduCopter";
-
-  useEffect(() => {
-    if (!isPlane) return;
-    let cancelled = false;
-    fetchParamDocs(vehicleFolder)
-      .then((result) => {
-        if (!cancelled) setDocs(result);
-      })
-      .catch(() => {
-        // Function labels are a nice-to-have - channels still list by raw code without them.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [isPlane, vehicleFolder]);
-
-  const pendingEntries = Object.entries(pendingChanges);
-  const hasPendingChanges = pendingEntries.length > 0;
+  // Function labels are a nice-to-have - channels still list by raw code without them. Plane-
+  // only: Copter's path below renders MotorsCopterSection, which fetches its own docs.
+  const { docs } = useParamDocs(isPlane ? vehicleFolder : null);
+  // Min/Trim/Max/Reverse/Function edits stage here (same shape/semantics as ParametersPanel's
+  // own pendingChanges) instead of sending immediately - unified in Wave 2 of the UI/UX audit.
+  // The hold-to-test button below is NOT staged - that's a live test command, not config, and
+  // must stay instant per the same audit's own safety-critical-controls note. Only the shared
+  // state/reset half of the hook is used here - stageParam and handleConfirmSaveAll below stay
+  // local because this section's save-all needs a REVERSED-vs-other-fields type fallback the
+  // hook's generic "skip if the store doesn't have a type yet" doesn't have.
+  const { pendingChanges, setPendingChanges, pendingEntries, hasPendingChanges, confirmOpen, setConfirmOpen, resetAll: handleResetAll } =
+    useStagedParamChanges({ params, onSetParam: onSetFrameParam });
 
   // Switching sidebar sections unmounts this component - same guard ParametersPanel/
   // ParameterTreeSection/MotorsCopterSection already use so staged edits are never silently
@@ -169,10 +158,6 @@ export function MotorsServosSection({
       else next[name] = value;
       return next;
     });
-  }
-
-  function handleResetAll() {
-    setPendingChanges({});
   }
 
   function handleConfirmSaveAll() {

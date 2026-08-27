@@ -15,11 +15,11 @@ import {
   motorCountForFrameClass,
 } from "../../mavlink/frameDiagrams/frameDiagrams";
 import { MavParamType } from "../../mavlink/registry/registry";
-import { fetchParamDocs, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
-import { useUnsavedChangesStore } from "../../stores/unsavedChangesStore/unsavedChangesStore";
 import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
 import { ParamLoadProgress } from "./ParamLoadProgress";
+import { useParamDocs } from "./useParamDocs";
+import { useStagedParamChanges } from "./useStagedParamChanges";
 
 interface MotorsCopterSectionProps {
   servoOutputs: Record<number, number>;
@@ -67,7 +67,6 @@ export function MotorsCopterSection({
 }: MotorsCopterSectionProps) {
   const { t } = useTranslation();
   const params = useMavlinkParameterStore((s) => s.params);
-  const [docs, setDocs] = useState<ParamDocsMap | null>(null);
   const [activeMotor, setActiveMotor] = useState<number | null>(null);
   const [step, setStep] = useState<WizardStep>("frame");
   // Tracks which motors have been spin-tested this session, purely as a checklist so the user
@@ -81,22 +80,14 @@ export function MotorsCopterSection({
   // the UI/UX audit, this used to be one of 3 different param-edit commit models the app had.
   // Motor-test throttle/identification below is NOT staged - those are live test commands, not
   // config, and must stay instant per the same audit's own safety-critical-controls note.
-  const [pendingChanges, setPendingChanges] = useState<Record<string, number>>({});
-  const [confirmOpen, setConfirmOpen] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchParamDocs("ArduCopter")
-      .then((result) => {
-        if (!cancelled) setDocs(result);
-      })
-      .catch(() => {
-        // Frame class/type labels are a nice-to-have - the raw numeric codes still work.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // Frame class/type labels are a nice-to-have - the raw numeric codes still work without them.
+  const { docs } = useParamDocs("ArduCopter");
+  // FRAME_CLASS/FRAME_TYPE/SERVOx_REVERSED edits stage here - only the shared state/reset/
+  // unsaved-guard half of the hook is used, since this section's save-all needs a FRAME_CLASS/
+  // FRAME_TYPE/REVERSED-specific type fallback the hook's generic logic doesn't have (see
+  // handleConfirmSaveAll below, kept local).
+  const { pendingChanges, setPendingChanges, pendingEntries, hasPendingChanges, confirmOpen, setConfirmOpen, resetAll: handleResetAll } =
+    useStagedParamChanges({ params, onSetParam: onSetFrameParam, trackUnsaved: true });
 
   // Guided identification: the app drives each output one at a time instead of the user
   // picking which to spin - the user's job is just to watch the real propeller and
@@ -220,16 +211,6 @@ export function MotorsCopterSection({
     setIdentifying(false);
   }
 
-  const pendingEntries = Object.entries(pendingChanges);
-  const hasPendingChanges = pendingEntries.length > 0;
-
-  // Switching sidebar sections unmounts this component - same guard ParametersPanel/
-  // ParameterTreeSection already use so staged frame/reverse edits are never silently dropped.
-  useEffect(() => {
-    useUnsavedChangesStore.getState().setUnsaved(hasPendingChanges);
-    return () => useUnsavedChangesStore.getState().setUnsaved(false);
-  }, [hasPendingChanges]);
-
   function stageParam(name: string, value: number, original: number) {
     setPendingChanges((prev) => {
       const next = { ...prev };
@@ -237,10 +218,6 @@ export function MotorsCopterSection({
       else next[name] = value;
       return next;
     });
-  }
-
-  function handleResetAll() {
-    setPendingChanges({});
   }
 
   function handleConfirmSaveAll() {

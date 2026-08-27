@@ -122,7 +122,11 @@ const { MockCesiumViewer, MockScreenSpaceEventHandler, cesiumViewerInstances, ce
     camera = { flyTo: vi.fn(), setView: vi.fn(), pickEllipsoid: vi.fn(), getPickRay: vi.fn() };
     scene = { canvas: {}, globe: { ellipsoid: {}, pick: vi.fn() } };
     terrainProvider = {};
-    destroy = vi.fn();
+    #destroyed = false;
+    destroy = vi.fn(() => {
+      this.#destroyed = true;
+    });
+    isDestroyed = vi.fn(() => this.#destroyed);
     constructor() {
       cesiumViewerInstances.push(this);
     }

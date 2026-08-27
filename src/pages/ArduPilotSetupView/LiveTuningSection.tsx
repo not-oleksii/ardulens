@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { MavParamType, MavType } from "../../mavlink/registry/registry";
-import { fetchParamDocs, vehicleFolderForMavType, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
+import { vehicleFolderForMavType } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import { ComingSoonSection } from "./ComingSoonSection";
 import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
@@ -11,6 +11,7 @@ import { ParamLoadProgress } from "./ParamLoadProgress";
 import { RC_OPTION_CHANNEL_COUNT } from "./rcSetupParams";
 import { colorForRcChannel } from "./rcChannelColors";
 import { TUNE_PARAM_NAMES_COPTER, TUNE_RC_OPTION_CODE } from "./tuneParamNames";
+import { useParamDocs } from "./useParamDocs";
 
 interface LiveTuningSectionProps {
   vehicleType: MavType;
@@ -51,7 +52,6 @@ const HISTORY_LENGTH = 120;
 export function LiveTuningSection({ vehicleType, live, onLoad, onSetParam }: LiveTuningSectionProps) {
   const { t } = useTranslation();
   const params = useMavlinkParameterStore((s) => s.params);
-  const [docs, setDocs] = useState<ParamDocsMap | null>(null);
   const [editingName, setEditingName] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
   // A ring buffer of recent derived values, advanced once per live RC_CHANNELS tick. Adjusted
@@ -63,21 +63,9 @@ export function LiveTuningSection({ vehicleType, live, onLoad, onSetParam }: Liv
   const [historyState, setHistoryState] = useState<{ live: Record<number, number>; values: number[] }>(() => ({ live, values: [] }));
 
   const vehicleFolder = vehicleFolderForMavType(vehicleType);
-
-  useEffect(() => {
-    if (vehicleFolder !== "ArduCopter") return;
-    let cancelled = false;
-    fetchParamDocs(vehicleFolder)
-      .then((result) => {
-        if (!cancelled) setDocs(result);
-      })
-      .catch(() => {
-        // Enum labels are a nice-to-have - the bundled TUNE_PARAM_NAMES_COPTER fallback still works.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [vehicleFolder]);
+  // Enum labels are a nice-to-have - the bundled TUNE_PARAM_NAMES_COPTER fallback still works.
+  // Copter-only, matching this section's own Copter-only scope (see the file doc comment above).
+  const { docs } = useParamDocs(vehicleFolder === "ArduCopter" ? vehicleFolder : null);
 
   // Which RC channel (if any) currently holds RCx_OPTION=219 - null if none does.
   const tuneChannel = Array.from({ length: RC_OPTION_CHANNEL_COUNT }, (_, i) => i + 1).find(

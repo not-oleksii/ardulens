@@ -278,7 +278,11 @@ export function LiveMapSection({
     async function place() {
       if (homeGroundHeightRef.current === null) {
         const [sample] = await sampleTerrainMostDetailed(viewer!.terrainProvider, [Cartographic.fromDegrees(position!.lon, position!.lat)]);
-        if (cancelled) return;
+        // This effect isn't keyed on `token` (see below), so a token change - which destroys
+        // and recreates the viewer in the OTHER effect above - can resolve this await after the
+        // viewer this closure captured is already destroyed. `cancelled` alone doesn't catch
+        // that case, since it's only set by THIS effect's own cleanup, not the viewer's.
+        if (cancelled || viewer!.isDestroyed()) return;
         homeGroundHeightRef.current = sample?.height ?? 0;
 
         // Restores the last "Fly to here"/"Set home here" targets from the shared store (see

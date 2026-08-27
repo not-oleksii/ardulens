@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -6,10 +6,12 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import type { MavParamType, MavType } from "../../mavlink/registry/registry";
-import { fetchParamDocs, vehicleFolderForMavType, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
+import { vehicleFolderForMavType } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
 import { ModifiedFromDefaultDot } from "./ModifiedFromDefaultDot";
 import { ParamLoadProgress } from "./ParamLoadProgress";
+import { useParamDocs } from "./useParamDocs";
+import { useStagedParamChanges } from "./useStagedParamChanges";
 import {
   ALIGNMENT_ANCHORS,
   alignmentAnchorLabel,
@@ -46,63 +48,30 @@ interface OsdSetupSectionProps {
 export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSectionProps) {
   const { t } = useTranslation();
   const params = useMavlinkParameterStore((s) => s.params);
-  const [docs, setDocs] = useState<ParamDocsMap | null>(null);
-  const [pendingChanges, setPendingChanges] = useState<Record<string, number>>({});
-  const [confirmOpen, setConfirmOpen] = useState(false);
   const [activeScreen, setActiveScreen] = useState<OsdScreenNumber>(1);
   const [elementFilter, setElementFilter] = useState("");
   const [selectedElementKey, setSelectedElementKey] = useState<OsdElementKey | null>(null);
 
   const vehicleFolder = vehicleFolderForMavType(vehicleType);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchParamDocs(vehicleFolder)
-      .then((result) => {
-        if (!cancelled) setDocs(result);
-      })
-      .catch(() => {
-        // Enum labels (OSD_TYPE/OSD_UNITS) are a nice-to-have - the raw numeric codes still
-        // work without them, same fallback RcSetupSection/BatteryConfigSection use.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [vehicleFolder]);
+  // Enum labels (OSD_TYPE/OSD_UNITS) are a nice-to-have - the raw numeric codes still work
+  // without them, same fallback RcSetupSection/BatteryConfigSection use.
+  const { docs } = useParamDocs(vehicleFolder);
+  const {
+    pendingChanges,
+    pendingEntries,
+    hasPendingChanges,
+    confirmOpen,
+    setConfirmOpen,
+    stageChange,
+    resetAll: handleResetAll,
+    confirmSaveAll: handleConfirmSaveAll,
+  } = useStagedParamChanges({ params, onSetParam });
 
   function shownValue(name: string): number | undefined {
     return pendingChanges[name] ?? params[name]?.value;
   }
 
-  function stageChange(name: string, value: number) {
-    const original = params[name]?.value;
-    setPendingChanges((prev) => {
-      const next = { ...prev };
-      if (original !== undefined && value === original) {
-        delete next[name];
-      } else {
-        next[name] = value;
-      }
-      return next;
-    });
-  }
-
-  function handleResetAll() {
-    setPendingChanges({});
-  }
-
-  function handleConfirmSaveAll() {
-    for (const [name, value] of Object.entries(pendingChanges)) {
-      const type = params[name]?.type;
-      if (type !== undefined) onSetParam(name, value, type);
-    }
-    setPendingChanges({});
-    setConfirmOpen(false);
-  }
-
   const hasAnyLoaded = allOsdParamNames().some((name) => params[name] !== undefined);
-  const pendingEntries = Object.entries(pendingChanges);
-  const hasPendingChanges = pendingEntries.length > 0;
 
   function numberField(name: string) {
     const entry = params[name];
