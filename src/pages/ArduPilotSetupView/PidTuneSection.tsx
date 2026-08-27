@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { cn } from "@/lib/utils";
 import type { MavParamType, MavType } from "../../mavlink/registry/registry";
 import { vehicleFolderForMavType } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useFileStore } from "../../stores/fileStore/fileStore";
@@ -180,10 +179,10 @@ export function PidTuneSection({ vehicleType, onLoad, onSetParam }: PidTuneSecti
   }
 
   return (
-    // h-full only once there's an axis grid to actually fill it - otherwise (not loaded yet)
-    // this is just a heading/toolbar and one status line, and h-full stretched that to fill
-    // the whole page with mostly empty space below it.
-    <div className={cn("flex flex-col gap-3", hasAnyResolved && "h-full")}>
+    // Never h-full - the axis cards below are a small, bounded set (a handful of PID terms
+    // per axis, a handful of axes), so this section always sizes to its own content rather
+    // than stretching to fill the page.
+    <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.pidTune.heading")}</h3>
         <div className="flex items-center gap-2">
@@ -209,11 +208,11 @@ export function PidTuneSection({ vehicleType, onLoad, onSetParam }: PidTuneSecti
       {!hasAnyResolved ? (
         <p className="shrink-0 text-xs text-muted-foreground">{t("ardupilotSetup.pidTune.notLoaded")}</p>
       ) : (
-        // items-start (not the flex default stretch) so each axis card sizes to its own
-        // handful of rows instead of stretching to match this row's tallest sibling / this
-        // container's full available height - without it, every card visibly grows to fill
-        // the page even though its content is only a few short rows.
-        <div className="flex min-h-0 flex-1 flex-wrap items-start gap-4 overflow-y-auto">{config.axes.map((axis) => renderAxis(axis))}</div>
+        // No flex-1/min-h-0 here - this row sizes to its own content instead of being forced
+        // to fill the rest of the page. The flex default (align-items: stretch) then does
+        // exactly what's wanted: every card in the row matches the height of its tallest
+        // sibling (e.g. Yaw matches Roll/Pitch), not an arbitrary page-filling height.
+        <div className="flex flex-wrap gap-4">{config.axes.map((axis) => renderAxis(axis))}</div>
       )}
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>

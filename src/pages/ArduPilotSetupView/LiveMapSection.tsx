@@ -481,33 +481,39 @@ export function LiveMapSection({
     <div className="relative h-full" onContextMenu={(e) => e.preventDefault()}>
       <div ref={containerRef} data-testid="live-map" className="absolute inset-0 rounded-lg border border-border" />
       <div className="absolute inset-x-0 top-0 z-10 flex flex-col gap-1.5 rounded-t-lg bg-card/90 px-3 py-2 shadow-sm backdrop-blur-sm">
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button type="button" size="sm" variant="outline" onClick={recenter} disabled={!position}>
-            {t("ardupilotSetup.map.recenter")}
-          </Button>
-          <Button type="button" size="sm" variant="ghost" onClick={() => setConfirmClearTokenOpen(true)}>
-            {t("map.token.clear")}
-          </Button>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1">
-            <Input
-              type="number"
-              value={takeoffAltInput}
-              onChange={(e) => setTakeoffAltInput(e.target.value)}
-              className="h-7 w-16 font-mono text-xs"
-              aria-label={t("ardupilotSetup.map.takeoffAltitude")}
-            />
-            <Button type="button" size="sm" variant="outline" onClick={handleTakeoffClick}>
-              {t("ardupilotSetup.map.takeoff")}
+        {/* One row, space distributed between the flight-action controls (left) and the
+            map/token controls (right) - previously two separately-aligned rows (one
+            justify-end, one default-start) left a lopsided gap under whichever side was
+            shorter instead of the two sides sharing one line. */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1">
+              <Input
+                type="number"
+                value={takeoffAltInput}
+                onChange={(e) => setTakeoffAltInput(e.target.value)}
+                className="h-7 w-16 font-mono text-xs"
+                aria-label={t("ardupilotSetup.map.takeoffAltitude")}
+              />
+              <Button type="button" size="sm" variant="outline" onClick={handleTakeoffClick}>
+                {t("ardupilotSetup.map.takeoff")}
+              </Button>
+            </div>
+            {rtlModeNumber !== null && (
+              <Button type="button" size="sm" variant="destructive" onClick={() => setConfirmRtlOpen(true)}>
+                {t("ardupilotSetup.map.rtl")}
+              </Button>
+            )}
+            <p className="text-xs text-muted-foreground">{t("ardupilotSetup.map.rightClickHint")}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" size="sm" variant="outline" onClick={recenter} disabled={!position}>
+              {t("ardupilotSetup.map.recenter")}
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setConfirmClearTokenOpen(true)}>
+              {t("map.token.clear")}
             </Button>
           </div>
-          {rtlModeNumber !== null && (
-            <Button type="button" size="sm" variant="destructive" onClick={() => setConfirmRtlOpen(true)}>
-              {t("ardupilotSetup.map.rtl")}
-            </Button>
-          )}
-          <p className="text-xs text-muted-foreground">{t("ardupilotSetup.map.rightClickHint")}</p>
         </div>
         {flightCommandAck && flightCommandAck.result !== MavResult.ACCEPTED && (
           <span role="alert" className="text-xs font-semibold text-destructive">
