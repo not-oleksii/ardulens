@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 interface EscCalSectionProps {
   onStart: () => void;
@@ -18,8 +19,13 @@ interface EscCalSectionProps {
 export function EscCalSection({ onStart }: EscCalSectionProps) {
   const { t } = useTranslation();
   const [started, setStarted] = useState(false);
+  // Drives every ESC to full throttle for several seconds with no further confirmation once
+  // started - same confirm-before-send treatment as Arm/Takeoff/RTL, rather than the instant
+  // commit a stray click used to produce.
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   function handleStart() {
+    setConfirmOpen(false);
     setStarted(true);
     onStart();
   }
@@ -31,7 +37,7 @@ export function EscCalSection({ onStart }: EscCalSectionProps) {
       <Alert variant="warning" className="shrink-0">
         <AlertDescription>{t("ardupilotSetup.escCal.safetyWarning")}</AlertDescription>
       </Alert>
-      <Button type="button" onClick={handleStart} className="w-fit">
+      <Button type="button" onClick={() => setConfirmOpen(true)} className="w-fit">
         {t("ardupilotSetup.escCal.start")}
       </Button>
       {started && (
@@ -39,6 +45,23 @@ export function EscCalSection({ onStart }: EscCalSectionProps) {
           <AlertDescription>{t("ardupilotSetup.escCal.started")}</AlertDescription>
         </Alert>
       )}
+
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("ardupilotSetup.escCal.confirmStartTitle")}</DialogTitle>
+            <DialogDescription>{t("ardupilotSetup.escCal.confirmStartDescription")}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmOpen(false)}>
+              {t("ardupilotSetup.escCal.cancel")}
+            </Button>
+            <Button type="button" variant="destructive" onClick={handleStart}>
+              {t("ardupilotSetup.escCal.confirmStart")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

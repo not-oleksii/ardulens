@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { mavResultLabel } from "../../mavlink/labels/labels";
@@ -101,6 +102,7 @@ export function ArduPilotSetupHeader({
   // fully own itself. Date.now() is read here (inside the effect, a real side-effect context)
   // rather than directly in the render body, which this codebase's react-hooks/purity rule
   // (enforced via the React Compiler) flags as an impure render.
+  const [confirmRebootOpen, setConfirmRebootOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!isRecording) return;
@@ -228,7 +230,7 @@ export function ArduPilotSetupHeader({
 
       {isConnected ? (
         <>
-          <Button type="button" size="sm" variant="outline" className="shrink-0 gap-1" onClick={onReboot}>
+          <Button type="button" size="sm" variant="outline" className="shrink-0 gap-1" onClick={() => setConfirmRebootOpen(true)}>
             <RotateCw className="h-3.5 w-3.5" />
             {t("ardupilotSetup.connect.reboot")}
           </Button>
@@ -350,6 +352,30 @@ export function ArduPilotSetupHeader({
           {t("ardupilotSetup.connect.bytesSent")}: {t("ardupilotSetup.connect.bytesUnit", { count: bytesSent })}
         </span>
       </div>
+
+      <Dialog open={confirmRebootOpen} onOpenChange={setConfirmRebootOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("ardupilotSetup.connect.confirmRebootTitle")}</DialogTitle>
+            <DialogDescription>{t("ardupilotSetup.connect.confirmRebootDescription")}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmRebootOpen(false)}>
+              {t("ardupilotSetup.connect.cancel")}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                setConfirmRebootOpen(false);
+                onReboot();
+              }}
+            >
+              {t("ardupilotSetup.connect.confirmReboot")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </header>
   );
 }

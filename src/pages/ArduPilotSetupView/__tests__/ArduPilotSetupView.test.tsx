@@ -897,6 +897,7 @@ describe("ArduPilotSetupView", () => {
     await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
 
     await user.click(screen.getByRole("button", { name: "Перезавантажити" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Перезавантажити" }));
 
     await vi.waitFor(() => {
       expect(findCommandLongSend(invoked, MavCmd.PREFLIGHT_REBOOT_SHUTDOWN)).toBeDefined();
@@ -916,12 +917,14 @@ describe("ArduPilotSetupView", () => {
     await emit(DATA_EVENT, { bytes: sampleHeartbeatBytes() });
 
     await user.click(screen.getByRole("button", { name: "Перезавантажити" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Перезавантажити" }));
     await emit(DATA_EVENT, { bytes: buildCommandAckBytes(MavCmd.PREFLIGHT_REBOOT_SHUTDOWN, MavResult.DENIED, 1) });
     expect(await screen.findByText(/Перезавантаження відхилено/)).toBeInTheDocument();
 
     // Clicking again (a real retry) clears the old rejection rather than leaving stale text up
     // once a fresh attempt is in flight, and an ACCEPTED ack shows its own confirmation.
     await user.click(screen.getByRole("button", { name: "Перезавантажити" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Перезавантажити" }));
     expect(screen.queryByText(/Перезавантаження відхилено/)).not.toBeInTheDocument();
     await emit(DATA_EVENT, { bytes: buildCommandAckBytes(MavCmd.PREFLIGHT_REBOOT_SHUTDOWN, MavResult.ACCEPTED, 2) });
     expect(await screen.findByText(/Команду перезавантаження надіслано/)).toBeInTheDocument();
@@ -2374,6 +2377,7 @@ describe("ArduPilotSetupView", () => {
       const { user } = await connectAndOpenEscCal();
 
       await user.click(screen.getByRole("button", { name: "Почати калібрування ESC" }));
+      await user.click(screen.getByRole("button", { name: "Почати калібрування" }));
 
       const paramSet = invoked.mock.calls.find(
         ([cmd, payload]) => cmd === "send_bytes" && (payload as { bytes: number[] }).bytes[7] === ParamSet.MSG_ID,
@@ -3200,6 +3204,7 @@ describe("ArduPilotSetupView", () => {
         cesiumClickHandlers[0]!({ position: { x: 100, y: 80 } });
       });
       await user.click(screen.getByRole("button", { name: "Встановити дім тут" }));
+      await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Встановити дім" }));
 
       await vi.waitFor(() => expect(findSentMessages(invoked, DoSetHomeCommand.MSG_ID)).toHaveLength(1));
       const bytes = (findSentMessages(invoked, DoSetHomeCommand.MSG_ID)[0]![1] as { bytes: number[] }).bytes;

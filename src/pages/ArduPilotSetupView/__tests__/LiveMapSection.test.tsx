@@ -333,12 +333,33 @@ describe("LiveMapSection", () => {
     });
 
     await user.click(screen.getByRole("button", { name: "Встановити дім тут" }));
+    expect(onSetHomeHere).not.toHaveBeenCalled(); // asks for confirmation first
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Встановити дім" }));
 
     expect(onSetHomeHere).toHaveBeenCalledTimes(1);
     expect(onFlyToHere).not.toHaveBeenCalled();
     const [lat, lon] = onSetHomeHere.mock.calls[0]!;
     expect(lat).toBeCloseTo(52, 4);
     expect(lon).toBeCloseTo(31, 4);
+  });
+
+  it("cancelling the Set-home confirmation never calls onSetHomeHere", async () => {
+    localStorage.setItem(TOKEN_STORAGE_KEY, "test-token");
+    const { user, onSetHomeHere } = getView(null);
+
+    const viewer = viewerInstances.at(-1)!;
+    const { Cartesian3 } = await import("cesium");
+    viewer.camera.pickEllipsoid.mockReturnValue(Cartesian3.fromDegrees(31, 52, 0));
+    act(() => {
+      registeredClickHandlers[0]!({ position: { x: 120, y: 80 } });
+    });
+
+    await user.click(screen.getByRole("button", { name: "Встановити дім тут" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Скасувати" }));
+
+    expect(onSetHomeHere).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("Escape closes the popup without sending any command", async () => {
@@ -377,6 +398,7 @@ describe("LiveMapSection", () => {
       registeredClickHandlers[0]!({ position: { x: 140, y: 90 } });
     });
     await view1.user.click(screen.getByRole("button", { name: "Встановити дім тут" }));
+    await view1.user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Встановити дім" }));
 
     view1.unmount();
 

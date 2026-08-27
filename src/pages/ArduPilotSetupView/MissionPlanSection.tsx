@@ -2,6 +2,7 @@ import { useRef, useState, type ChangeEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Drawer, DrawerContent, DrawerTrigger } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -48,6 +49,7 @@ export function MissionPlanSection({
   const [tokenInput, setTokenInput] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(true);
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
 
   function saveToken() {
     const trimmed = tokenInput.trim();
@@ -97,6 +99,7 @@ export function MissionPlanSection({
   }
 
   function handleClearAll() {
+    setConfirmClearOpen(false);
     onSetItems([]);
   }
 
@@ -152,7 +155,7 @@ export function MissionPlanSection({
             {t("ardupilotSetup.missionPlan.loadFile")}
           </Button>
           <input ref={fileInputRef} type="file" accept=".waypoints,.txt" className="hidden" onChange={(e) => void handleFileSelected(e)} />
-          <Button type="button" size="sm" variant="ghost" onClick={handleClearAll} disabled={items.length === 0}>
+          <Button type="button" size="sm" variant="ghost" onClick={() => setConfirmClearOpen(true)} disabled={items.length === 0}>
             {t("ardupilotSetup.missionPlan.clearAll")}
           </Button>
         </div>
@@ -309,6 +312,23 @@ export function MissionPlanSection({
           </DrawerContent>
         </Drawer>
       </div>
+
+      <Dialog open={confirmClearOpen} onOpenChange={setConfirmClearOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("ardupilotSetup.missionPlan.confirmClearAllTitle")}</DialogTitle>
+            <DialogDescription>{t("ardupilotSetup.missionPlan.confirmClearAllDescription")}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmClearOpen(false)}>
+              {t("ardupilotSetup.missionPlan.cancel")}
+            </Button>
+            <Button type="button" variant="destructive" onClick={handleClearAll}>
+              {t("ardupilotSetup.missionPlan.confirmClearAll")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
