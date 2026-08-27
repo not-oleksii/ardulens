@@ -263,7 +263,6 @@ export function ArduPilotSetupView() {
   const mission = useMissionListBinding(useMavlinkMissionStore);
   const fence = useMissionListBinding(useMavlinkFenceStore);
   const rally = useMissionListBinding(useMavlinkRallyStore);
-  const inspectorEntries = useMavlinkInspectorStore((s) => s.entries);
   const compassCalProgress = useMavlinkCompassCalStore((s) => s.progress);
   const compassCalReports = useMavlinkCompassCalStore((s) => s.reports);
   const compassCalLastCommandAck = useMavlinkCompassCalStore((s) => s.lastCommandAck);
@@ -1805,7 +1804,7 @@ export function ArduPilotSetupView() {
               onSetItems={rally.setItems}
             />
           ) : activeSection === "mavlinkInspector" ? (
-            <MavlinkInspectorSection entries={inspectorEntries} />
+            <MavlinkInspectorSection />
           ) : activeSection === "servoRelay" ? (
             <ServoRelaySection servoOutputs={servoOutputs} onSetServoPwm={handleSetServoPwm} onSetRelay={handleSetRelay} />
           ) : activeSection === "compassCal" ? (

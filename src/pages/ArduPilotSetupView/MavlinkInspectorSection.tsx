@@ -4,11 +4,7 @@ import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { MAVLINK_REGISTRY } from "../../mavlink/registry/registry";
-import type { InspectorEntry } from "../../stores/mavlinkInspectorStore/types";
-
-interface MavlinkInspectorSectionProps {
-  entries: Record<number, InspectorEntry>;
-}
+import { useMavlinkInspectorStore } from "../../stores/mavlinkInspectorStore/mavlinkInspectorStore";
 
 /** Formats one decoded field's value for display - arrays (e.g. a calibration matrix, or
  *  STATUSTEXT's fixed char[] text) are truncated rather than dumped in full, since some MAVLink
@@ -29,9 +25,16 @@ function formatFieldValue(value: unknown): string {
  *  far - decoding is already fully generic before this component ever sees a packet (see
  *  ArduPilotSetupView.tsx's onData loop and the mavlinkInspectorStore it feeds), so this needs
  *  no per-message-type code: the field list for whichever message is selected comes straight
- *  from MAVLINK_REGISTRY[msgId].FIELDS, the same metadata the codec itself decodes/encodes with. */
-export function MavlinkInspectorSection({ entries }: MavlinkInspectorSectionProps) {
+ *  from MAVLINK_REGISTRY[msgId].FIELDS, the same metadata the codec itself decodes/encodes with.
+ *
+ *  Reads `entries` directly from the store (rather than taking it as a prop from
+ *  ArduPilotSetupView) so a re-render on every single incoming packet - the store updates on
+ *  every one, not just ones relevant to whichever section is actually active - only costs this
+ *  component, which is already unmounted whenever a different section is showing, instead of
+ *  ArduPilotSetupView's entire tree (including whatever IS currently showing). */
+export function MavlinkInspectorSection() {
   const { t } = useTranslation();
+  const entries = useMavlinkInspectorStore((s) => s.entries);
   const [filter, setFilter] = useState("");
   const [selectedMsgId, setSelectedMsgId] = useState<number | null>(null);
 

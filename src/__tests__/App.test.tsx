@@ -92,18 +92,31 @@ describe("App", () => {
     expect(screen.getByRole("tab", { name: "Logs" })).toBeInTheDocument();
   });
 
-  it("navigates to the ArduPilot Setup page from the Home CTA", async () => {
-    const { clickArduPilotSetupLink } = getView();
+  // Both of these give the test itself (not just findByRole's own internal wait) a longer
+  // timeout than Vitest's 5000ms default - ArduPilotSetupView is lazy-loaded (see App.tsx) and
+  // pulls in a lot (~25 section components, the full mavlink registry), so its dynamic import
+  // alone can take longer than that under full-suite load on this machine, well before React
+  // even starts rendering the real heading.
+  it(
+    "navigates to the ArduPilot Setup page from the Home CTA",
+    async () => {
+      const { clickArduPilotSetupLink } = getView();
 
-    await clickArduPilotSetupLink();
+      await clickArduPilotSetupLink();
 
-    expect(await screen.findByRole("heading", { name: "Налаштування ArduPilot" })).toBeInTheDocument();
-  });
+      expect(await screen.findByRole("heading", { name: "Налаштування ArduPilot" }, { timeout: 9000 })).toBeInTheDocument();
+    },
+    10000,
+  );
 
-  it("renders the ArduPilot Setup page directly at /ardupilot-setup, independent of the file store", () => {
-    getView("/ardupilot-setup");
+  it(
+    "renders the ArduPilot Setup page directly at /ardupilot-setup, independent of the file store",
+    async () => {
+      getView("/ardupilot-setup");
 
-    expect(screen.getByRole("heading", { name: "Налаштування ArduPilot" })).toBeInTheDocument();
-    expect(screen.queryByTestId(`${HOME_DROPZONE_TEST_ID}-dropzone`)).not.toBeInTheDocument();
-  });
+      expect(await screen.findByRole("heading", { name: "Налаштування ArduPilot" }, { timeout: 9000 })).toBeInTheDocument();
+      expect(screen.queryByTestId(`${HOME_DROPZONE_TEST_ID}-dropzone`)).not.toBeInTheDocument();
+    },
+    10000,
+  );
 });
