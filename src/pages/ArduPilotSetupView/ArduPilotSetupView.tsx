@@ -1,10 +1,6 @@
-import { invoke } from "@tauri-apps/api/core";
-import { save } from "@tauri-apps/plugin-dialog";
-import { writeFile } from "@tauri-apps/plugin-fs";
 import type { CommandLong } from "mavlink-mappings/dist/lib/common";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ArduPilotSetupHeader } from "./ArduPilotSetupHeader";
@@ -32,7 +28,6 @@ import { SerialPortsSection } from "./SerialPortsSection";
 import { TelemetrySection } from "./TelemetrySection";
 import { VehicleStatusBar } from "./VehicleStatusBar";
 import { decodeMessage, encodePacket } from "../../mavlink/codec/codec";
-import { VERIFIED_FRAME_PRESETS } from "../../mavlink/frameDiagrams/frameDiagrams";
 import { MavlinkFramer } from "../../mavlink/framer/framer";
 import { flightCommandLabel, flightModeLabel, mavResultLabel, rtlModeNumber } from "../../mavlink/labels/labels";
 import {
@@ -107,20 +102,7 @@ import {
   Vibration,
 } from "../../mavlink/registry/registry";
 import type { MavMode } from "../../mavlink/registry/registry";
-import {
-  connectMock,
-  connectSerial,
-  connectUdp,
-  disconnect,
-  isTauriRuntime,
-  listSerialPorts,
-  onData,
-  onStatus,
-  sendBytes,
-} from "../../services/mavlinkTransport/mavlinkTransport";
-import type { SerialPortInfo } from "../../services/mavlinkTransport/types";
-import { startTelemetryRecording, type TelemetryRecorderHandle } from "../../services/telemetryRecorder/telemetryRecorder";
-import { useFileStore } from "../../stores/fileStore/fileStore";
+import { isTauriRuntime, onData, onStatus, sendBytes } from "../../services/mavlinkTransport/mavlinkTransport";
 import { useMavlinkAccelCalStore } from "../../stores/mavlinkAccelCalStore/mavlinkAccelCalStore";
 import { useMavlinkCompassCalStore } from "../../stores/mavlinkCompassCalStore/mavlinkCompassCalStore";
 import { useMavlinkConnectionStore } from "../../stores/mavlinkConnectionStore/mavlinkConnectionStore";
@@ -140,11 +122,10 @@ import { useMavlinkStatusTextStore } from "../../stores/mavlinkStatusTextStore/m
 import { useMavlinkTelemetryStore } from "../../stores/mavlinkTelemetryStore/mavlinkTelemetryStore";
 import { useMavlinkVehicleStore } from "../../stores/mavlinkVehicleStore/mavlinkVehicleStore";
 import { toast } from "../../stores/toastStore/toastStore";
-import { useUiStore } from "../../stores/uiStore/uiStore";
 import { useUnsavedChangesStore } from "../../stores/unsavedChangesStore/unsavedChangesStore";
+import { useArduPilotConnection } from "./useArduPilotConnection";
+import { useSessionRecording } from "./useSessionRecording";
 
-const BAUD_RATES = [9600, 38400, 57600, 115200, 921600];
-const DEFAULT_UDP_PORT = 14550;
 const HEARTBEAT_INTERVAL_MS = 1000;
 // A full ArduCopter parameter list is 1000-1700+ PARAM_VALUE packets, which can arrive far
 // faster than the UI could usefully re-render (each one updating the store would otherwise
@@ -152,9 +133,6 @@ const HEARTBEAT_INTERVAL_MS = 1000;
 // entries are buffered in a ref and flushed to the store in one batch on this interval
 // instead, decoupling "how many packets arrived" from "how many times React re-renders."
 const PARAM_FLUSH_INTERVAL_MS = 200;
-// ArduPilot sends its own heartbeat at ~1Hz, so 2s is enough margin to see at least one on
-// the right port/baud rate combination without making a wrong port take too long to skip.
-const AUTO_CONNECT_TIMEOUT_MS = 2000;
 // Our own identity as a "ground station" system on the link, following the standard MAVLink
 // GCS convention - ArduPilot doesn't care what these are, but a GCS-failsafe setup on the
 // vehicle does need *some* heartbeat arriving periodically from a non-vehicle system.
@@ -209,33 +187,13 @@ function buildFtpPacket(
   return encodePacket(msg, { seq: outSeq, sysid: GCS_SYSID, compid: GCS_COMPID });
 }
 
-/** Resolves true if a heartbeat (any vehicle) arrives within `timeoutMs`, false otherwise. */
-function waitForHeartbeat(timeoutMs: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const timer = window.setTimeout(() => {
-      unsubscribe();
-      resolve(false);
-    }, timeoutMs);
-    const unsubscribe = useMavlinkVehicleStore.subscribe((state) => {
-      if (!state.vehicle) return;
-      window.clearTimeout(timer);
-      unsubscribe();
-      resolve(true);
-    });
-  });
-}
-
 export function ArduPilotSetupView() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
-  const setFile = useFileStore((s) => s.setFile);
-  const setActiveTab = useUiStore((s) => s.setActiveTab);
   const status = useMavlinkConnectionStore((s) => s.status);
   const detail = useMavlinkConnectionStore((s) => s.detail);
   const errorMessage = useMavlinkConnectionStore((s) => s.errorMessage);
   const bytesReceived = useMavlinkConnectionStore((s) => s.bytesReceived);
   const bytesSent = useMavlinkConnectionStore((s) => s.bytesSent);
-  const setConnecting = useMavlinkConnectionStore((s) => s.setConnecting);
   const setConnected = useMavlinkConnectionStore((s) => s.setConnected);
   const setDisconnected = useMavlinkConnectionStore((s) => s.setDisconnected);
   const setError = useMavlinkConnectionStore((s) => s.setError);
@@ -337,21 +295,6 @@ export function ArduPilotSetupView() {
   const stopRcCal = useMavlinkRcCalStore((s) => s.stop);
   const resetRcCal = useMavlinkRcCalStore((s) => s.reset);
 
-  const [mode, setMode] = useState<"serial" | "udp">("serial");
-  const [ports, setPorts] = useState<SerialPortInfo[]>([]);
-  const [selectedPort, setSelectedPort] = useState("");
-  const [baudRate, setBaudRate] = useState(BAUD_RATES[2]!);
-  const [udpPort, setUdpPort] = useState(DEFAULT_UDP_PORT);
-  const [udpHost, setUdpHost] = useState("");
-  const [scanningPort, setScanningPort] = useState<string | null>(null);
-  const [scanningBaud, setScanningBaud] = useState<number | null>(null);
-  // "Attempt N of total" for the auto-connect port*baud scan below - total isn't just
-  // ports.length*bauds.length shown once, since it needs to freeze at the count actually being
-  // scanned (a port list refresh mid-scan shouldn't retroactively change what "total" means for
-  // an attempt already in flight).
-  const [scanIndex, setScanIndex] = useState<number | null>(null);
-  const [scanTotal, setScanTotal] = useState<number | null>(null);
-  const [devFramePresetKey, setDevFramePresetKey] = useState(VERIFIED_FRAME_PRESETS[1]!.key); // Quad X
   const [activeSection, setActiveSection] = useState<ArduPilotSetupSection>("telemetry");
   // Sections are fully unmounted on switch, silently discarding any component-local unsaved
   // edits (e.g. ParametersPanel's staged pendingChanges) - see useUnsavedChangesStore.ts. Holds
@@ -369,17 +312,8 @@ export function ArduPilotSetupView() {
   // (e.g. DENIED while armed) looked exactly like a silently-broken button, since nothing else
   // in the UI ever changes on a NACK (the connection doesn't drop, no further message arrives).
   const [rebootLastCommandAck, setRebootLastCommandAck] = useState<MavResult | null>(null);
-  // Non-null while a live-session recording is in progress (its value is the recording's own
-  // start time, shown as an elapsed-time readout in the header) - see telemetryRecorder.ts.
-  const [recordingStartedAt, setRecordingStartedAt] = useState<number | null>(null);
-  const [recordingStats, setRecordingStats] = useState<{ packetCount: number; byteCount: number } | null>(null);
-  // The finished .tlog bytes once a recording is stopped - stays populated (offering Save/
-  // View) until a new recording starts, matching DataflashLogsSection's own "downloadedFile
-  // stays available until the next download" convention.
-  const [recordedTlogBytes, setRecordedTlogBytes] = useState<Uint8Array | null>(null);
 
   const framerRef = useRef(new MavlinkFramer());
-  const recordingHandleRef = useRef<TelemetryRecorderHandle | null>(null);
   const outgoingSeqRef = useRef(0);
   const streamsRequestedRef = useRef(false);
   const fullParamsRequestedRef = useRef(false);
@@ -425,6 +359,47 @@ export function ArduPilotSetupView() {
   useEffect(() => {
     vehicleRef.current = vehicle;
   }, [vehicle]);
+
+  const {
+    mode,
+    setMode,
+    ports,
+    selectedPort,
+    setSelectedPort,
+    baudRate,
+    setBaudRate,
+    baudRates,
+    udpPort,
+    setUdpPort,
+    udpHost,
+    setUdpHost,
+    scanningPort,
+    scanningBaud,
+    scanIndex,
+    scanTotal,
+    devFramePresetKey,
+    setDevFramePresetKey,
+    refreshPorts,
+    handleConnect,
+    handleAutoConnect,
+    handleDisconnect,
+    handleConnectMock,
+    handleConnectMockCopter,
+  } = useArduPilotConnection({ pendingParamsRef, pendingParamCountRef, ftpSessionRef });
+
+  const {
+    recordingStartedAt,
+    setRecordingStartedAt,
+    recordingStats,
+    setRecordingStats,
+    recordedTlogBytes,
+    setRecordedTlogBytes,
+    recordingHandleRef,
+    handleStartRecording,
+    handleStopRecording,
+    handleSaveRecording,
+    handleViewRecording,
+  } = useSessionRecording();
 
   useEffect(() => {
     let cancelled = false;
@@ -1062,6 +1037,10 @@ export function ArduPilotSetupView() {
     addBytesReceived,
     addBytesSent,
     setConnected,
+    recordingHandleRef,
+    setRecordedTlogBytes,
+    setRecordingStartedAt,
+    setRecordingStats,
     setDisconnected,
     setError,
     setVehicle,
@@ -1164,19 +1143,6 @@ export function ArduPilotSetupView() {
     return () => window.clearInterval(id);
   }, [status]);
 
-  // Polls the recorder's own packet/byte counters into React state once a second while
-  // recording - getStats() is a plain function call (not itself reactive), same "poll a ref-
-  // backed counter on an interval" shape as the Inspector's own tickRates() above, just with
-  // the source living in a service ref instead of a Zustand store.
-  useEffect(() => {
-    if (recordingStartedAt === null) return;
-    const id = window.setInterval(() => {
-      const stats = recordingHandleRef.current?.getStats();
-      if (stats) setRecordingStats(stats);
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, [recordingStartedAt]);
-
   // Ask the vehicle to start streaming telemetry once we know who it is (its sysid/compid,
   // learned from its own heartbeat) - ArduPilot doesn't push ATTITUDE/VFR_HUD/SYS_STATUS/etc.
   // at a useful rate to a GCS that never asked. Sent once per connection (guarded by the ref,
@@ -1206,145 +1172,6 @@ export function ArduPilotSetupView() {
     for (const streamId of REQUESTED_DATA_STREAMS) requestStream(streamId, DATA_STREAM_RATE_HZ);
     requestStream(MavDataStream.RC_CHANNELS, RC_CHANNELS_STREAM_RATE_HZ);
   }, [status, vehicle, addBytesSent]);
-
-  useEffect(() => {
-    if (!isTauriRuntime()) return; // browser build - no OS serial access, nothing to list
-    let cancelled = false;
-    listSerialPorts()
-      .then((found) => {
-        if (cancelled) return;
-        setPorts(found);
-        setSelectedPort((prev) => prev || found[0]?.name || "");
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [setError]);
-
-  async function refreshPorts() {
-    try {
-      const found = await listSerialPorts();
-      setPorts(found);
-      setSelectedPort((prev) => (found.some((p) => p.name === prev) ? prev : (found[0]?.name ?? "")));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  async function handleConnect() {
-    setConnecting();
-    try {
-      if (mode === "serial") {
-        await connectSerial(selectedPort, baudRate);
-      } else {
-        await connectUdp(udpPort, udpHost);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  async function handleAutoConnect() {
-    setConnecting();
-    resetVehicle();
-    resetTelemetry();
-    resetStatusText();
-    resetParameters();
-    resetCompassCal();
-    resetAccelCal();
-    resetRcCal();
-    resetParamDefaults();
-    pendingParamsRef.current.clear();
-    pendingParamCountRef.current = null;
-    ftpSessionRef.current = null;
-    // Try the currently-selected baud rate first (fast path when it's already right - same
-    // speed as before), then fall back through the other standard rates per port. Without
-    // this, a mismatched default baud (e.g. the header still on 57600 while the FC actually
-    // talks at 115200) makes every port time out with no heartbeat, even the right one.
-    const bauds = [baudRate, ...BAUD_RATES.filter((rate) => rate !== baudRate)];
-    const total = ports.length * bauds.length;
-    setScanTotal(total);
-    let attempt = 0;
-    for (const port of ports) {
-      for (const rate of bauds) {
-        attempt += 1;
-        setScanIndex(attempt);
-        setScanningPort(port.name);
-        setScanningBaud(rate);
-        try {
-          await connectSerial(port.name, rate);
-        } catch {
-          continue; // couldn't even open this one at this rate - try the next
-        }
-
-        const found = await waitForHeartbeat(AUTO_CONNECT_TIMEOUT_MS);
-        if (found) {
-          setSelectedPort(port.name);
-          setBaudRate(rate);
-          setScanningPort(null);
-          setScanningBaud(null);
-          setScanIndex(null);
-          setScanTotal(null);
-          return; // stay connected - onStatus already reflected "connected"
-        }
-
-        await disconnect().catch(() => {});
-      }
-    }
-    setScanningPort(null);
-    setScanningBaud(null);
-    setScanIndex(null);
-    setScanTotal(null);
-    setError(t("ardupilotSetup.connect.autoConnectFailed"));
-  }
-
-  async function handleDisconnect() {
-    try {
-      await disconnect();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  // Starts an in-process simulated vehicle (see mockVehicleSimulator.ts) instead of a real
-  // connection - lets the whole app be exercised without any real hardware, SITL, or even a
-  // Tauri backend.
-  async function handleConnectMockAs(vehicleType: MavType, copterFrame?: { frameClass: number; frameType: number }) {
-    setConnecting();
-    resetVehicle();
-    resetTelemetry();
-    resetStatusText();
-    resetParameters();
-    resetCompassCal();
-    resetAccelCal();
-    resetRcCal();
-    resetParamDefaults();
-    pendingParamsRef.current.clear();
-    pendingParamCountRef.current = null;
-    ftpSessionRef.current = null;
-    try {
-      await connectMock(vehicleType, copterFrame);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  // Defaults to a simulated Plane, matching this project's current real test hardware and the
-  // features already built for it (servo mapping/test, compass cal).
-  async function handleConnectMock() {
-    await handleConnectMockAs(MavType.FIXED_WING);
-  }
-
-  // Simulated Copter (see MotorsCopterSection.tsx / frameDiagrams.ts) for exercising the
-  // Copter half of Motors & Servos without real hardware - starts as whichever of the 6
-  // verified frame class/type combos the header's frame-preset selector currently has picked.
-  async function handleConnectMockCopter() {
-    const preset = VERIFIED_FRAME_PRESETS.find((p) => p.key === devFramePresetKey) ?? VERIFIED_FRAME_PRESETS[1]!;
-    await handleConnectMockAs(MavType.QUADROTOR, { frameClass: preset.frameClass, frameType: preset.frameType });
-  }
 
   function sendGcsPacket(packet: Uint8Array) {
     sendBytes(packet)
@@ -1654,68 +1481,6 @@ export function ArduPilotSetupView() {
     sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
   }
 
-  function handleStartRecording() {
-    if (recordingHandleRef.current) return; // already recording
-    recordingHandleRef.current = startTelemetryRecording();
-    setRecordingStartedAt(Date.now());
-    setRecordingStats({ packetCount: 0, byteCount: 0 });
-    setRecordedTlogBytes(null);
-  }
-
-  function handleStopRecording() {
-    const handle = recordingHandleRef.current;
-    if (!handle) return;
-    recordingHandleRef.current = null;
-    setRecordedTlogBytes(handle.stop());
-    setRecordingStartedAt(null);
-    setRecordingStats(null);
-  }
-
-  // Under Tauri, a real native "Save As" dialog + direct filesystem write - the Blob+`<a
-  // download>` trick DataflashLogsSection uses for its own Save button is a real browser
-  // mechanism, but WebView2 doesn't reliably surface it as a visible save prompt the way a
-  // plain Chrome tab does (confirmed live: the click fires but no dialog ever appears, no
-  // error either) - a real environment gap, not a coding mistake in the original approach.
-  // The plain-browser build (no Tauri backend) still needs the Blob fallback, since the
-  // dialog/fs plugins only work under Tauri.
-  async function handleSaveRecording() {
-    if (!recordedTlogBytes) return;
-    const filename = `ardulens-session-${new Date().toISOString().replace(/[:.]/g, "-")}.tlog`;
-
-    if (isTauriRuntime()) {
-      const path = await save({
-        title: t("ardupilotSetup.connect.saveRecording"),
-        defaultPath: filename,
-        filters: [{ name: "MAVLink Telemetry Log", extensions: ["tlog"] }],
-      });
-      if (!path) return; // user cancelled
-      await invoke("grant_file_access", { path });
-      await writeFile(path, recordedTlogBytes);
-      return;
-    }
-
-    const blob = new Blob([recordedTlogBytes.buffer as ArrayBuffer], { type: "application/octet-stream" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  // Hands the recorded bytes to the SAME fileStore the home screen's drag-and-drop uses, then
-  // deep-links into the Logs tab - the same cross-navigation shape DataflashLogsSection's own
-  // "View on map" and PidTuneSection's "View in Graphs" already use. Logs (not Map, unlike
-  // DataflashLogsSection) since a recorded session's derived Flight/Sample data is the same
-  // shape a .bin's is, but doesn't yet have Map-tab support (CesiumMapView's own worker call
-  // is dataflash-.bin-specific) - a real, honest v1 scope cut, not an oversight.
-  function handleViewRecording() {
-    if (!recordedTlogBytes) return;
-    setFile({ name: `ardulens-session-${Date.now()}.tlog`, buf: recordedTlogBytes.buffer as ArrayBuffer });
-    setActiveTab("logs");
-    void navigate("/");
-  }
-
   // Sets ESC_CALIBRATION=3 ("Auto") and reboots - the firmware handles the whole passthrough
   // sequence itself on the next boot (see EscCalSection.tsx's comment), so no further protocol
   // interaction is needed after this.
@@ -1896,7 +1661,7 @@ export function ArduPilotSetupView() {
         setSelectedPort={setSelectedPort}
         baudRate={baudRate}
         setBaudRate={setBaudRate}
-        baudRates={BAUD_RATES}
+        baudRates={baudRates}
         udpPort={udpPort}
         setUdpPort={setUdpPort}
         udpHost={udpHost}
