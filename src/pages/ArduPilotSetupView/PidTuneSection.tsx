@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import type { MavParamType, MavType } from "../../mavlink/registry/registry";
 import { vehicleFolderForMavType } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useFileStore } from "../../stores/fileStore/fileStore";
@@ -179,7 +180,10 @@ export function PidTuneSection({ vehicleType, onLoad, onSetParam }: PidTuneSecti
   }
 
   return (
-    <div className="flex h-full flex-col gap-3">
+    // h-full only once there's an axis grid to actually fill it - otherwise (not loaded yet)
+    // this is just a heading/toolbar and one status line, and h-full stretched that to fill
+    // the whole page with mostly empty space below it.
+    <div className={cn("flex flex-col gap-3", hasAnyResolved && "h-full")}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.pidTune.heading")}</h3>
         <div className="flex items-center gap-2">
@@ -205,7 +209,11 @@ export function PidTuneSection({ vehicleType, onLoad, onSetParam }: PidTuneSecti
       {!hasAnyResolved ? (
         <p className="shrink-0 text-xs text-muted-foreground">{t("ardupilotSetup.pidTune.notLoaded")}</p>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-wrap gap-4 overflow-y-auto">{config.axes.map((axis) => renderAxis(axis))}</div>
+        // items-start (not the flex default stretch) so each axis card sizes to its own
+        // handful of rows instead of stretching to match this row's tallest sibling / this
+        // container's full available height - without it, every card visibly grows to fill
+        // the page even though its content is only a few short rows.
+        <div className="flex min-h-0 flex-1 flex-wrap items-start gap-4 overflow-y-auto">{config.axes.map((axis) => renderAxis(axis))}</div>
       )}
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>

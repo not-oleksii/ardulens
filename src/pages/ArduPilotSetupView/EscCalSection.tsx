@@ -31,7 +31,9 @@ export function EscCalSection({ onStart }: EscCalSectionProps) {
   }
 
   return (
-    <div className="flex h-full flex-col gap-3">
+    // Never grows past a heading, one description line, a warning, and a button - no h-full
+    // here, unlike sections with an actual table/grid to fill once loaded.
+    <div className="flex max-w-md flex-col gap-3">
       <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.escCal.heading")}</h3>
       <p className="text-xs text-muted-foreground">{t("ardupilotSetup.escCal.description")}</p>
       <Alert variant="warning" className="shrink-0">

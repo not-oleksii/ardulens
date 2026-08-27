@@ -308,7 +308,9 @@ export function ParametersPanel({
   }
 
   return (
-    <div className="flex h-full flex-col gap-3">
+    // h-full only once the param table has actually started loading - otherwise this is just
+    // a heading and a Load button.
+    <div className={cn("flex flex-col gap-3", hasStarted && "h-full")}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.parameters.heading")}</h3>
         <div className="flex items-center gap-2">

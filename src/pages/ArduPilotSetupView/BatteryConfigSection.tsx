@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import type { MavParamType, MavType } from "../../mavlink/registry/registry";
 import { fetchParamDocs, vehicleFolderForMavType, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
@@ -144,7 +145,9 @@ export function BatteryConfigSection({ vehicleType, battery, onLoad, onSetParam 
   }
 
   return (
-    <div className="flex h-full flex-col gap-3">
+    // h-full only once the param list has actually loaded and needs the space - otherwise
+    // this is just a heading/toolbar, a 3-column battery readout, and one status line.
+    <div className={cn("flex flex-col gap-3", hasAnyLoaded && "h-full")}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.batteryConfig.heading")}</h3>
         <div className="flex items-center gap-2">

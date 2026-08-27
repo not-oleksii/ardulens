@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import type { MavParamType, MavType } from "../../mavlink/registry/registry";
 import { fetchParamDocs, vehicleFolderForMavType, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
@@ -140,7 +141,9 @@ export function SerialPortsSection({ vehicleType, onLoad, onSetParam }: SerialPo
   }
 
   return (
-    <div className="flex h-full flex-col gap-3">
+    // h-full only once the port table has actually loaded - otherwise this is just a
+    // heading/toolbar, a warning, and one status line.
+    <div className={cn("flex flex-col gap-3", hasAnyLoaded && "h-full")}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.serialPorts.heading")}</h3>
         <div className="flex items-center gap-2">

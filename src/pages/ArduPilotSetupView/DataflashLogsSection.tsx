@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import { useFileStore } from "../../stores/fileStore/fileStore";
 import type { DataflashDownloadPhase, DataflashLogEntry } from "../../stores/mavlinkDataflashLogStore/types";
 import { useUiStore } from "../../stores/uiStore/uiStore";
@@ -67,7 +68,9 @@ export function DataflashLogsSection({
   }
 
   return (
-    <div className="flex h-full flex-col gap-3">
+    // h-full only once there's a log list to actually fill it - otherwise this is just a
+    // heading/toolbar and one status line.
+    <div className={cn("flex flex-col gap-3", entries.length > 0 && "h-full")}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.dataflashLogs.heading")}</h3>
         <Button type="button" size="sm" variant="outline" onClick={onRequestList}>

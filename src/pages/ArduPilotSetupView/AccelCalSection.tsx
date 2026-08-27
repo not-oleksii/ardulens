@@ -118,7 +118,10 @@ export function AccelCalSection({
   const [autoConfirm, setAutoConfirm] = useState(false);
 
   return (
-    <div className="flex h-full flex-col gap-4">
+    // h-full only while an active/finished calibration has content that wants centering in
+    // the available space - the plain "not started" idle state is just one status line and
+    // shouldn't stretch to fill the page.
+    <div className={cn("flex flex-col gap-4", (activeCalType !== null || result !== null) && "h-full")}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.accelCal.heading")}</h3>
         <div className="flex items-center gap-2">

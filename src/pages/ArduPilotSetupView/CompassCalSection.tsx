@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { CompassCoverageSphere } from "../../components/CompassCoverageSphere/CompassCoverageSphere";
 import { magCalStatusLabel, mavResultLabel } from "../../mavlink/labels/labels";
 import { MagCalStatus, MavResult } from "../../mavlink/registry/registry";
@@ -63,7 +64,9 @@ export function CompassCalSection({ progress, reports, lastCommandAck, onStart, 
   }
 
   return (
-    <div className="flex h-full flex-col gap-4">
+    // h-full only once there's a per-compass progress grid to fill it - the plain
+    // "not started" idle state is just one status line.
+    <div className={cn("flex flex-col gap-4", hasAnyData && "h-full")}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.compassCal.heading")}</h3>
         <div className="flex items-center gap-2">
