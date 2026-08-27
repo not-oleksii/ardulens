@@ -275,6 +275,10 @@
       "description": "Sets ESC_CALIBRATION to Auto and reboots the flight controller - it will drive full throttle for a few seconds, then zero throttle, entirely on its own. Listen for the ESC confirmation tones.",
       "safetyWarning": "Remove all propellers before calibrating ESCs.",
       "start": "Start ESC Calibration",
+      "confirmStartTitle": "Start ESC calibration?",
+      "confirmStartDescription": "The vehicle will reboot and drive full throttle on every ESC for a few seconds. Make sure propellers are removed.",
+      "confirmStart": "Start calibration",
+      "cancel": "Cancel",
       "started": "Calibration command sent - the vehicle is rebooting and will calibrate automatically."
     },
     "map": {
@@ -300,6 +304,9 @@
       "confirmRtlTitle": "Return to launch (RTL)?",
       "confirmRtlDescription": "The vehicle will immediately switch to Return-to-Launch mode and fly back to its takeoff point.",
       "confirmRtl": "RTL",
+      "confirmSetHomeTitle": "Set this point as home?",
+      "confirmSetHomeDescription": "This changes the Return-to-Launch point and geofence for the rest of the session - make sure it's the right spot.",
+      "confirmSetHome": "Set home",
       "flightCommandRejected": "\"{{command}}\" command rejected: {{result}}"
     },
     "parameters": {
@@ -442,6 +449,10 @@
       "saveFile": "Save file",
       "loadFile": "Load file",
       "clearAll": "Clear all",
+      "confirmClearAllTitle": "Clear all points?",
+      "confirmClearAllDescription": "This removes every point from the current plan. It can't be undone unless the plan has already been saved to a file.",
+      "confirmClearAll": "Clear all",
+      "cancel": "Cancel",
       "downloading": "Downloading mission... {{received}} / {{total}}",
       "uploading": "Uploading mission...",
       "empty": "No mission items yet - download from the vehicle, load a file, or add a waypoint.",
@@ -692,6 +703,10 @@
       "connect": "Connect",
       "disconnect": "Disconnect",
       "reboot": "Reboot",
+      "confirmRebootTitle": "Reboot the vehicle?",
+      "confirmRebootDescription": "The vehicle will disconnect and restart - telemetry and control will be unavailable until it reconnects.",
+      "confirmReboot": "Reboot",
+      "cancel": "Cancel",
       "rebootAccepted": "Reboot command sent - vehicle should reconnect shortly.",
       "rebootRejected": "Reboot rejected: {{result}}",
       "startRecording": "Record session",

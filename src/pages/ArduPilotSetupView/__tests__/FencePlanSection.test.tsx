@@ -139,9 +139,14 @@ describe("FencePlanSection", () => {
     ]);
   });
 
-  it("Clear all wipes every point", async () => {
+  it("Clear all asks for confirmation before wiping every point", async () => {
     const { user, onSetItems } = getView(sampleItems());
     await user.click(screen.getByRole("button", { name: "Очистити все" }));
+
+    expect(onSetItems).not.toHaveBeenCalled();
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Очистити все" }));
+
     expect(onSetItems).toHaveBeenCalledWith([]);
   });
 

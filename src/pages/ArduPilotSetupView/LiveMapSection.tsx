@@ -150,6 +150,10 @@ export function LiveMapSection({
   // to trigger either, so both get the same confirm-before-send dialog Arm already uses.
   const [confirmTakeoffAlt, setConfirmTakeoffAlt] = useState<number | null>(null);
   const [confirmRtlOpen, setConfirmRtlOpen] = useState(false);
+  // Redefines RTL/geofence's home point for the rest of the session with no undo - same
+  // confirm-before-send treatment as Takeoff/RTL above, rather than the instant commit a
+  // stray right-click + one more click used to produce.
+  const [confirmSetHome, setConfirmSetHome] = useState<{ lat: number; lon: number } | null>(null);
   // A right-click-triggered popup with "Fly to here"/"Set home here" - the real-GCS convention
   // this app's map now follows, rather than a left-click-arms-then-click toggle.
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -450,10 +454,17 @@ export function LiveMapSection({
 
   function handleSetHomeOption() {
     if (!contextMenu) return;
-    onSetHomeHereRef.current(contextMenu.lat, contextMenu.lon);
-    placeHomeTarget(contextMenu.lat, contextMenu.lon);
-    useMavlinkLiveMapStore.getState().setHomeTarget({ lat: contextMenu.lat, lon: contextMenu.lon });
+    setConfirmSetHome({ lat: contextMenu.lat, lon: contextMenu.lon });
     setContextMenu(null);
+  }
+
+  function confirmSetHomeAction() {
+    if (!confirmSetHome) return;
+    const { lat, lon } = confirmSetHome;
+    onSetHomeHereRef.current(lat, lon);
+    placeHomeTarget(lat, lon);
+    useMavlinkLiveMapStore.getState().setHomeTarget({ lat, lon });
+    setConfirmSetHome(null);
   }
 
   return (
@@ -584,6 +595,23 @@ export function LiveMapSection({
             </Button>
             <Button type="button" variant="destructive" onClick={confirmRtl}>
               {t("ardupilotSetup.map.confirmRtl")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={confirmSetHome !== null} onOpenChange={(open) => !open && setConfirmSetHome(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("ardupilotSetup.map.confirmSetHomeTitle")}</DialogTitle>
+            <DialogDescription>{t("ardupilotSetup.map.confirmSetHomeDescription")}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmSetHome(null)}>
+              {t("ardupilotSetup.map.cancel")}
+            </Button>
+            <Button type="button" variant="destructive" onClick={confirmSetHomeAction}>
+              {t("ardupilotSetup.map.confirmSetHome")}
             </Button>
           </DialogFooter>
         </DialogContent>

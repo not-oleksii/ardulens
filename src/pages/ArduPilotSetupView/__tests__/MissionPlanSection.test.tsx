@@ -152,10 +152,25 @@ describe("MissionPlanSection", () => {
     ]);
   });
 
-  it("Clear all wipes every item", async () => {
+  it("Clear all asks for confirmation before wiping every item", async () => {
     const { user, onSetItems } = getView(sampleItems());
     await user.click(screen.getByRole("button", { name: "Очистити все" }));
+
+    expect(onSetItems).not.toHaveBeenCalled();
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Очистити всі точки?")).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Очистити все" }));
     expect(onSetItems).toHaveBeenCalledWith([]);
+  });
+
+  it("cancelling the Clear-all confirmation keeps every item", async () => {
+    const { user, onSetItems } = getView(sampleItems());
+    await user.click(screen.getByRole("button", { name: "Очистити все" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Скасувати" }));
+
+    expect(onSetItems).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("Upload is disabled with no items, enabled once items exist", () => {
