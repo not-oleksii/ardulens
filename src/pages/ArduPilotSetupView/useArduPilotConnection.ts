@@ -1,4 +1,4 @@
-import { useEffect, useState, type MutableRefObject } from "react";
+import { useCallback, useEffect, useState, type MutableRefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { VERIFIED_FRAME_PRESETS } from "../../mavlink/frameDiagrams/frameDiagrams";
 import { MavType } from "../../mavlink/registry/registry";
@@ -99,7 +99,12 @@ export function useArduPilotConnection({ pendingParamsRef, pendingParamCountRef,
     };
   }, [setError]);
 
-  async function refreshPorts() {
+  // All of the handlers below are useCallback'd (not plain functions) so they stay
+  // referentially stable across re-renders unrelated to connection state - ArduPilotSetupHeader
+  // and the live-GCS sections receiving them are memoized, and a fresh function reference on
+  // every render would defeat that regardless of whether anything they actually depend on
+  // changed.
+  const refreshPorts = useCallback(async () => {
     try {
       const found = await listSerialPorts();
       setPorts(found);
@@ -107,9 +112,9 @@ export function useArduPilotConnection({ pendingParamsRef, pendingParamCountRef,
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }
+  }, [setError]);
 
-  async function handleConnect() {
+  const handleConnect = useCallback(async () => {
     setConnecting();
     try {
       if (mode === "serial") {
@@ -120,9 +125,9 @@ export function useArduPilotConnection({ pendingParamsRef, pendingParamCountRef,
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }
+  }, [mode, selectedPort, baudRate, udpPort, udpHost, setConnecting, setError]);
 
-  async function handleAutoConnect() {
+  const handleAutoConnect = useCallback(async () => {
     setConnecting();
     resetVehicle();
     resetTelemetry();
@@ -174,52 +179,86 @@ export function useArduPilotConnection({ pendingParamsRef, pendingParamCountRef,
     setScanIndex(null);
     setScanTotal(null);
     setError(t("ardupilotSetup.connect.autoConnectFailed"));
-  }
+  }, [
+    baudRate,
+    ports,
+    pendingParamsRef,
+    pendingParamCountRef,
+    ftpSessionRef,
+    t,
+    setConnecting,
+    setError,
+    resetVehicle,
+    resetTelemetry,
+    resetStatusText,
+    resetParameters,
+    resetCompassCal,
+    resetAccelCal,
+    resetRcCal,
+    resetParamDefaults,
+  ]);
 
-  async function handleDisconnect() {
+  const handleDisconnect = useCallback(async () => {
     try {
       await disconnect();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }
+  }, [setError]);
 
   // Starts an in-process simulated vehicle (see mockVehicleSimulator.ts) instead of a real
   // connection - lets the whole app be exercised without any real hardware, SITL, or even a
   // Tauri backend.
-  async function handleConnectMockAs(vehicleType: MavType, copterFrame?: { frameClass: number; frameType: number }) {
-    setConnecting();
-    resetVehicle();
-    resetTelemetry();
-    resetStatusText();
-    resetParameters();
-    resetCompassCal();
-    resetAccelCal();
-    resetRcCal();
-    resetParamDefaults();
-    pendingParamsRef.current.clear();
-    pendingParamCountRef.current = null;
-    ftpSessionRef.current = null;
-    try {
-      await connectMock(vehicleType, copterFrame);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }
+  const handleConnectMockAs = useCallback(
+    async (vehicleType: MavType, copterFrame?: { frameClass: number; frameType: number }) => {
+      setConnecting();
+      resetVehicle();
+      resetTelemetry();
+      resetStatusText();
+      resetParameters();
+      resetCompassCal();
+      resetAccelCal();
+      resetRcCal();
+      resetParamDefaults();
+      pendingParamsRef.current.clear();
+      pendingParamCountRef.current = null;
+      ftpSessionRef.current = null;
+      try {
+        await connectMock(vehicleType, copterFrame);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [
+      pendingParamsRef,
+      pendingParamCountRef,
+      ftpSessionRef,
+      setConnecting,
+      setError,
+      resetVehicle,
+      resetTelemetry,
+      resetStatusText,
+      resetParameters,
+      resetCompassCal,
+      resetAccelCal,
+      resetRcCal,
+      resetParamDefaults,
+    ],
+  );
 
   // Defaults to a simulated Plane, matching this project's current real test hardware and the
   // features already built for it (servo mapping/test, compass cal).
-  async function handleConnectMock() {
+  const handleConnectMock = useCallback(async () => {
     await handleConnectMockAs(MavType.FIXED_WING);
-  }
+  }, [handleConnectMockAs]);
 
   // Simulated Copter (see MotorsCopterSection.tsx / frameDiagrams.ts) for exercising the
   // Copter half of Motors & Servos without real hardware - starts as whichever of the 6
   // verified frame class/type combos the header's frame-preset selector currently has picked.
-  async function handleConnectMockCopter() {
+  const handleConnectMockCopter = useCallback(async () => {
     const preset = VERIFIED_FRAME_PRESETS.find((p) => p.key === devFramePresetKey) ?? VERIFIED_FRAME_PRESETS[1]!;
     await handleConnectMockAs(MavType.QUADROTOR, { frameClass: preset.frameClass, frameType: preset.frameType });
-  }
+  }, [devFramePresetKey, handleConnectMockAs]);
 
   return {
     mode,

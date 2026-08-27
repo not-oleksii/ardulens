@@ -1,5 +1,5 @@
 import type { CommandLong } from "mavlink-mappings/dist/lib/common";
-import { useEffect, useRef, useState, type MutableRefObject } from "react";
+import { memo, useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -187,6 +187,40 @@ function buildFtpPacket(
   return encodePacket(msg, { seq: outSeq, sysid: GCS_SYSID, compid: GCS_COMPID });
 }
 
+// Memoized aliases (module scope, wrapped exactly once - not recreated per render, which would
+// defeat the whole point) for every child that's either always-visible (Header/Sidebar/status
+// bar) or one of the ~23 mutually-exclusive per-section views below. This component re-renders
+// on every telemetry tick / MAVLink packet / param load since it binds ~100 store selectors
+// directly - without memoizing these, whichever section is currently showing (and the always-
+// visible chrome) would re-render on every one of those regardless of relevance, since a plain
+// function component always re-renders when its parent does. Combined with every handler above
+// being useCallback'd (so their identity doesn't change unless something they depend on
+// actually did), a section whose own inputs are unchanged now skips re-rendering entirely.
+const MemoArduPilotSetupHeader = memo(ArduPilotSetupHeader);
+const MemoVehicleStatusBar = memo(VehicleStatusBar);
+const MemoArduPilotSetupSidebar = memo(ArduPilotSetupSidebar);
+const MemoTelemetrySection = memo(TelemetrySection);
+const MemoParametersPanel = memo(ParametersPanel);
+const MemoParameterTreeSection = memo(ParameterTreeSection);
+const MemoSerialPortsSection = memo(SerialPortsSection);
+const MemoDataflashLogsSection = memo(DataflashLogsSection);
+const MemoMissionPlanSection = memo(MissionPlanSection);
+const MemoFencePlanSection = memo(FencePlanSection);
+const MemoRallyPlanSection = memo(RallyPlanSection);
+const MemoMavlinkInspectorSection = memo(MavlinkInspectorSection);
+const MemoServoRelaySection = memo(ServoRelaySection);
+const MemoCompassCalSection = memo(CompassCalSection);
+const MemoAccelCalSection = memo(AccelCalSection);
+const MemoRcCalSection = memo(RcCalSection);
+const MemoRcSetupSection = memo(RcSetupSection);
+const MemoEscCalSection = memo(EscCalSection);
+const MemoMotorsServosSection = memo(MotorsServosSection);
+const MemoBatteryConfigSection = memo(BatteryConfigSection);
+const MemoPidTuneSection = memo(PidTuneSection);
+const MemoLiveTuningSection = memo(LiveTuningSection);
+const MemoOsdSetupSection = memo(OsdSetupSection);
+const MemoVtxSetupSection = memo(VtxSetupSection);
+
 export function ArduPilotSetupView() {
   const { t } = useTranslation();
   const status = useMavlinkConnectionStore((s) => s.status);
@@ -299,14 +333,24 @@ export function ArduPilotSetupView() {
   // edits (e.g. ParametersPanel's staged pendingChanges) - see useUnsavedChangesStore.ts. Holds
   // the section the user tried to switch to while a confirm dialog asks whether to discard.
   const [pendingSectionSwitch, setPendingSectionSwitch] = useState<ArduPilotSetupSection | null>(null);
-  function handleSelectSection(section: ArduPilotSetupSection) {
-    if (section === activeSection) return;
-    if (useUnsavedChangesStore.getState().hasUnsaved) {
-      setPendingSectionSwitch(section);
-      return;
-    }
-    setActiveSection(section);
-  }
+  // useCallback (not a plain function) - along with every other handler below, so they stay
+  // referentially stable across re-renders unrelated to what they actually depend on. This
+  // component re-renders on every telemetry tick (or MAVLink packet, or param load, etc.) since
+  // it binds ~100 store selectors directly, and ArduPilotSetupSidebar/ArduPilotSetupHeader/
+  // VehicleStatusBar/TelemetrySection and all 23 section components are memoized below - a
+  // fresh function reference on every render would defeat that memoization regardless of
+  // whether anything a given handler actually reads changed.
+  const handleSelectSection = useCallback(
+    (section: ArduPilotSetupSection) => {
+      if (section === activeSection) return;
+      if (useUnsavedChangesStore.getState().hasUnsaved) {
+        setPendingSectionSwitch(section);
+        return;
+      }
+      setActiveSection(section);
+    },
+    [activeSection],
+  );
   // Surfaces the header's Reboot button's own COMMAND_ACK - without this, a rejected reboot
   // (e.g. DENIED while armed) looked exactly like a silently-broken button, since nothing else
   // in the UI ever changes on a NACK (the connection doesn't drop, no further message arrives).
@@ -1172,31 +1216,34 @@ export function ArduPilotSetupView() {
     requestStream(MavDataStream.RC_CHANNELS, RC_CHANNELS_STREAM_RATE_HZ);
   }, [status, vehicle, addBytesSent]);
 
-  function sendGcsPacket(packet: Uint8Array) {
-    sendBytes(packet)
-      .then(() => addBytesSent(packet.length))
-      .catch(() => {
-        // Best-effort - the caller doesn't have a good recovery path for a single lost send.
-      });
-  }
+  const sendGcsPacket = useCallback(
+    (packet: Uint8Array) => {
+      sendBytes(packet)
+        .then(() => addBytesSent(packet.length))
+        .catch(() => {
+          // Best-effort - the caller doesn't have a good recovery path for a single lost send.
+        });
+    },
+    [addBytesSent],
+  );
 
-  function nextSeq(): number {
+  const nextSeq = useCallback((): number => {
     const seq = outgoingSeqRef.current;
     outgoingSeqRef.current = (seq + 1) % 256;
     return seq;
-  }
+  }, []);
 
-  function handleLoadParameters() {
+  const handleLoadParameters = useCallback(() => {
     if (!vehicle) return;
     const req = new ParamRequestList();
     req.targetSystem = vehicle.sysid;
     req.targetComponent = vehicle.compid;
     sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-  }
+  }, [vehicle, sendGcsPacket, nextSeq]);
 
   // start=0/end=0xFFFF is the standard "give me everything" convention (mavlink.io's own LOG_
   // microservice docs) - the resulting LOG_ENTRY stream is handled in the main onData effect.
-  function handleRequestDataflashList() {
+  const handleRequestDataflashList = useCallback(() => {
     if (!vehicle) return;
     requestDataflashList();
     const req = new LogRequestList();
@@ -1205,63 +1252,67 @@ export function ArduPilotSetupView() {
     req.start = 0;
     req.end = 0xffff;
     sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-  }
+  }, [vehicle, requestDataflashList, sendGcsPacket, nextSeq]);
 
   // A single LOG_REQUEST_DATA covering the whole file makes ArduPilot stream it back as a burst
   // of LOG_DATA chunks (see the LogData.MSG_ID case above), the same "one request, keep reading
   // until done" shape as PARAM_REQUEST_LIST and FTP's BURSTREADFILE.
-  function handleDownloadDataflashLog(id: number, sizeBytes: number) {
-    if (!vehicle || sizeBytes <= 0) return;
-    dataflashDownloadRef.current = { id, totalBytes: sizeBytes, bytes: new Uint8Array(sizeBytes), bytesReceived: 0 };
-    startDataflashDownload(id, sizeBytes);
-    const req = new LogRequestData();
-    req.targetSystem = vehicle.sysid;
-    req.targetComponent = vehicle.compid;
-    req.id = id;
-    req.ofs = 0;
-    req.count = sizeBytes;
-    sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-  }
+  const handleDownloadDataflashLog = useCallback(
+    (id: number, sizeBytes: number) => {
+      if (!vehicle || sizeBytes <= 0) return;
+      dataflashDownloadRef.current = { id, totalBytes: sizeBytes, bytes: new Uint8Array(sizeBytes), bytesReceived: 0 };
+      startDataflashDownload(id, sizeBytes);
+      const req = new LogRequestData();
+      req.targetSystem = vehicle.sysid;
+      req.targetComponent = vehicle.compid;
+      req.id = id;
+      req.ofs = 0;
+      req.count = sizeBytes;
+      sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+    },
+    [vehicle, startDataflashDownload, sendGcsPacket, nextSeq],
+  );
 
   // Kicks off a MISSION/FENCE/RALLY read - MISSION_COUNT and each requested MISSION_ITEM_INT are
   // handled as they arrive in the main onData effect above, since the vehicle drives the pacing.
   // Shared by all three list types (see missionBindingFor's comment) rather than one handler per
   // type, since the only difference between them is which `missionType` goes on the wire.
-  function handleDownloadFor(type: MavMissionType, store: typeof useMavlinkMissionStore) {
-    if (!vehicle) return;
-    store.getState().beginDownload();
-    const req = new MissionRequestList();
-    req.targetSystem = vehicle.sysid;
-    req.targetComponent = vehicle.compid;
-    req.missionType = type;
-    sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-  }
+  const handleDownloadFor = useCallback(
+    (type: MavMissionType, store: typeof useMavlinkMissionStore) => {
+      if (!vehicle) return;
+      store.getState().beginDownload();
+      const req = new MissionRequestList();
+      req.targetSystem = vehicle.sysid;
+      req.targetComponent = vehicle.compid;
+      req.missionType = type;
+      sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+    },
+    [vehicle, sendGcsPacket, nextSeq],
+  );
 
   // Announces the list's size via MISSION_COUNT - the vehicle then drives the rest by requesting
   // each item one at a time (MissionRequestInt.MSG_ID above), same request-response shape as the
   // download, just with the roles reversed.
-  function handleUploadFor(
-    type: MavMissionType,
-    store: typeof useMavlinkMissionStore,
-    uploadRef: MutableRefObject<MissionItemEntry[] | null>,
-    items: MissionItemEntry[],
-  ) {
-    if (!vehicle || items.length === 0) return;
-    uploadRef.current = items;
-    store.getState().startUpload();
-    const count = new MissionCount();
-    count.targetSystem = vehicle.sysid;
-    count.targetComponent = vehicle.compid;
-    count.count = items.length;
-    count.missionType = type;
-    sendGcsPacket(encodePacket(count, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-  }
+  const handleUploadFor = useCallback(
+    (type: MavMissionType, store: typeof useMavlinkMissionStore, uploadRef: MutableRefObject<MissionItemEntry[] | null>, items: MissionItemEntry[]) => {
+      if (!vehicle || items.length === 0) return;
+      uploadRef.current = items;
+      store.getState().startUpload();
+      const count = new MissionCount();
+      count.targetSystem = vehicle.sysid;
+      count.targetComponent = vehicle.compid;
+      count.count = items.length;
+      count.missionType = type;
+      sendGcsPacket(encodePacket(count, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+    },
+    [vehicle, sendGcsPacket, nextSeq],
+  );
 
   // Opens the @PARAM/param.pck?withdefaults=1 virtual file over MAVLink FTP - the rest of the
   // download (BURSTREADFILE, unpacking, TERMINATESESSION) is driven from the FileTransferProtocol
   // response handling in the main onData effect above, since it has to react to whatever the
   // vehicle sends back.
-  function handleLoadParamDefaults() {
+  const handleLoadParamDefaults = useCallback(() => {
     if (!vehicle) return;
     ftpSessionRef.current = null;
     ftpSeqRef.current = 0;
@@ -1285,12 +1336,12 @@ export function ArduPilotSetupView() {
       pathBytes,
     );
     sendGcsPacket(packet);
-  }
+  }, [vehicle, startParamDefaults, nextSeq, sendGcsPacket]);
 
   // Re-requests only the specific indices that never arrived, by index rather than name (the
   // name isn't known for a missing param) - far cheaper than re-requesting the whole list,
   // and is exactly what a robust GCS is expected to do after a partial/lossy transfer.
-  function handleRequestMissingParameters() {
+  const handleRequestMissingParameters = useCallback(() => {
     if (!vehicle) return;
     const { params, expectedCount } = useMavlinkParameterStore.getState();
     if (expectedCount === null) return;
@@ -1304,38 +1355,41 @@ export function ArduPilotSetupView() {
       req.paramIndex = index;
       sendGcsPacket(encodePacket(req, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
     }
-  }
+  }, [vehicle, sendGcsPacket, nextSeq]);
 
-  function handleSetParam(name: string, value: number, type: MavParamType) {
-    if (!vehicle) return;
-    const msg = new ParamSet();
-    msg.targetSystem = vehicle.sysid;
-    msg.targetComponent = vehicle.compid;
-    msg.paramId = name;
-    msg.paramType = type;
-    msg.paramValue = 0; // placeholder - buildParamSetPacket overwrites this with the real wire bits
-    const wireBits = paramValueToWireBits(value, type);
-    sendGcsPacket(buildParamSetPacket(msg, wireBits, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+  const handleSetParam = useCallback(
+    (name: string, value: number, type: MavParamType) => {
+      if (!vehicle) return;
+      const msg = new ParamSet();
+      msg.targetSystem = vehicle.sysid;
+      msg.targetComponent = vehicle.compid;
+      msg.paramId = name;
+      msg.paramType = type;
+      msg.paramValue = 0; // placeholder - buildParamSetPacket overwrites this with the real wire bits
+      const wireBits = paramValueToWireBits(value, type);
+      sendGcsPacket(buildParamSetPacket(msg, wireBits, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
 
-    const { params, expectedCount, setParam: storeSetParam } = useMavlinkParameterStore.getState();
-    const existing = params[name];
-    if (existing) {
-      storeSetParam({ ...existing, value, dirty: true, updatedAt: Date.now() }, expectedCount ?? existing.index + 1);
-    }
+      const { params, expectedCount, setParam: storeSetParam } = useMavlinkParameterStore.getState();
+      const existing = params[name];
+      if (existing) {
+        storeSetParam({ ...existing, value, dirty: true, updatedAt: Date.now() }, expectedCount ?? existing.index + 1);
+      }
 
-    // Real ArduPilot always echoes a PARAM_SET back as a PARAM_VALUE, which clears `dirty` (see
-    // mavlinkParameterStore) - still dirty with the SAME requested value after this long means
-    // the write was likely dropped or rejected, not just still in flight. Checking `.value`
-    // (not just `.dirty`) avoids a false alarm if a later edit to the same param supersedes this
-    // one before the timeout fires.
-    window.setTimeout(() => {
-      const entry = useMavlinkParameterStore.getState().params[name];
-      if (!entry || !entry.dirty || entry.value !== value) return;
-      toast({ variant: "warning", description: t("ardupilotSetup.parameters.setTimeout", { name }) });
-    }, PARAM_SET_CONFIRM_TIMEOUT_MS);
-  }
+      // Real ArduPilot always echoes a PARAM_SET back as a PARAM_VALUE, which clears `dirty`
+      // (see mavlinkParameterStore) - still dirty with the SAME requested value after this long
+      // means the write was likely dropped or rejected, not just still in flight. Checking
+      // `.value` (not just `.dirty`) avoids a false alarm if a later edit to the same param
+      // supersedes this one before the timeout fires.
+      window.setTimeout(() => {
+        const entry = useMavlinkParameterStore.getState().params[name];
+        if (!entry || !entry.dirty || entry.value !== value) return;
+        toast({ variant: "warning", description: t("ardupilotSetup.parameters.setTimeout", { name }) });
+      }, PARAM_SET_CONFIRM_TIMEOUT_MS);
+    },
+    [vehicle, sendGcsPacket, nextSeq, t],
+  );
 
-  function handleStartCompassCal() {
+  const handleStartCompassCal = useCallback(() => {
     if (!vehicle) return;
     resetCompassCal();
     const cmd = new DoStartMagCalCommand(vehicle.sysid, vehicle.compid);
@@ -1345,60 +1399,63 @@ export function ArduPilotSetupView() {
     cmd.delay = 0;
     cmd.autoreboot = 0;
     sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-  }
+  }, [vehicle, resetCompassCal, sendGcsPacket, nextSeq]);
 
-  function handleAcceptCompassCal() {
+  const handleAcceptCompassCal = useCallback(() => {
     if (!vehicle) return;
     const cmd = new DoAcceptMagCalCommand(vehicle.sysid, vehicle.compid);
     cmd.magnetometersBitmask = 0;
     sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-  }
+  }, [vehicle, sendGcsPacket, nextSeq]);
 
-  function handleCancelCompassCal() {
+  const handleCancelCompassCal = useCallback(() => {
     if (!vehicle) return;
     const cmd = new DoCancelMagCalCommand(vehicle.sysid, vehicle.compid);
     cmd.magnetometersBitmask = 0;
     sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-  }
+  }, [vehicle, sendGcsPacket, nextSeq]);
 
   // One-shot board-level ("trim") calibration - unlike the full 6-position cal below, the
   // vehicle does this immediately with no position prompts, so its only feedback is the
   // COMMAND_ACK for this same PREFLIGHT_CALIBRATION command.
-  function handleStartLevelCal() {
+  const handleStartLevelCal = useCallback(() => {
     if (!vehicle) return;
     pendingCalibrationKindRef.current = "accel";
     startLevelCal();
     const cmd = new PreflightCalibrationCommand(vehicle.sysid, vehicle.compid);
     cmd.accelerometer = 2; // PREFLIGHT_CALIBRATION_ACCELEROMETER_TRIM
     sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-  }
+  }, [vehicle, startLevelCal, sendGcsPacket, nextSeq]);
 
-  function handleStartFullAccelCal() {
+  const handleStartFullAccelCal = useCallback(() => {
     if (!vehicle) return;
     pendingCalibrationKindRef.current = "accel";
     startFullAccelCal();
     const cmd = new PreflightCalibrationCommand(vehicle.sysid, vehicle.compid);
     cmd.accelerometer = 1; // PREFLIGHT_CALIBRATION_ACCELEROMETER_FULL
     sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-  }
+  }, [vehicle, startFullAccelCal, sendGcsPacket, nextSeq]);
 
   // Echoes the vehicle's own ACCELCAL_VEHICLE_POS command back to it once the user confirms
   // the vehicle is actually in the requested position - this is what tells the vehicle to
   // sample this position and move on to the next one (see registry.ts's export comment).
-  function handleConfirmAccelCalPosition(position: number) {
-    if (!vehicle) return;
-    confirmAccelCalPosition(position);
-    const cmd = new AccelcalVehiclePosCommand(vehicle.sysid, vehicle.compid);
-    cmd.position = position;
-    sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-  }
+  const handleConfirmAccelCalPosition = useCallback(
+    (position: number) => {
+      if (!vehicle) return;
+      confirmAccelCalPosition(position);
+      const cmd = new AccelcalVehiclePosCommand(vehicle.sysid, vehicle.compid);
+      cmd.position = position;
+      sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+    },
+    [vehicle, confirmAccelCalPosition, sendGcsPacket, nextSeq],
+  );
 
   // ArduPilot's accel-cal state machine has no MAVLink cancel command of its own (unlike mag
   // cal's explicit DO_CANCEL_MAG_CAL) - confirmed against ardupilotmega.xml, not assumed - so
   // "cancel" here is local-only - restarting a fresh attempt re-sends PREFLIGHT_CALIBRATION.
-  function handleCancelAccelCal() {
+  const handleCancelAccelCal = useCallback(() => {
     resetAccelCal();
-  }
+  }, [resetAccelCal]);
 
   // Sends PREFLIGHT_CALIBRATION(remoteControl=1) - real ArduPilot sets its internal RC
   // "calibrating" flag from this (see GCS_Common.cpp: `rc().calibrating(is_positive(param4))`),
@@ -1406,21 +1463,21 @@ export function ArduPilotSetupView() {
   // further command handshake - min/max/trim are captured purely by watching RC_CHANNELS
   // (see mavlinkRcCalStore's observe()), which the app already requests via
   // MavDataStream.RC_CHANNELS regardless of whether this section is open.
-  function handleStartRcCal() {
+  const handleStartRcCal = useCallback(() => {
     if (!vehicle) return;
     pendingCalibrationKindRef.current = "rc";
     startRcCal();
     const cmd = new PreflightCalibrationCommand(vehicle.sysid, vehicle.compid);
     cmd.remoteControl = 1;
     sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-  }
+  }, [vehicle, startRcCal, sendGcsPacket, nextSeq]);
 
   // Writes the captured range for every observed channel - RC{ch}_MIN/MAX/TRIM (INT16) and
   // RC{ch}_REVERSED (INT8), the same real, generic per-channel params every ArduPilot board
   // exposes (RC1_.. through RC16_.., confirmed against ArduCopter's own apm.pdef.xml) - typed
   // the same way as the already-verified SERVOx_MIN/MAX/TRIM/REVERSED output-side params,
   // since both are the same AP_Int16/AP_Int8 parameter classes in ArduPilot's own source.
-  function handleSaveRcCal() {
+  const handleSaveRcCal = useCallback(() => {
     if (!vehicle) return;
     pendingCalibrationKindRef.current = "rc";
     for (const [channelKey, range] of Object.entries(rcCalChannels)) {
@@ -1433,169 +1490,193 @@ export function ArduPilotSetupView() {
     cmd.remoteControl = 0;
     sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
     stopRcCal();
-  }
+  }, [vehicle, rcCalChannels, handleSetParam, sendGcsPacket, nextSeq, stopRcCal]);
 
-  function handleCancelRcCal() {
+  const handleCancelRcCal = useCallback(() => {
     if (!vehicle) return;
     pendingCalibrationKindRef.current = "rc";
     const cmd = new PreflightCalibrationCommand(vehicle.sysid, vehicle.compid);
     cmd.remoteControl = 0;
     sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
     stopRcCal();
-  }
+  }, [vehicle, sendGcsPacket, nextSeq, stopRcCal]);
 
-  function handleSetServoPwm(channel: number, pwm: number) {
-    if (!vehicle) return;
-    const cmd = new DoSetServoCommand(vehicle.sysid, vehicle.compid);
-    cmd.instance = channel;
-    cmd.pwm = pwm;
-    sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-  }
+  const handleSetServoPwm = useCallback(
+    (channel: number, pwm: number) => {
+      if (!vehicle) return;
+      const cmd = new DoSetServoCommand(vehicle.sysid, vehicle.compid);
+      cmd.instance = channel;
+      cmd.pwm = pwm;
+      sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+    },
+    [vehicle, sendGcsPacket, nextSeq],
+  );
 
   // DO_SET_RELAY gets no COMMAND_ACK and no readback at all (see registry.ts's own comment -
   // relay state is optimistic) - unlike servo, which already has a live PWM readout confirming
   // it took effect, a relay toggle otherwise has ZERO feedback of any kind. A brief toast is the
   // only confirmation this command will ever get.
-  function handleSetRelay(instance: number, on: boolean) {
-    if (!vehicle) return;
-    const cmd = new DoSetRelayCommand(vehicle.sysid, vehicle.compid);
-    cmd.instance = instance;
-    cmd.setting = on ? 1 : 0;
-    sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-    toast({
-      variant: "info",
-      description: t(on ? "ardupilotSetup.servoRelay.relaySentOn" : "ardupilotSetup.servoRelay.relaySentOff", { instance }),
-      duration: 2000,
-    });
-  }
+  const handleSetRelay = useCallback(
+    (instance: number, on: boolean) => {
+      if (!vehicle) return;
+      const cmd = new DoSetRelayCommand(vehicle.sysid, vehicle.compid);
+      cmd.instance = instance;
+      cmd.setting = on ? 1 : 0;
+      sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+      toast({
+        variant: "info",
+        description: t(on ? "ardupilotSetup.servoRelay.relaySentOn" : "ardupilotSetup.servoRelay.relaySentOff", { instance }),
+        duration: 2000,
+      });
+    },
+    [vehicle, sendGcsPacket, nextSeq, t],
+  );
 
   // Reboots the flight controller - needed for RebootRequired params (e.g. FRAME_CLASS/
   // FRAME_TYPE) to actually take effect; PARAM_SET itself already wrote the new value to the
   // vehicle's persistent storage immediately, so there's no separate "save" step, only this.
-  function handleReboot() {
+  const handleReboot = useCallback(() => {
     if (!vehicle) return;
     setRebootLastCommandAck(null);
     const cmd = new PreflightRebootShutdownCommand(vehicle.sysid, vehicle.compid);
     cmd.autopilot = RebootShutdownAction.REBOOT;
     sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-  }
+  }, [vehicle, sendGcsPacket, nextSeq]);
 
   // Sets ESC_CALIBRATION=3 ("Auto") and reboots - the firmware handles the whole passthrough
   // sequence itself on the next boot (see EscCalSection.tsx's comment), so no further protocol
   // interaction is needed after this.
-  function handleStartEscCalibration() {
+  const handleStartEscCalibration = useCallback(() => {
     handleSetParam("ESC_CALIBRATION", 3, MavParamType.INT8);
     handleReboot();
-  }
+  }, [handleSetParam, handleReboot]);
 
   // Press-and-hold motor identification test (the Copter counterpart to handleSetServoPwm's
   // Plane surface test) - `throttlePercent` is 0 on release, matching the deflect/return-to-
   // trim convention already established for servos.
-  function handleTestMotor(instance: number, throttlePercent: number) {
-    if (!vehicle) return;
-    const cmd = new DoMotorTestCommand(vehicle.sysid, vehicle.compid);
-    cmd.instance = instance;
-    cmd.throttleType = MotorTestThrottleType.THROTTLE_PERCENT;
-    cmd.throttle = throttlePercent;
-    cmd.timeout = MOTOR_TEST_TIMEOUT_S;
-    cmd.motorCount = 1;
-    cmd.testOrder = 0; // DEFAULT - board-defined, not remapped (see frameDiagrams.ts)
-    sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-  }
+  const handleTestMotor = useCallback(
+    (instance: number, throttlePercent: number) => {
+      if (!vehicle) return;
+      const cmd = new DoMotorTestCommand(vehicle.sysid, vehicle.compid);
+      cmd.instance = instance;
+      cmd.throttleType = MotorTestThrottleType.THROTTLE_PERCENT;
+      cmd.throttle = throttlePercent;
+      cmd.timeout = MOTOR_TEST_TIMEOUT_S;
+      cmd.motorCount = 1;
+      cmd.testOrder = 0; // DEFAULT - board-defined, not remapped (see frameDiagrams.ts)
+      sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+    },
+    [vehicle, sendGcsPacket, nextSeq],
+  );
 
   // Arm/disarm - a normal (non-forced) request, still subject to the vehicle's own pre-arm
   // checks (see registry.ts's export comment on why `force` is never set). The result arrives
   // as a COMMAND_ACK, handled in the onData effect above and surfaced via armCommandAck.
-  function handleSetArmed(armed: boolean) {
-    if (!vehicle) return;
-    const cmd = new ComponentArmDisarmCommand(vehicle.sysid, vehicle.compid);
-    cmd.arm = armed ? 1 : 0;
-    cmd.force = 0;
-    sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-  }
+  const handleSetArmed = useCallback(
+    (armed: boolean) => {
+      if (!vehicle) return;
+      const cmd = new ComponentArmDisarmCommand(vehicle.sysid, vehicle.compid);
+      cmd.arm = armed ? 1 : 0;
+      cmd.force = 0;
+      sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+    },
+    [vehicle, sendGcsPacket, nextSeq],
+  );
 
   // Flight-mode change - see registry.ts's SET_MODE comment for why this is a plain message
   // (not a COMMAND_LONG) and never gets a COMMAND_ACK; the UI confirms it took by watching
   // vehicle.customMode update on the vehicle's own next heartbeat instead (see the toast-firing
   // effect below, and pendingModeChangeRef's own comment) - also covers handleRtl, which is
   // just a SET_MODE call into this same function.
-  function handleSetMode(customMode: number) {
-    if (!vehicle) return;
-    const msg = new SetMode();
-    msg.targetSystem = vehicle.sysid;
-    msg.baseMode = MavModeFlag.CUSTOM_MODE_ENABLED as unknown as MavMode;
-    msg.customMode = customMode;
-    sendGcsPacket(encodePacket(msg, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+  const handleSetMode = useCallback(
+    (customMode: number) => {
+      if (!vehicle) return;
+      const msg = new SetMode();
+      msg.targetSystem = vehicle.sysid;
+      msg.baseMode = MavModeFlag.CUSTOM_MODE_ENABLED as unknown as MavMode;
+      msg.customMode = customMode;
+      sendGcsPacket(encodePacket(msg, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
 
-    const requestedAt = Date.now();
-    pendingModeChangeRef.current = { mode: customMode, requestedAt };
-    window.setTimeout(() => {
-      const pending = pendingModeChangeRef.current;
-      if (!pending || pending.requestedAt !== requestedAt) return; // already confirmed, or superseded by a newer request
-      pendingModeChangeRef.current = null;
-      toast({
-        variant: "warning",
-        description: t("ardupilotSetup.vehicle.modeChangeTimeout", {
-          mode: flightModeLabel(vehicle.type, customMode),
-        }),
-      });
-    }, MODE_CHANGE_CONFIRM_TIMEOUT_MS);
-  }
+      const requestedAt = Date.now();
+      pendingModeChangeRef.current = { mode: customMode, requestedAt };
+      window.setTimeout(() => {
+        const pending = pendingModeChangeRef.current;
+        if (!pending || pending.requestedAt !== requestedAt) return; // already confirmed, or superseded by a newer request
+        pendingModeChangeRef.current = null;
+        toast({
+          variant: "warning",
+          description: t("ardupilotSetup.vehicle.modeChangeTimeout", {
+            mode: flightModeLabel(vehicle.type, customMode),
+          }),
+        });
+      }, MODE_CHANGE_CONFIRM_TIMEOUT_MS);
+    },
+    [vehicle, sendGcsPacket, nextSeq, t],
+  );
 
   // Sends the vehicle to a clicked map point in GUIDED mode - MavDoRepositionFlags.CHANGE_MODE
   // makes it switch to GUIDED itself (see registry.ts's DO_REPOSITION comment), no separate
   // SET_MODE needed first. Altitude is relative to home (DO_REPOSITION's own `altitude` field
   // semantics) - the map's own context menu prompts for it, defaulting to the vehicle's current
   // altitude but editable, rather than always silently reusing the current height.
-  function handleFlyToHere(lat: number, lon: number, altitudeM: number) {
-    if (!vehicle) return;
-    const cmd = new DoRepositionCommand(vehicle.sysid, vehicle.compid);
-    cmd.speed = -1; // no change
-    cmd.bitmask = MavDoRepositionFlags.CHANGE_MODE;
-    cmd.radius = 0;
-    cmd.yaw = NaN; // use the current yaw mode
-    cmd.latitude = lat;
-    cmd.longitude = lon;
-    cmd.altitude = altitudeM;
-    sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-  }
+  const handleFlyToHere = useCallback(
+    (lat: number, lon: number, altitudeM: number) => {
+      if (!vehicle) return;
+      const cmd = new DoRepositionCommand(vehicle.sysid, vehicle.compid);
+      cmd.speed = -1; // no change
+      cmd.bitmask = MavDoRepositionFlags.CHANGE_MODE;
+      cmd.radius = 0;
+      cmd.yaw = NaN; // use the current yaw mode
+      cmd.latitude = lat;
+      cmd.longitude = lon;
+      cmd.altitude = altitudeM;
+      sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+    },
+    [vehicle, sendGcsPacket, nextSeq],
+  );
 
   // DO_SET_HOME's altitude is the absolute (MSL) altitude of the new home point, unlike
   // handleFlyToHere's relative one above - VFR_HUD.alt is documented as MSL, GLOBAL_POSITION_INT's
   // relative_alt (this app's `position.relativeAltM`) is relative to home, so the two handlers
   // deliberately read from different telemetry fields.
-  function handleSetHomeHere(lat: number, lon: number) {
-    if (!vehicle) return;
-    const cmd = new DoSetHomeCommand(vehicle.sysid, vehicle.compid);
-    cmd.useCurrent = 0; // use the specified location, not the vehicle's current position
-    cmd.roll = 0;
-    cmd.pitch = 0;
-    cmd.yaw = NaN;
-    cmd.latitude = lat;
-    cmd.longitude = lon;
-    cmd.altitude = vfrHud?.altitudeM ?? 0;
-    sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-  }
+  const handleSetHomeHere = useCallback(
+    (lat: number, lon: number) => {
+      if (!vehicle) return;
+      const cmd = new DoSetHomeCommand(vehicle.sysid, vehicle.compid);
+      cmd.useCurrent = 0; // use the specified location, not the vehicle's current position
+      cmd.roll = 0;
+      cmd.pitch = 0;
+      cmd.yaw = NaN;
+      cmd.latitude = lat;
+      cmd.longitude = lon;
+      cmd.altitude = vfrHud?.altitudeM ?? 0;
+      sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+    },
+    [vehicle, vfrHud, sendGcsPacket, nextSeq],
+  );
 
   // ArduCopter takes off straight up from its current position - lat/lon are Plane/VTOL-only
   // fields here, left at 0 (ignored by Copter firmware).
-  function handleTakeoff(altitudeM: number) {
-    if (!vehicle) return;
-    const cmd = new NavTakeoffCommand(vehicle.sysid, vehicle.compid);
-    cmd.pitch = 0;
-    cmd.yaw = NaN;
-    cmd.latitude = 0;
-    cmd.longitude = 0;
-    cmd.altitude = altitudeM;
-    sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
-  }
+  const handleTakeoff = useCallback(
+    (altitudeM: number) => {
+      if (!vehicle) return;
+      const cmd = new NavTakeoffCommand(vehicle.sysid, vehicle.compid);
+      cmd.pitch = 0;
+      cmd.yaw = NaN;
+      cmd.latitude = 0;
+      cmd.longitude = 0;
+      cmd.altitude = altitudeM;
+      sendGcsPacket(encodePacket(cmd, { seq: nextSeq(), sysid: GCS_SYSID, compid: GCS_COMPID }));
+    },
+    [vehicle, sendGcsPacket, nextSeq],
+  );
 
-  function handleRtl() {
+  const handleRtl = useCallback(() => {
     if (!vehicle) return;
     const mode = rtlModeNumber(vehicle.type);
     if (mode === null) return;
     handleSetMode(mode);
-  }
+  }, [vehicle, handleSetMode]);
 
   const isConnected = status === "connected";
 
@@ -1649,9 +1730,42 @@ export function ArduPilotSetupView() {
     });
   }, [flightCommandAck, t]);
 
+  // The small wrapper handlers below exist only so ArduPilotSetupHeader/VehicleStatusBar/the
+  // mission-family sections (all memoized) receive stable function props - an inline arrow
+  // function in JSX (`onClick={() => void x()}`) is a fresh reference every render regardless
+  // of whether `x` itself is stable, which would defeat memoizing the component it's passed to.
+  const handleRefreshPortsClick = useCallback(() => void refreshPorts(), [refreshPorts]);
+  const handleAutoConnectClick = useCallback(() => void handleAutoConnect(), [handleAutoConnect]);
+  const handleConnectClick = useCallback(() => void handleConnect(), [handleConnect]);
+  const handleDisconnectClick = useCallback(() => void handleDisconnect(), [handleDisconnect]);
+  const handleSaveRecordingClick = useCallback(() => void handleSaveRecording(), [handleSaveRecording]);
+  const handleDevModeClick = useCallback(() => void handleConnectMock(), [handleConnectMock]);
+  const handleDevModeCopterClick = useCallback(() => void handleConnectMockCopter(), [handleConnectMockCopter]);
+  const handleArm = useCallback(() => handleSetArmed(true), [handleSetArmed]);
+  const handleDisarm = useCallback(() => handleSetArmed(false), [handleSetArmed]);
+
+  const handleDownloadMission = useCallback(
+    () => handleDownloadFor(MavMissionType.MISSION, useMavlinkMissionStore),
+    [handleDownloadFor],
+  );
+  const handleUploadMission = useCallback(
+    () => handleUploadFor(MavMissionType.MISSION, useMavlinkMissionStore, missionUploadRef, mission.items),
+    [handleUploadFor, mission.items],
+  );
+  const handleDownloadFence = useCallback(() => handleDownloadFor(MavMissionType.FENCE, useMavlinkFenceStore), [handleDownloadFor]);
+  const handleUploadFence = useCallback(
+    () => handleUploadFor(MavMissionType.FENCE, useMavlinkFenceStore, fenceUploadRef, fence.items),
+    [handleUploadFor, fence.items],
+  );
+  const handleDownloadRally = useCallback(() => handleDownloadFor(MavMissionType.RALLY, useMavlinkRallyStore), [handleDownloadFor]);
+  const handleUploadRally = useCallback(
+    () => handleUploadFor(MavMissionType.RALLY, useMavlinkRallyStore, rallyUploadRef, rally.items),
+    [handleUploadFor, rally.items],
+  );
+
   return (
     <div className="flex h-svh flex-col overflow-hidden">
-      <ArduPilotSetupHeader
+      <MemoArduPilotSetupHeader
         liveAvailable={isTauriRuntime()}
         mode={mode}
         setMode={setMode}
@@ -1674,10 +1788,10 @@ export function ArduPilotSetupView() {
         scanTotal={scanTotal}
         bytesReceived={bytesReceived}
         bytesSent={bytesSent}
-        onRefreshPorts={() => void refreshPorts()}
-        onAutoConnect={() => void handleAutoConnect()}
-        onConnect={() => void handleConnect()}
-        onDisconnect={() => void handleDisconnect()}
+        onRefreshPorts={handleRefreshPortsClick}
+        onAutoConnect={handleAutoConnectClick}
+        onConnect={handleConnectClick}
+        onDisconnect={handleDisconnectClick}
         onReboot={handleReboot}
         rebootLastCommandAck={rebootLastCommandAck}
         isRecording={recordingStartedAt !== null}
@@ -1686,30 +1800,30 @@ export function ArduPilotSetupView() {
         hasRecordingToSave={recordedTlogBytes !== null}
         onStartRecording={handleStartRecording}
         onStopRecording={handleStopRecording}
-        onSaveRecording={() => void handleSaveRecording()}
+        onSaveRecording={handleSaveRecordingClick}
         onViewRecording={handleViewRecording}
       />
 
-      <VehicleStatusBar
+      <MemoVehicleStatusBar
         vehicle={vehicle}
         battery={battery}
         gps={gps}
         armCommandAck={armCommandAck}
-        onArm={() => handleSetArmed(true)}
-        onDisarm={() => handleSetArmed(false)}
+        onArm={handleArm}
+        onDisarm={handleDisarm}
         onSetMode={handleSetMode}
       />
 
       <div className="flex flex-1 overflow-hidden">
-        <ArduPilotSetupSidebar
+        <MemoArduPilotSetupSidebar
           activeSection={activeSection}
           onSelect={handleSelectSection}
           isConnected={isConnected}
           isBusy={status === "connecting"}
           devFramePresetKey={devFramePresetKey}
           setDevFramePresetKey={setDevFramePresetKey}
-          onDevMode={() => void handleConnectMock()}
-          onDevModeCopter={() => void handleConnectMockCopter()}
+          onDevMode={handleDevModeClick}
+          onDevModeCopter={handleDevModeCopterClick}
         />
 
         <main className="min-w-0 flex-1 overflow-y-auto px-6 py-4">
@@ -1720,7 +1834,7 @@ export function ArduPilotSetupView() {
               <p className="text-xs text-muted-foreground">{t("ardupilotSetup.notConnected")}</p>
             </div>
           ) : activeSection === "telemetry" ? (
-            <TelemetrySection
+            <MemoTelemetrySection
               vehicle={vehicle}
               attitude={attitude}
               vfrHud={vfrHud}
@@ -1741,7 +1855,7 @@ export function ArduPilotSetupView() {
               onRtl={handleRtl}
             />
           ) : activeSection === "parameters" ? (
-            <ParametersPanel
+            <MemoParametersPanel
               vehicleType={vehicle?.type ?? MavType.GENERIC}
               onLoadParameters={handleLoadParameters}
               onRequestMissing={handleRequestMissingParameters}
@@ -1749,11 +1863,11 @@ export function ArduPilotSetupView() {
               onLoadParamDefaults={handleLoadParamDefaults}
             />
           ) : activeSection === "parameterTree" ? (
-            <ParameterTreeSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoadParameters={handleLoadParameters} onSetParam={handleSetParam} />
+            <MemoParameterTreeSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoadParameters={handleLoadParameters} onSetParam={handleSetParam} />
           ) : activeSection === "serialPorts" ? (
-            <SerialPortsSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoad={handleLoadParameters} onSetParam={handleSetParam} />
+            <MemoSerialPortsSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoad={handleLoadParameters} onSetParam={handleSetParam} />
           ) : activeSection === "dataflashLogs" ? (
-            <DataflashLogsSection
+            <MemoDataflashLogsSection
               entries={dataflashEntries}
               numLogsExpected={dataflashNumLogsExpected}
               listRequested={dataflashListRequested}
@@ -1766,7 +1880,7 @@ export function ArduPilotSetupView() {
               onDownload={handleDownloadDataflashLog}
             />
           ) : activeSection === "missionPlan" ? (
-            <MissionPlanSection
+            <MemoMissionPlanSection
               items={mission.items}
               downloadPhase={mission.downloadPhase}
               downloadCountExpected={mission.downloadCountExpected}
@@ -1774,24 +1888,24 @@ export function ArduPilotSetupView() {
               uploadPhase={mission.uploadPhase}
               uploadError={mission.uploadError}
               vehiclePosition={position}
-              onDownload={() => handleDownloadFor(MavMissionType.MISSION, useMavlinkMissionStore)}
-              onUpload={() => handleUploadFor(MavMissionType.MISSION, useMavlinkMissionStore, missionUploadRef, mission.items)}
+              onDownload={handleDownloadMission}
+              onUpload={handleUploadMission}
               onSetItems={mission.setItems}
             />
           ) : activeSection === "fence" ? (
-            <FencePlanSection
+            <MemoFencePlanSection
               items={fence.items}
               downloadPhase={fence.downloadPhase}
               downloadCountExpected={fence.downloadCountExpected}
               downloadError={fence.downloadError}
               uploadPhase={fence.uploadPhase}
               uploadError={fence.uploadError}
-              onDownload={() => handleDownloadFor(MavMissionType.FENCE, useMavlinkFenceStore)}
-              onUpload={() => handleUploadFor(MavMissionType.FENCE, useMavlinkFenceStore, fenceUploadRef, fence.items)}
+              onDownload={handleDownloadFence}
+              onUpload={handleUploadFence}
               onSetItems={fence.setItems}
             />
           ) : activeSection === "rally" ? (
-            <RallyPlanSection
+            <MemoRallyPlanSection
               items={rally.items}
               downloadPhase={rally.downloadPhase}
               downloadCountExpected={rally.downloadCountExpected}
@@ -1799,16 +1913,16 @@ export function ArduPilotSetupView() {
               uploadPhase={rally.uploadPhase}
               uploadError={rally.uploadError}
               vehiclePosition={position}
-              onDownload={() => handleDownloadFor(MavMissionType.RALLY, useMavlinkRallyStore)}
-              onUpload={() => handleUploadFor(MavMissionType.RALLY, useMavlinkRallyStore, rallyUploadRef, rally.items)}
+              onDownload={handleDownloadRally}
+              onUpload={handleUploadRally}
               onSetItems={rally.setItems}
             />
           ) : activeSection === "mavlinkInspector" ? (
-            <MavlinkInspectorSection />
+            <MemoMavlinkInspectorSection />
           ) : activeSection === "servoRelay" ? (
-            <ServoRelaySection servoOutputs={servoOutputs} onSetServoPwm={handleSetServoPwm} onSetRelay={handleSetRelay} />
+            <MemoServoRelaySection servoOutputs={servoOutputs} onSetServoPwm={handleSetServoPwm} onSetRelay={handleSetRelay} />
           ) : activeSection === "compassCal" ? (
-            <CompassCalSection
+            <MemoCompassCalSection
               progress={compassCalProgress}
               reports={compassCalReports}
               lastCommandAck={compassCalLastCommandAck}
@@ -1818,7 +1932,7 @@ export function ArduPilotSetupView() {
               onReboot={handleReboot}
             />
           ) : activeSection === "accelCal" ? (
-            <AccelCalSection
+            <MemoAccelCalSection
               activeCalType={accelCalActiveType}
               requestedPosition={accelCalRequestedPosition}
               confirmedPositions={accelCalConfirmedPositions}
@@ -1830,7 +1944,7 @@ export function ArduPilotSetupView() {
               onCancel={handleCancelAccelCal}
             />
           ) : activeSection === "rcCal" ? (
-            <RcCalSection
+            <MemoRcCalSection
               live={rcCalLive}
               chanCount={rcCalChanCount}
               active={rcCalActive}
@@ -1842,16 +1956,16 @@ export function ArduPilotSetupView() {
               onToggleReversed={toggleRcCalReversed}
             />
           ) : activeSection === "rcSetup" ? (
-            <RcSetupSection
+            <MemoRcSetupSection
               vehicleType={vehicle?.type ?? MavType.GENERIC}
               live={rcCalLive}
               onLoad={handleLoadParameters}
               onSetParam={handleSetParam}
             />
           ) : activeSection === "escCal" ? (
-            <EscCalSection onStart={handleStartEscCalibration} />
+            <MemoEscCalSection onStart={handleStartEscCalibration} />
           ) : activeSection === "motorsSetup" ? (
-            <MotorsServosSection
+            <MemoMotorsServosSection
               vehicleType={vehicle?.type ?? MavType.GENERIC}
               servoOutputs={servoOutputs}
               onLoad={handleLoadParameters}
@@ -1862,25 +1976,25 @@ export function ArduPilotSetupView() {
               onReboot={handleReboot}
             />
           ) : activeSection === "batteryConfig" ? (
-            <BatteryConfigSection
+            <MemoBatteryConfigSection
               vehicleType={vehicle?.type ?? MavType.GENERIC}
               battery={battery}
               onLoad={handleLoadParameters}
               onSetParam={handleSetParam}
             />
           ) : activeSection === "pidTune" ? (
-            <PidTuneSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoad={handleLoadParameters} onSetParam={handleSetParam} />
+            <MemoPidTuneSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoad={handleLoadParameters} onSetParam={handleSetParam} />
           ) : activeSection === "liveTuning" ? (
-            <LiveTuningSection
+            <MemoLiveTuningSection
               vehicleType={vehicle?.type ?? MavType.GENERIC}
               live={rcCalLive}
               onLoad={handleLoadParameters}
               onSetParam={handleSetParam}
             />
           ) : activeSection === "osdSetup" ? (
-            <OsdSetupSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoad={handleLoadParameters} onSetParam={handleSetParam} />
+            <MemoOsdSetupSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoad={handleLoadParameters} onSetParam={handleSetParam} />
           ) : activeSection === "vtxSetup" ? (
-            <VtxSetupSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoad={handleLoadParameters} onSetParam={handleSetParam} />
+            <MemoVtxSetupSection vehicleType={vehicle?.type ?? MavType.GENERIC} onLoad={handleLoadParameters} onSetParam={handleSetParam} />
           ) : null}
         </main>
       </div>

@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router";
 import { isTauriRuntime } from "../../services/mavlinkTransport/mavlinkTransport";
@@ -44,22 +44,25 @@ export function useSessionRecording() {
     return () => window.clearInterval(id);
   }, [recordingStartedAt]);
 
-  function handleStartRecording() {
+  // useCallback (not plain functions) so these stay referentially stable across re-renders -
+  // ArduPilotSetupHeader receives them and is memoized, which a fresh function reference every
+  // render would otherwise defeat regardless of whether recording state actually changed.
+  const handleStartRecording = useCallback(() => {
     if (recordingHandleRef.current) return; // already recording
     recordingHandleRef.current = startTelemetryRecording();
     setRecordingStartedAt(Date.now());
     setRecordingStats({ packetCount: 0, byteCount: 0 });
     setRecordedTlogBytes(null);
-  }
+  }, []);
 
-  function handleStopRecording() {
+  const handleStopRecording = useCallback(() => {
     const handle = recordingHandleRef.current;
     if (!handle) return;
     recordingHandleRef.current = null;
     setRecordedTlogBytes(handle.stop());
     setRecordingStartedAt(null);
     setRecordingStats(null);
-  }
+  }, []);
 
   // Under Tauri, a real native "Save As" dialog + direct filesystem write - the Blob+`<a
   // download>` trick DataflashLogsSection uses for its own Save button is a real browser
@@ -68,7 +71,7 @@ export function useSessionRecording() {
   // error either) - a real environment gap, not a coding mistake in the original approach.
   // The plain-browser build (no Tauri backend) still needs the Blob fallback, since the
   // dialog/fs plugins only work under Tauri.
-  async function handleSaveRecording() {
+  const handleSaveRecording = useCallback(async () => {
     if (!recordedTlogBytes) return;
     const filename = `ardulens-session-${new Date().toISOString().replace(/[:.]/g, "-")}.tlog`;
 
@@ -91,7 +94,7 @@ export function useSessionRecording() {
     a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
-  }
+  }, [recordedTlogBytes, t]);
 
   // Hands the recorded bytes to the SAME fileStore the home screen's drag-and-drop uses, then
   // deep-links into the Logs tab - the same cross-navigation shape DataflashLogsSection's own
@@ -99,12 +102,12 @@ export function useSessionRecording() {
   // DataflashLogsSection) since a recorded session's derived Flight/Sample data is the same
   // shape a .bin's is, but doesn't yet have Map-tab support (CesiumMapView's own worker call
   // is dataflash-.bin-specific) - a real, honest v1 scope cut, not an oversight.
-  function handleViewRecording() {
+  const handleViewRecording = useCallback(() => {
     if (!recordedTlogBytes) return;
     setFile({ name: `ardulens-session-${Date.now()}.tlog`, buf: recordedTlogBytes.buffer as ArrayBuffer });
     setActiveTab("logs");
     void navigate("/");
-  }
+  }, [recordedTlogBytes, setFile, setActiveTab, navigate]);
 
   return {
     recordingStartedAt,
