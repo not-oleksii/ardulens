@@ -1248,7 +1248,35 @@
       "setHome": "Set Home",
       "settingHomeHint": "Click the map to place home",
       "noHome": "No home set yet",
-      "homeAltitude": "Alt (m)"
+      "homeAltitude": "Alt (m)",
+      "rightClickHint": "Right-click to add a beacon or antenna",
+      "addBeaconHere": "Add beacon here",
+      "addAntennaHere": "Add antenna here"
+    },
+    "devices": {
+      "heading": "Devices",
+      "empty": "No devices yet - right-click the map to add a beacon or antenna.",
+      "rename": "Rename",
+      "delete": "Delete",
+      "preset": "Preset",
+      "customPreset": "Custom",
+      "range": "Range (m)",
+      "bearing": "Bearing (deg)",
+      "beamwidth": "Beamwidth (deg)",
+      "altitude": "Alt (m)",
+      "confirmDeleteTitle": "Remove this device?",
+      "confirmDeleteDescription": "This permanently removes \"{{name}}\" from the site.",
+      "confirmDelete": "Remove device",
+      "defaultName": {
+        "beacon": "Beacon {{index}}",
+        "antenna": "Antenna {{index}}"
+      },
+      "presets": {
+        "beaconStandard": "Standard beacon",
+        "antennaOmni": "Omnidirectional antenna",
+        "antennaDipole": "Dipole antenna",
+        "antennaDirectional": "Directional antenna (Yagi)"
+      }
     }
   }
 }

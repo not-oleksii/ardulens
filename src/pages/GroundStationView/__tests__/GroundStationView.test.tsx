@@ -1,6 +1,6 @@
 import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Cartesian3 } from "cesium";
+import { Cartesian3, ScreenSpaceEventType } from "cesium";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useGroundStationSitesStore } from "../../../stores/groundStationSitesStore/groundStationSitesStore";
@@ -9,15 +9,19 @@ import { GroundStationView } from "../GroundStationView";
 // Same reasoning/mocking approach as LiveMapSection.test.tsx: Viewer/Terrain/
 // sampleTerrainMostDetailed/ScreenSpaceEventHandler do real WebGL/network/canvas work jsdom
 // can't provide, so only those are replaced.
-const { MockViewer, MockScreenSpaceEventHandler, viewerInstances, registeredClickHandlers } = vi.hoisted(() => {
+const { MockViewer, MockScreenSpaceEventHandler, viewerInstances, registeredHandlers } = vi.hoisted(() => {
   class MockEntity {
     position: unknown;
+    polygon?: Record<string, unknown>;
     constructor(opts: Record<string, unknown>) {
       Object.assign(this, opts);
     }
   }
   const viewerInstances: MockViewer[] = [];
-  const registeredClickHandlers: Array<(movement: { position: unknown }) => void> = [];
+  // Keyed by ScreenSpaceEventType (LEFT_CLICK for Set Home, RIGHT_CLICK for the beacon/antenna
+  // popup) rather than a flat array - this hook registers both on the same handler instance, so
+  // "the last registered handler" no longer identifies which gesture a test means to simulate.
+  const registeredHandlers = new Map<number, (movement: { position: { x: number; y: number } }) => void>();
   class MockViewer {
     entities = {
       add: vi.fn((opts: Record<string, unknown>) => new MockEntity(opts)),
@@ -36,12 +40,12 @@ const { MockViewer, MockScreenSpaceEventHandler, viewerInstances, registeredClic
     }
   }
   class MockScreenSpaceEventHandler {
-    setInputAction(callback: (movement: { position: unknown }) => void) {
-      registeredClickHandlers.push(callback);
+    setInputAction(callback: (movement: { position: { x: number; y: number } }) => void, type: number) {
+      registeredHandlers.set(type, callback);
     }
     destroy = vi.fn();
   }
-  return { MockViewer, MockScreenSpaceEventHandler, viewerInstances, registeredClickHandlers };
+  return { MockViewer, MockScreenSpaceEventHandler, viewerInstances, registeredHandlers };
 });
 
 vi.mock("cesium", async (importOriginal) => {
@@ -78,9 +82,17 @@ function getView() {
   const simulateMapClick = async (lat: number, lon: number) => {
     getLastViewer().camera.pickEllipsoid.mockReturnValue(Cartesian3.fromDegrees(lon, lat, 0));
     await act(async () => {
-      registeredClickHandlers.at(-1)?.({ position: { x: 10, y: 10 } });
+      registeredHandlers.get(ScreenSpaceEventType.LEFT_CLICK)?.({ position: { x: 10, y: 10 } });
       // Flushes the mocked sampleTerrainMostDetailed() promise chain the click handler awaits.
       await Promise.resolve();
+    });
+  };
+  const simulateMapRightClick = (lat: number, lon: number) => {
+    getLastViewer().camera.pickEllipsoid.mockReturnValue(Cartesian3.fromDegrees(lon, lat, 0));
+    // No promise chain to flush here (unlike the left-click/Set-Home handler above, this one
+    // only opens a synchronous context menu) - a plain sync `act` is enough.
+    act(() => {
+      registeredHandlers.get(ScreenSpaceEventType.RIGHT_CLICK)?.({ position: { x: 10, y: 10 } });
     });
   };
 
@@ -91,13 +103,14 @@ function getView() {
     clickSaveToken,
     clickSetHome,
     simulateMapClick,
+    simulateMapRightClick,
   };
 }
 
 beforeEach(() => {
   localStorage.clear();
   viewerInstances.length = 0;
-  registeredClickHandlers.length = 0;
+  registeredHandlers.clear();
   useGroundStationSitesStore.setState({ sites: [], activeSiteId: null });
 });
 
@@ -167,5 +180,75 @@ describe("GroundStationView", () => {
 
     expect(screen.queryByText("Home field")).not.toBeInTheDocument();
     expect(screen.getByText(/Ще немає майданчиків/)).toBeInTheDocument();
+  });
+
+  it("right-clicking the map then 'Add beacon here' creates a beacon device at the clicked point", async () => {
+    const { createSite, typeToken, clickSaveToken, simulateMapRightClick, user } = getView();
+    await createSite("Home field");
+    await typeToken("test-token");
+    await clickSaveToken();
+
+    simulateMapRightClick(50.1, 30.1);
+    await user.click(screen.getByRole("button", { name: "Додати маячок тут" }));
+
+    expect(await screen.findByText("Маячок 1")).toBeInTheDocument();
+  });
+
+  it("creating a device auto-selects it, showing its property panel defaulted from the matching preset", async () => {
+    const { createSite, typeToken, clickSaveToken, simulateMapRightClick, user } = getView();
+    await createSite("Home field");
+    await typeToken("test-token");
+    await clickSaveToken();
+    simulateMapRightClick(50.1, 30.1);
+
+    await user.click(screen.getByRole("button", { name: "Додати антену тут" }));
+
+    // "antenna-omni", the first antenna preset, defaults to a 2000m range.
+    expect(await screen.findByDisplayValue("2000")).toBeInTheDocument();
+  });
+
+  it("clicking an already-selected device again deselects it, hiding the property panel", async () => {
+    const { createSite, typeToken, clickSaveToken, simulateMapRightClick, user } = getView();
+    await createSite("Home field");
+    await typeToken("test-token");
+    await clickSaveToken();
+    simulateMapRightClick(50.1, 30.1);
+    await user.click(screen.getByRole("button", { name: "Додати антену тут" }));
+    await screen.findByDisplayValue("2000");
+
+    await user.click(screen.getByText("Антена 1"));
+
+    expect(screen.queryByDisplayValue("2000")).not.toBeInTheDocument();
+  });
+
+  it("hand-editing a device's range clears its preset back to custom", async () => {
+    const { createSite, typeToken, clickSaveToken, simulateMapRightClick, user } = getView();
+    await createSite("Home field");
+    await typeToken("test-token");
+    await clickSaveToken();
+    simulateMapRightClick(50.1, 30.1);
+    await user.click(screen.getByRole("button", { name: "Додати антену тут" }));
+    const rangeInput = await screen.findByDisplayValue("2000");
+
+    await user.clear(rangeInput);
+    await user.type(rangeInput, "500");
+
+    expect(useGroundStationSitesStore.getState().sites[0]!.devices[0]).toMatchObject({ rangeM: 500, presetId: null });
+  });
+
+  it("deleting a device removes it after confirming", async () => {
+    const { createSite, typeToken, clickSaveToken, simulateMapRightClick, user } = getView();
+    await createSite("Home field");
+    await typeToken("test-token");
+    await clickSaveToken();
+    simulateMapRightClick(50.1, 30.1);
+    await user.click(screen.getByRole("button", { name: "Додати маячок тут" }));
+    const row = (await screen.findByText("Маячок 1")).closest("li")!;
+
+    await user.click(within(row).getByRole("button", { name: "Видалити" }));
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Видалити пристрій" }));
+
+    expect(screen.queryByText("Маячок 1")).not.toBeInTheDocument();
   });
 });

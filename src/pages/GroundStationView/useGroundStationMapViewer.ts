@@ -1,9 +1,13 @@
 import {
   Cartesian3,
   Cartographic,
+  Color,
+  ColorMaterialProperty,
   ConstantPositionProperty,
+  ConstantProperty,
   Ion,
   Math as CesiumMath,
+  PolygonHierarchy,
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
   sampleTerrainMostDetailed,
@@ -14,7 +18,8 @@ import {
 import "cesium/Build/Cesium/Widgets/widgets.css";
 import { useEffect, useRef } from "react";
 import { pickLatLon } from "../../utils/cesiumPicking/cesiumPicking";
-import type { SiteHome } from "../../stores/groundStationSitesStore/types";
+import type { SiteDevice, SiteHome } from "../../stores/groundStationSitesStore/types";
+import { lobeOutline } from "./lobeGeometry";
 
 // Identical arrow/house icon convention to LiveMapSection's own vehicle/home markers - a house
 // icon reads as "home" the same way across every map in this app.
@@ -24,6 +29,20 @@ const HOME_SVG = encodeURIComponent(
     "</svg>",
 );
 const HOME_ICON = `data:image/svg+xml,${HOME_SVG}`;
+const BEACON_SVG = encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22">' +
+    '<circle cx="11" cy="11" r="8" fill="#a855f7" stroke="black" stroke-width="1.5"/>' +
+    "</svg>",
+);
+const BEACON_ICON = `data:image/svg+xml,${BEACON_SVG}`;
+const ANTENNA_SVG = encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22">' +
+    '<path d="M11 2 L16 20 H6 Z" fill="#3b82f6" stroke="black" stroke-width="1.5" stroke-linejoin="round"/>' +
+    "</svg>",
+);
+const ANTENNA_ICON = `data:image/svg+xml,${ANTENNA_SVG}`;
+const BEACON_COLOR = Color.fromCssColorString("#a855f7");
+const ANTENNA_COLOR = Color.fromCssColorString("#3b82f6");
 // Camera height above the placed home the first time it's set, in meters - same purpose as
 // LiveMapSection's FOLLOW_HEIGHT_M, just for a one-time reveal instead of a per-tick follow.
 const HOME_REVEAL_HEIGHT_M = 800;
@@ -36,28 +55,46 @@ interface UseGroundStationMapViewerOptions {
    *  something" convention as this app's other map-click interactions. */
   placingHome: boolean;
   onPlaceHome: (home: SiteHome) => void;
+  devices: SiteDevice[];
+  selectedDeviceId: string | null;
+  /** Fired on a right-click anywhere on the map - mirrors LiveMapSection's own right-click
+   *  popup convention. The component owns the resulting context-menu UI and decides what (if
+   *  anything) to place there; this hook only reports where the click landed. */
+  onMapRightClick: (screenX: number, screenY: number, lat: number, lon: number) => void;
 }
 
 /**
  * The Cesium viewer lifecycle for Ground Station's planning map: camera locked to a top-down
  * view (tilt disabled - this is a planning tool, not a flight-review 3D view), a "Set Home"
- * click-to-place mode that samples the real terrain height at the clicked point, and the home
- * marker's own lifecycle. Beacon/antenna placement and the coverage overlay land in later
- * phases - this hook only knows about `home` for now.
+ * click-to-place mode, a right-click hook for placing beacons/antennas, and the home/device
+ * marker + coverage-lobe lifecycle. The coverage-gradient overlay (line-of-sight over terrain)
+ * is a later phase - this hook only draws each device's own top-down lobe outline for now.
  */
-export function useGroundStationMapViewer({ token, home, placingHome, onPlaceHome }: UseGroundStationMapViewerOptions) {
+export function useGroundStationMapViewer({
+  token,
+  home,
+  placingHome,
+  onPlaceHome,
+  devices,
+  selectedDeviceId,
+  onMapRightClick,
+}: UseGroundStationMapViewerOptions) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
   const homeMarkerRef = useRef<Entity | null>(null);
-  // Mirrors the latest placingHome/onPlaceHome for the click handler's closure below, which is
-  // set up once per Cesium viewer lifetime (see the token-keyed effect), not per render - same
-  // pattern LiveMapSection/useMissionMapViewer already use for their own map-click handlers.
+  const deviceEntitiesRef = useRef(new Map<string, { marker: Entity; lobe: Entity }>());
+  // Mirrors the latest placingHome/onPlaceHome/onMapRightClick for the click handlers' closures
+  // below, which are set up once per Cesium viewer lifetime (see the token-keyed effect), not
+  // per render - same pattern LiveMapSection/useMissionMapViewer already use for their own
+  // map-click handlers.
   const placingHomeRef = useRef(placingHome);
   const onPlaceHomeRef = useRef(onPlaceHome);
+  const onMapRightClickRef = useRef(onMapRightClick);
   useEffect(() => {
     placingHomeRef.current = placingHome;
     onPlaceHomeRef.current = onPlaceHome;
-  }, [placingHome, onPlaceHome]);
+    onMapRightClickRef.current = onMapRightClick;
+  }, [placingHome, onPlaceHome, onMapRightClick]);
 
   useEffect(() => {
     if (token) Ion.defaultAccessToken = token;
@@ -98,11 +135,25 @@ export function useGroundStationMapViewer({ token, home, placingHome, onPlaceHom
       });
     }, ScreenSpaceEventType.LEFT_CLICK);
 
+    // Right-click always opens the beacon/antenna popup, independent of "Set Home" mode - the
+    // same interaction LiveMapSection's own Fly-to/Set-home-here menu uses, rather than a
+    // second explicit toggle button.
+    handler.setInputAction((movement: ScreenSpaceEventHandler.PositionedEvent) => {
+      const picked = pickLatLon(viewer, movement.position);
+      if (!picked) return;
+      onMapRightClickRef.current(movement.position.x, movement.position.y, picked.lat, picked.lon);
+    }, ScreenSpaceEventType.RIGHT_CLICK);
+
+    // Captured once per effect run (the ref's own Map identity never changes after useRef's
+    // initial value, only its contents do) so the cleanup below reads a value React's linter
+    // can prove hasn't been reassigned out from under it, rather than `.current` at cleanup time.
+    const deviceEntities = deviceEntitiesRef.current;
     return () => {
       handler.destroy();
       viewer.destroy();
       viewerRef.current = null;
       homeMarkerRef.current = null;
+      deviceEntities.clear();
     };
   }, [token]);
 
@@ -132,5 +183,61 @@ export function useGroundStationMapViewer({ token, home, placingHome, onPlaceHom
     }
   }, [home]);
 
-  return { containerRef };
+  // Redraws every device's marker + coverage-lobe outline from scratch's worth of data on every
+  // devices/selection change - these lists are small (tens of devices, not thousands), so
+  // there's no real cost to this over hand-rolled diffing (matches useMissionMapViewer's own
+  // reasoning for its marker/path redraw).
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer) return;
+
+    const seen = new Set(devices.map((d) => d.id));
+    for (const [id, entities] of deviceEntitiesRef.current) {
+      if (seen.has(id)) continue;
+      viewer.entities.remove(entities.marker);
+      viewer.entities.remove(entities.lobe);
+      deviceEntitiesRef.current.delete(id);
+    }
+
+    for (const device of devices) {
+      const baseColor = device.kind === "beacon" ? BEACON_COLOR : ANTENNA_COLOR;
+      const isSelected = device.id === selectedDeviceId;
+      const position = Cartesian3.fromDegrees(device.lon, device.lat, device.altitudeM);
+      const hierarchy = new PolygonHierarchy(Cartesian3.fromDegreesArray(lobeOutline(device).flat()));
+      const fill = baseColor.withAlpha(isSelected ? 0.45 : 0.22);
+      const outlineColor = isSelected ? Color.WHITE : baseColor;
+
+      const existing = deviceEntitiesRef.current.get(device.id);
+      if (!existing) {
+        const marker = viewer.entities.add({
+          position,
+          billboard: { image: device.kind === "beacon" ? BEACON_ICON : ANTENNA_ICON, width: 22, height: 22 },
+        });
+        const lobe = viewer.entities.add({
+          polygon: { hierarchy, material: new ColorMaterialProperty(fill), outline: true, outlineColor },
+        });
+        deviceEntitiesRef.current.set(device.id, { marker, lobe });
+      } else {
+        existing.marker.position = new ConstantPositionProperty(position);
+        if (existing.lobe.polygon) {
+          existing.lobe.polygon.hierarchy = new ConstantProperty(hierarchy);
+          existing.lobe.polygon.material = new ColorMaterialProperty(fill);
+          existing.lobe.polygon.outlineColor = new ConstantProperty(outlineColor);
+        }
+      }
+    }
+  }, [devices, selectedDeviceId]);
+
+  // Samples the real terrain height at a clicked point, for the caller to build a new device
+  // from - same terrain-sampling technique as the Set-Home flow above, just returned to the
+  // caller (the context menu's "Add beacon/antenna here" click) instead of firing a callback
+  // directly, since device placement also needs to pick a kind and a default preset.
+  async function sampleAltitude(lat: number, lon: number): Promise<number> {
+    const viewer = viewerRef.current;
+    if (!viewer) return 0;
+    const [sample] = await sampleTerrainMostDetailed(viewer.terrainProvider, [Cartographic.fromDegrees(lon, lat)]);
+    return sample?.height ?? 0;
+  }
+
+  return { containerRef, sampleAltitude };
 }
