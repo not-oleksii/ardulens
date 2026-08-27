@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DataflashBuilder } from "../../../builders/DataflashBuilder/DataflashBuilder";
@@ -186,5 +186,29 @@ describe("GeoTagView", () => {
     expect(writtenBytes[0]).toBe(0xff);
     expect(writtenBytes[1]).toBe(0xd8);
     expect(await screen.findByText(/Геотеговано 2 \/ 2 фото/)).toBeInTheDocument();
+  });
+
+  it("asks for confirmation before overwriting a previous geotagging run's output", async () => {
+    useFileStore.getState().setFile({ name: "sample.bin", buf: buildBinWithCamRecords(2) });
+    mockOpen.mockResolvedValue("/photos");
+    mockReadDir.mockResolvedValue([dirEntry("a.jpg"), dirEntry("b.jpg")]);
+    mockExists.mockResolvedValue(true); // a prior run already left output in _geotagged
+    const minimalJpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xda, 0x00, 0x00, 0xff, 0xd9]);
+    mockReadFile.mockResolvedValue(minimalJpeg);
+
+    const user = userEvent.setup();
+    render(<GeoTagView />);
+    await screen.findByText(/У логу знайдено записів спрацювань камери: 2/);
+    await user.click(screen.getByRole("button", { name: "Виберіть папку з фото..." }));
+    await screen.findByText(/У папці знайдено JPEG-фото: 2/);
+
+    await user.click(screen.getByRole("button", { name: "Геотегувати фото" }));
+    expect(mockWriteFile).not.toHaveBeenCalled();
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Замінити попередній результат?")).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Геотегувати фото" }));
+
+    await waitFor(() => expect(mockWriteFile).toHaveBeenCalledTimes(2));
   });
 });

@@ -281,6 +281,40 @@ describe("GraphsView", () => {
     expect(within(screen.getByRole("list")).queryByText("RATE.RDes")).not.toBeInTheDocument();
   });
 
+  it("shows a clear button once the param search has text, which empties it", async () => {
+    loadFile("sample-flight.bin", sampleBinBuf());
+    const { typeParamSearch, getParamSearchInput, clickButton } = getView();
+    await screen.findByRole("button", { name: "Батарея (напруга і струм)" });
+
+    expect(screen.queryByRole("button", { name: "Очистити пошук" })).not.toBeInTheDocument();
+
+    await typeParamSearch("Roll");
+    await clickButton("Очистити пошук");
+
+    expect(getParamSearchInput()).toHaveValue("");
+  });
+
+  it("doesn't silently re-collapse a category the user never consciously toggled, once the filter is cleared", async () => {
+    loadFile("sample-flight.bin", sampleBinBuf());
+    const { user, clickButton, typeParamSearch, getParamSearchInput } = getView();
+    await screen.findByRole("button", { name: "Батарея (напруга і струм)" });
+
+    // Manually open "Battery" before filtering at all.
+    await clickButton("Батарея (напруга і струм)");
+    expect(screen.getByText("BAT.Volt")).toBeInTheDocument();
+
+    // While filtering, every category (including Battery) is forced open regardless of its
+    // own stored state - clicking its header here is the user trying to "close" it, which
+    // should be a no-op rather than silently recorded.
+    await typeParamSearch("Roll");
+    await clickButton("Батарея (напруга і струм)");
+
+    // Clearing the filter should leave Battery exactly as the user last deliberately left it
+    // (open), not collapsed by the ignored click above.
+    await user.clear(getParamSearchInput());
+    expect(screen.getByText("BAT.Volt")).toBeInTheDocument();
+  });
+
   it("resets plots/search/open-categories when a different file is loaded", async () => {
     loadFile("sample-flight.bin", sampleBinBuf());
     const { clickButton, typeParamSearch, getParamSearchInput } = getView();

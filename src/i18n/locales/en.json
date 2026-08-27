@@ -31,8 +31,7 @@
     "settings": "Settings"
   },
   "settings": {
-    "title": "Settings",
-    "description": "Choose the interface language and app theme."
+    "title": "Settings"
   },
   "home": {
     "title": "ArduLens",
@@ -1117,6 +1116,7 @@
     "params": {
       "heading": "Individual parameters",
       "filterPlaceholder": "Search parameters...",
+      "clearFilter": "Clear search",
       "noMatches": "No parameters match your search.",
       "readMore": "Read more →"
     },
@@ -1167,7 +1167,11 @@
       "instructions": "Sign up free, then open the \"Access Tokens\" tab and click \"Create Token\" (not \"OAuth Applications\", that's for something else). It's stored only in your browser (localStorage) and never sent anywhere but Cesium's own servers.",
       "placeholder": "Paste your Cesium ion token here",
       "save": "Save",
-      "clear": "Clear saved token"
+      "clear": "Clear saved token",
+      "confirmClearTitle": "Clear the saved Cesium ion token?",
+      "confirmClearDescription": "The map will return to the token-entry screen - the current 3D scene (track, animation, legend) will need the token pasted in again to show it.",
+      "confirmClear": "Clear token",
+      "cancel": "Cancel"
     }
   },
   "geotag": {
@@ -1188,6 +1192,10 @@
       "alt": "Alt (m)"
     },
     "geotagImages": "GeoTag Images",
+    "confirmOverwriteTitle": "Replace the previous result?",
+    "confirmOverwriteDescription": "This folder already has output from a previous geotagging run (_geotagged) - continuing will replace it.",
+    "confirmOverwrite": "GeoTag Images",
+    "cancel": "Cancel",
     "writing": "Geotagging {{done}} / {{total}}...",
     "done": "Geotagged {{succeeded}} / {{total}} photos into {{folder}}"
   },

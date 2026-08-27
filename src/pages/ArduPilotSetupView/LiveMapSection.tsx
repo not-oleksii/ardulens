@@ -144,6 +144,10 @@ export function LiveMapSection({
   const [flyToTargetAlt, setFlyToTargetAlt] = useState<number | null>(null);
   const [token, setToken] = useState(() => localStorage.getItem(CESIUM_TOKEN_STORAGE_KEY) ?? "");
   const [tokenInput, setTokenInput] = useState("");
+  // A single mis-click next to Recenter/RTL used to instantly drop the live map back to the
+  // token-entry screen - same confirm-before-destroy treatment as this app's other
+  // easy-to-fat-finger actions.
+  const [confirmClearTokenOpen, setConfirmClearTokenOpen] = useState(false);
   const [takeoffAltInput, setTakeoffAltInput] = useState("10");
   const [flyToAltInput, setFlyToAltInput] = useState("0");
   // Takeoff/RTL both start real flight behavior with no undo - a misclick shouldn't be enough
@@ -199,6 +203,7 @@ export function LiveMapSection({
   }
 
   function clearToken() {
+    setConfirmClearTokenOpen(false);
     localStorage.removeItem(CESIUM_TOKEN_STORAGE_KEY);
     setToken("");
     setTokenInput("");
@@ -480,7 +485,7 @@ export function LiveMapSection({
           <Button type="button" size="sm" variant="outline" onClick={recenter} disabled={!position}>
             {t("ardupilotSetup.map.recenter")}
           </Button>
-          <Button type="button" size="sm" variant="ghost" onClick={clearToken}>
+          <Button type="button" size="sm" variant="ghost" onClick={() => setConfirmClearTokenOpen(true)}>
             {t("map.token.clear")}
           </Button>
         </div>
@@ -612,6 +617,23 @@ export function LiveMapSection({
             </Button>
             <Button type="button" variant="destructive" onClick={confirmSetHomeAction}>
               {t("ardupilotSetup.map.confirmSetHome")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={confirmClearTokenOpen} onOpenChange={setConfirmClearTokenOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("map.token.confirmClearTitle")}</DialogTitle>
+            <DialogDescription>{t("map.token.confirmClearDescription")}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmClearTokenOpen(false)}>
+              {t("map.token.cancel")}
+            </Button>
+            <Button type="button" variant="destructive" onClick={clearToken}>
+              {t("map.token.confirmClear")}
             </Button>
           </DialogFooter>
         </DialogContent>

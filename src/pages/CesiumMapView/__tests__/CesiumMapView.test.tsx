@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FlightBinBuilder } from "../../../builders/FlightBinBuilder/FlightBinBuilder";
@@ -105,6 +105,31 @@ describe("CesiumMapView", () => {
 
     await typeToken("test-token");
     await clickSave();
+
+    expect(getMap()).toBeInTheDocument();
+    expect(localStorage.getItem(TOKEN_STORAGE_KEY)).toBe("test-token");
+  });
+
+  it("asks for confirmation before clearing the saved token", async () => {
+    localStorage.setItem(TOKEN_STORAGE_KEY, "test-token");
+    const { user, getMap } = getView();
+
+    await user.click(screen.getByRole("button", { name: "Очистити збережений токен" }));
+    expect(getMap()).toBeInTheDocument(); // not cleared yet
+    const dialog = screen.getByRole("dialog");
+
+    await user.click(within(dialog).getByRole("button", { name: "Очистити токен" }));
+
+    expect(getMap()).not.toBeInTheDocument();
+    expect(localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
+  });
+
+  it("cancelling the clear-token confirmation keeps the token and map", async () => {
+    localStorage.setItem(TOKEN_STORAGE_KEY, "test-token");
+    const { user, getMap } = getView();
+
+    await user.click(screen.getByRole("button", { name: "Очистити збережений токен" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Скасувати" }));
 
     expect(getMap()).toBeInTheDocument();
     expect(localStorage.getItem(TOKEN_STORAGE_KEY)).toBe("test-token");

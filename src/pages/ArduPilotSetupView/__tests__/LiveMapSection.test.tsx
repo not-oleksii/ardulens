@@ -144,6 +144,19 @@ describe("LiveMapSection", () => {
     expect(localStorage.getItem(TOKEN_STORAGE_KEY)).toBe("test-token");
   });
 
+  it("asks for confirmation before clearing the saved token", async () => {
+    localStorage.setItem(TOKEN_STORAGE_KEY, "test-token");
+    const { user, getMap } = getView(null);
+
+    await user.click(screen.getByRole("button", { name: "Очистити збережений токен" }));
+    expect(getMap()).toBeInTheDocument(); // not cleared yet
+
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Очистити токен" }));
+
+    expect(getMap()).not.toBeInTheDocument();
+    expect(localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
+  });
+
   it("shows a tokenless position radar instead of a blank map when no token is saved", () => {
     getView(null);
     expect(screen.getByText("Очікування GPS-фіксації...")).toBeInTheDocument(); // no position yet
