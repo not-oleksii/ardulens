@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHeader, TableHead, TableRow } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import type { MavParamType, MavType } from "../../mavlink/registry/registry";
 import { fetchParamDocs, vehicleFolderForMavType, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
@@ -148,7 +149,9 @@ export function VtxSetupSection({ vehicleType, onLoad, onSetParam }: VtxSetupSec
   }
 
   return (
-    <div className="flex h-full flex-col gap-3">
+    // h-full only once the VTX params have actually loaded - otherwise this is just a
+    // heading/toolbar, a disclaimer, and one status line.
+    <div className={cn("flex flex-col gap-3", hasAnyLoaded && "h-full")}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.vtxSetup.heading")}</h3>
         <div className="flex items-center gap-2">

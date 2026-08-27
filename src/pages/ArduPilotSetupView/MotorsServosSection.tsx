@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import { MavParamType, type MavType } from "../../mavlink/registry/registry";
 import { fetchParamDocs, vehicleFolderForMavType, type ParamDocsMap } from "../../services/ardupilotParamDocs/ardupilotParamDocs";
 import { useMavlinkParameterStore } from "../../stores/mavlinkParameterStore/mavlinkParameterStore";
@@ -255,7 +256,10 @@ export function MotorsServosSection({
   }
 
   return (
-    <div className="flex h-full flex-col gap-3">
+    // h-full only once there's a channel table to actually fill it - otherwise (not loaded,
+    // or loaded with zero active channels) this is just a heading/toolbar, a warning, and one
+    // status line.
+    <div className={cn("flex flex-col gap-3", hasLoaded && channels.length > 0 && "h-full")}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.motorsServos.heading")}</h3>
         <div className="flex items-center gap-2">

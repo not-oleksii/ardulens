@@ -155,7 +155,7 @@ export function MissionPlanSection({
             {t("ardupilotSetup.missionPlan.loadFile")}
           </Button>
           <input ref={fileInputRef} type="file" accept=".waypoints,.txt" className="hidden" onChange={(e) => void handleFileSelected(e)} />
-          <Button type="button" size="sm" variant="ghost" onClick={() => setConfirmClearOpen(true)} disabled={items.length === 0}>
+          <Button type="button" size="sm" variant="destructive" onClick={() => setConfirmClearOpen(true)} disabled={items.length === 0}>
             {t("ardupilotSetup.missionPlan.clearAll")}
           </Button>
         </div>

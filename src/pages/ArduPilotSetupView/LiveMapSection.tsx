@@ -144,6 +144,10 @@ export function LiveMapSection({
   const [flyToTargetAlt, setFlyToTargetAlt] = useState<number | null>(null);
   const [token, setToken] = useState(() => localStorage.getItem(CESIUM_TOKEN_STORAGE_KEY) ?? "");
   const [tokenInput, setTokenInput] = useState("");
+  // A single mis-click next to Recenter/RTL used to instantly drop the live map back to the
+  // token-entry screen - same confirm-before-destroy treatment as this app's other
+  // easy-to-fat-finger actions.
+  const [confirmClearTokenOpen, setConfirmClearTokenOpen] = useState(false);
   const [takeoffAltInput, setTakeoffAltInput] = useState("10");
   const [flyToAltInput, setFlyToAltInput] = useState("0");
   // Takeoff/RTL both start real flight behavior with no undo - a misclick shouldn't be enough
@@ -199,6 +203,7 @@ export function LiveMapSection({
   }
 
   function clearToken() {
+    setConfirmClearTokenOpen(false);
     localStorage.removeItem(CESIUM_TOKEN_STORAGE_KEY);
     setToken("");
     setTokenInput("");
@@ -476,33 +481,39 @@ export function LiveMapSection({
     <div className="relative h-full" onContextMenu={(e) => e.preventDefault()}>
       <div ref={containerRef} data-testid="live-map" className="absolute inset-0 rounded-lg border border-border" />
       <div className="absolute inset-x-0 top-0 z-10 flex flex-col gap-1.5 rounded-t-lg bg-card/90 px-3 py-2 shadow-sm backdrop-blur-sm">
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button type="button" size="sm" variant="outline" onClick={recenter} disabled={!position}>
-            {t("ardupilotSetup.map.recenter")}
-          </Button>
-          <Button type="button" size="sm" variant="ghost" onClick={clearToken}>
-            {t("map.token.clear")}
-          </Button>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1">
-            <Input
-              type="number"
-              value={takeoffAltInput}
-              onChange={(e) => setTakeoffAltInput(e.target.value)}
-              className="h-7 w-16 font-mono text-xs"
-              aria-label={t("ardupilotSetup.map.takeoffAltitude")}
-            />
-            <Button type="button" size="sm" variant="outline" onClick={handleTakeoffClick}>
-              {t("ardupilotSetup.map.takeoff")}
+        {/* One row, space distributed between the flight-action controls (left) and the
+            map/token controls (right) - previously two separately-aligned rows (one
+            justify-end, one default-start) left a lopsided gap under whichever side was
+            shorter instead of the two sides sharing one line. */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1">
+              <Input
+                type="number"
+                value={takeoffAltInput}
+                onChange={(e) => setTakeoffAltInput(e.target.value)}
+                className="h-7 w-16 font-mono text-xs"
+                aria-label={t("ardupilotSetup.map.takeoffAltitude")}
+              />
+              <Button type="button" size="sm" variant="outline" onClick={handleTakeoffClick}>
+                {t("ardupilotSetup.map.takeoff")}
+              </Button>
+            </div>
+            {rtlModeNumber !== null && (
+              <Button type="button" size="sm" variant="destructive" onClick={() => setConfirmRtlOpen(true)}>
+                {t("ardupilotSetup.map.rtl")}
+              </Button>
+            )}
+            <p className="text-xs text-muted-foreground">{t("ardupilotSetup.map.rightClickHint")}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" size="sm" variant="outline" onClick={recenter} disabled={!position}>
+              {t("ardupilotSetup.map.recenter")}
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setConfirmClearTokenOpen(true)}>
+              {t("map.token.clear")}
             </Button>
           </div>
-          {rtlModeNumber !== null && (
-            <Button type="button" size="sm" variant="destructive" onClick={() => setConfirmRtlOpen(true)}>
-              {t("ardupilotSetup.map.rtl")}
-            </Button>
-          )}
-          <p className="text-xs text-muted-foreground">{t("ardupilotSetup.map.rightClickHint")}</p>
         </div>
         {flightCommandAck && flightCommandAck.result !== MavResult.ACCEPTED && (
           <span role="alert" className="text-xs font-semibold text-destructive">
@@ -612,6 +623,23 @@ export function LiveMapSection({
             </Button>
             <Button type="button" variant="destructive" onClick={confirmSetHomeAction}>
               {t("ardupilotSetup.map.confirmSetHome")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={confirmClearTokenOpen} onOpenChange={setConfirmClearTokenOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("map.token.confirmClearTitle")}</DialogTitle>
+            <DialogDescription>{t("map.token.confirmClearDescription")}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmClearTokenOpen(false)}>
+              {t("map.token.cancel")}
+            </Button>
+            <Button type="button" variant="destructive" onClick={clearToken}>
+              {t("map.token.confirmClear")}
             </Button>
           </DialogFooter>
         </DialogContent>

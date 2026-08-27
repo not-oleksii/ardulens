@@ -24,6 +24,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { isFlightMapData, isFlightMapError, isFlightMapInfo, type FlightMapResult } from "../../analysis/flight-map/types";
@@ -168,6 +169,10 @@ export function CesiumMapView() {
   const file = useFileStore((s) => s.file);
   const [token, setToken] = useState(() => localStorage.getItem(CESIUM_TOKEN_STORAGE_KEY) ?? "");
   const [tokenInput, setTokenInput] = useState("");
+  // A single mis-click next to Recenter/RTL used to instantly drop the current 3D scene back to
+  // the token-entry screen - same confirm-before-destroy treatment as this app's other
+  // easy-to-fat-finger actions.
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const [showGcsTrack, setShowGcsTrack] = useState(true);
   const [showGpsTrack, setShowGpsTrack] = useState(true);
   const [showCleanedTrack, setShowCleanedTrack] = useState(true);
@@ -207,6 +212,7 @@ export function CesiumMapView() {
   }
 
   function clearToken() {
+    setConfirmClearOpen(false);
     localStorage.removeItem(CESIUM_TOKEN_STORAGE_KEY);
     setToken("");
     setTokenInput("");
@@ -497,7 +503,7 @@ export function CesiumMapView() {
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={clearToken}>
+          <Button variant="ghost" size="sm" onClick={() => setConfirmClearOpen(true)}>
             {t("map.token.clear")}
           </Button>
         </div>
@@ -586,6 +592,23 @@ export function CesiumMapView() {
           />
         </div>
       </CardContent>
+
+      <Dialog open={confirmClearOpen} onOpenChange={setConfirmClearOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("map.token.confirmClearTitle")}</DialogTitle>
+            <DialogDescription>{t("map.token.confirmClearDescription")}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmClearOpen(false)}>
+              {t("map.token.cancel")}
+            </Button>
+            <Button type="button" variant="destructive" onClick={clearToken}>
+              {t("map.token.confirmClear")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

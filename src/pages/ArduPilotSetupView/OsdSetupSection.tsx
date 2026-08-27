@@ -246,7 +246,9 @@ export function OsdSetupSection({ vehicleType, onLoad, onSetParam }: OsdSetupSec
   }
 
   return (
-    <div className="flex h-full flex-col gap-3">
+    // h-full only once the OSD screen editor has actually loaded - otherwise this is just a
+    // heading/toolbar and one status line.
+    <div className={cn("flex flex-col gap-3", hasAnyLoaded && "h-full")}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.osdSetup.heading")}</h3>
         <div className="flex items-center gap-2">

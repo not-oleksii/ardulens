@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { CamGeoTag } from "../../analysis/geotag/geotag";
 import { geotagJpegBytes } from "../../analysis/geotag/geotagExif";
@@ -46,6 +47,10 @@ export function GeoTagView() {
   const [useAmslAltitude, setUseAmslAltitude] = useState(true);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [writeResult, setWriteResult] = useState<WriteResult | null>(null);
+  // Re-running on the same folder (e.g. after fixing useAmslAltitude) used to silently
+  // overwrite a previous run's output with zero warning - this surfaces that instead of
+  // letting an old result disappear unnoticed.
+  const [confirmOverwriteOpen, setConfirmOverwriteOpen] = useState(false);
 
   const { data: camTags, isLoading } = useDerivedFromFile<CamGeoTag[]>(file, async (_name, buf) => {
     const worker = getCoreWorker();
@@ -100,6 +105,21 @@ export function GeoTagView() {
     } catch (err) {
       setPickError(err instanceof Error ? err.message : String(err));
     }
+  }
+
+  async function handleGeoTagClick() {
+    if (!folderPath) return;
+    const outDir = await join(folderPath, GEOTAGGED_SUBFOLDER);
+    if (await exists(outDir)) {
+      setConfirmOverwriteOpen(true);
+      return;
+    }
+    await handleGeoTag();
+  }
+
+  async function confirmOverwriteAndGeoTag() {
+    setConfirmOverwriteOpen(false);
+    await handleGeoTag();
   }
 
   async function handleGeoTag() {
@@ -217,7 +237,7 @@ export function GeoTagView() {
                 </div>
 
                 <div className="flex flex-col gap-3 rounded-lg border border-border p-3">
-                  <Button type="button" onClick={() => void handleGeoTag()} disabled={!canGeoTag} className="w-fit">
+                  <Button type="button" onClick={() => void handleGeoTagClick()} disabled={!canGeoTag} className="w-fit">
                     {t("geotag.geotagImages")}
                   </Button>
 
@@ -253,6 +273,23 @@ export function GeoTagView() {
           </>
         )}
       </CardContent>
+
+      <Dialog open={confirmOverwriteOpen} onOpenChange={setConfirmOverwriteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("geotag.confirmOverwriteTitle")}</DialogTitle>
+            <DialogDescription>{t("geotag.confirmOverwriteDescription")}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmOverwriteOpen(false)}>
+              {t("geotag.cancel")}
+            </Button>
+            <Button type="button" variant="destructive" onClick={() => void confirmOverwriteAndGeoTag()}>
+              {t("geotag.confirmOverwrite")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

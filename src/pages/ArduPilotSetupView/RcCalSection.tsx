@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { MavResult } from "../../mavlink/registry/registry";
 import type { MavlinkRcCalState } from "../../stores/mavlinkRcCalStore/types";
 import { colorForRcChannel } from "./rcChannelColors";
@@ -56,7 +57,9 @@ export function RcCalSection({
     .sort((a, b) => a - b);
 
   return (
-    <div className="flex h-full flex-col gap-4">
+    // h-full only once there are live channels to actually fill it - "no signal" is just one
+    // status line.
+    <div className={cn("flex flex-col gap-4", displayedChannels.length > 0 && "h-full")}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.rcCal.heading")}</h3>
         {!active ? (

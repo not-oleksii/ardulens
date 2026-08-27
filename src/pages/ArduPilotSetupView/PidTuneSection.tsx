@@ -179,7 +179,10 @@ export function PidTuneSection({ vehicleType, onLoad, onSetParam }: PidTuneSecti
   }
 
   return (
-    <div className="flex h-full flex-col gap-3">
+    // Never h-full - the axis cards below are a small, bounded set (a handful of PID terms
+    // per axis, a handful of axes), so this section always sizes to its own content rather
+    // than stretching to fill the page.
+    <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-xs font-bold tracking-wide uppercase">{t("ardupilotSetup.pidTune.heading")}</h3>
         <div className="flex items-center gap-2">
@@ -205,7 +208,11 @@ export function PidTuneSection({ vehicleType, onLoad, onSetParam }: PidTuneSecti
       {!hasAnyResolved ? (
         <p className="shrink-0 text-xs text-muted-foreground">{t("ardupilotSetup.pidTune.notLoaded")}</p>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-wrap gap-4 overflow-y-auto">{config.axes.map((axis) => renderAxis(axis))}</div>
+        // No flex-1/min-h-0 here - this row sizes to its own content instead of being forced
+        // to fill the rest of the page. The flex default (align-items: stretch) then does
+        // exactly what's wanted: every card in the row matches the height of its tallest
+        // sibling (e.g. Yaw matches Roll/Pitch), not an arbitrary page-filling height.
+        <div className="flex flex-wrap gap-4">{config.axes.map((axis) => renderAxis(axis))}</div>
       )}
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>

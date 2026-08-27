@@ -1,4 +1,4 @@
-import { ChevronDown, RotateCcw, Trash2 } from "lucide-react";
+import { ChevronDown, RotateCcw, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -236,12 +236,25 @@ export function GraphsView() {
 
               <section className="flex flex-col gap-2 rounded-lg border border-border p-3">
                 <h3 className="text-sm font-medium">{t("graphs.params.heading")}</h3>
-                <Input
-                  value={paramFilter}
-                  onChange={(e) => setParamFilter(e.target.value)}
-                  placeholder={t("graphs.params.filterPlaceholder")}
-                  aria-label={t("graphs.params.filterPlaceholder")}
-                />
+                <div className="relative">
+                  <Input
+                    value={paramFilter}
+                    onChange={(e) => setParamFilter(e.target.value)}
+                    placeholder={t("graphs.params.filterPlaceholder")}
+                    aria-label={t("graphs.params.filterPlaceholder")}
+                    className={paramFilter ? "pr-8" : undefined}
+                  />
+                  {paramFilter && (
+                    <button
+                      type="button"
+                      aria-label={t("graphs.params.clearFilter")}
+                      onClick={() => setParamFilter("")}
+                      className="absolute top-1/2 right-2 -translate-y-1/2 rounded-xs text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
                 {isFiltering && filteredCategories.length === 0 ? (
                   <p className="text-xs text-muted-foreground">{t("graphs.params.noMatches")}</p>
                 ) : (
@@ -250,7 +263,15 @@ export function GraphsView() {
                       <Collapsible
                         key={category.key}
                         open={isFiltering || openCategories.has(category.key)}
-                        onOpenChange={(open) => toggleCategoryOpen(category.key, open)}
+                        // While filtering, every category is forced open (see `open` above) -
+                        // ignore clicks on the trigger here rather than silently recording them
+                        // into `openCategories`, which would otherwise produce a jarring,
+                        // seemingly-random re-collapse of categories the user never
+                        // consciously toggled once the filter is cleared.
+                        onOpenChange={(open) => {
+                          if (isFiltering) return;
+                          toggleCategoryOpen(category.key, open);
+                        }}
                       >
                         <CollapsibleTrigger asChild>
                           <Button variant="ghost" size="sm" className="w-full justify-between">
