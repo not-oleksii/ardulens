@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useGroundStationSitesStore } from "../groundStationSitesStore";
+import type { Site } from "../types";
 
 const STORAGE_KEY = "ardulens.groundStationSites";
 
@@ -18,11 +19,11 @@ describe("groundStationSitesStore", () => {
     expect(useGroundStationSitesStore.getState().activeSiteId).toBeNull();
   });
 
-  it("createSite adds a new site with no home yet, makes it active, and persists it", () => {
+  it("createSite adds a new site with no home/devices yet, makes it active, and persists it", () => {
     const id = useGroundStationSitesStore.getState().createSite("Home field");
 
     const { sites, activeSiteId } = useGroundStationSitesStore.getState();
-    expect(sites).toEqual([{ id, name: "Home field", home: null }]);
+    expect(sites).toEqual([{ id, name: "Home field", home: null, devices: [] }]);
     expect(activeSiteId).toBe(id);
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual(sites);
   });
@@ -77,7 +78,7 @@ describe("groundStationSitesStore", () => {
 
     const raw = localStorage.getItem(STORAGE_KEY);
     expect(raw).not.toBeNull();
-    expect(JSON.parse(raw!)).toEqual([{ id, name: "Home field", home: { lat: 1, lon: 2, altitudeM: 3 } }]);
+    expect(JSON.parse(raw!)).toEqual([{ id, name: "Home field", home: { lat: 1, lon: 2, altitudeM: 3 }, devices: [] }]);
   });
 
   it("starts empty (rather than throwing) if the stored value is corrupt JSON", async () => {
@@ -89,5 +90,62 @@ describe("groundStationSitesStore", () => {
     const { useGroundStationSitesStore: freshStore } = await import("../groundStationSitesStore");
 
     expect(freshStore.getState().sites).toEqual([]);
+  });
+
+  it("normalizes sites saved before `devices` existed (Phase 1) to an empty device list", async () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([{ id: "old-site", name: "Legacy site", home: null }]));
+    vi.resetModules();
+    const { useGroundStationSitesStore: freshStore } = await import("../groundStationSitesStore");
+
+    expect(freshStore.getState().sites).toEqual([{ id: "old-site", name: "Legacy site", home: null, devices: [] }]);
+  });
+
+  describe("devices", () => {
+    const beaconDraft = {
+      kind: "beacon" as const,
+      name: "Beacon 1",
+      lat: 50.1,
+      lon: 30.1,
+      altitudeM: 100,
+      pattern: "omni" as const,
+      rangeM: 300,
+      bearingDeg: 0,
+      beamwidthDeg: 360,
+      presetId: "beacon-standard",
+    };
+
+    it("addDevice appends a device with a fresh id to the matching site and persists it", () => {
+      const siteId = useGroundStationSitesStore.getState().createSite("Site A");
+
+      const deviceId = useGroundStationSitesStore.getState().addDevice(siteId, beaconDraft);
+
+      const site = useGroundStationSitesStore.getState().sites.find((s) => s.id === siteId)!;
+      expect(site.devices).toEqual([{ ...beaconDraft, id: deviceId }]);
+      const persisted = JSON.parse(localStorage.getItem(STORAGE_KEY)!) as Site[];
+      expect(persisted[0]!.devices).toEqual([{ ...beaconDraft, id: deviceId }]);
+    });
+
+    it("updateDevice patches only the matching device, leaving others untouched", () => {
+      const siteId = useGroundStationSitesStore.getState().createSite("Site A");
+      const id1 = useGroundStationSitesStore.getState().addDevice(siteId, beaconDraft);
+      const id2 = useGroundStationSitesStore.getState().addDevice(siteId, { ...beaconDraft, name: "Beacon 2" });
+
+      useGroundStationSitesStore.getState().updateDevice(siteId, id1, { rangeM: 500, presetId: null });
+
+      const site = useGroundStationSitesStore.getState().sites.find((s) => s.id === siteId)!;
+      expect(site.devices.find((d) => d.id === id1)).toMatchObject({ rangeM: 500, presetId: null });
+      expect(site.devices.find((d) => d.id === id2)).toMatchObject({ rangeM: 300, presetId: "beacon-standard" });
+    });
+
+    it("removeDevice removes only the matching device from the matching site", () => {
+      const siteId = useGroundStationSitesStore.getState().createSite("Site A");
+      const id1 = useGroundStationSitesStore.getState().addDevice(siteId, beaconDraft);
+      const id2 = useGroundStationSitesStore.getState().addDevice(siteId, beaconDraft);
+
+      useGroundStationSitesStore.getState().removeDevice(siteId, id1);
+
+      const site = useGroundStationSitesStore.getState().sites.find((s) => s.id === siteId)!;
+      expect(site.devices.map((d) => d.id)).toEqual([id2]);
+    });
   });
 });

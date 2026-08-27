@@ -1248,7 +1248,35 @@
       "setHome": "Встановити дім",
       "settingHomeHint": "Клацніть на карті, щоб розмістити дім",
       "noHome": "Дім ще не встановлено",
-      "homeAltitude": "Вис (м)"
+      "homeAltitude": "Вис (м)",
+      "rightClickHint": "Клацніть правою кнопкою миші, щоб додати маячок або антену",
+      "addBeaconHere": "Додати маячок тут",
+      "addAntennaHere": "Додати антену тут"
+    },
+    "devices": {
+      "heading": "Пристрої",
+      "empty": "Ще немає пристроїв - клацніть правою кнопкою миші на карті, щоб додати маячок або антену.",
+      "rename": "Перейменувати",
+      "delete": "Видалити",
+      "preset": "Пресет",
+      "customPreset": "Користувацький",
+      "range": "Дальність (м)",
+      "bearing": "Напрямок (град)",
+      "beamwidth": "Ширина променя (град)",
+      "altitude": "Вис (м)",
+      "confirmDeleteTitle": "Видалити цей пристрій?",
+      "confirmDeleteDescription": "Це остаточно видалить \"{{name}}\" з майданчика.",
+      "confirmDelete": "Видалити пристрій",
+      "defaultName": {
+        "beacon": "Маячок {{index}}",
+        "antenna": "Антена {{index}}"
+      },
+      "presets": {
+        "beaconStandard": "Стандартний маячок",
+        "antennaOmni": "Всенаправлена антена",
+        "antennaDipole": "Дипольна антена",
+        "antennaDirectional": "Спрямована антена (Yagi)"
+      }
     }
   }
 }

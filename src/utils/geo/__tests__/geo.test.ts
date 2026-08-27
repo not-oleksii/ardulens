@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanTrack, haversine, median, trackStats } from "../geo";
+import { cleanTrack, destinationPoint, haversine, median, trackStats } from "../geo";
 import type { Flight } from "../../../types";
 
 describe("haversine", () => {
@@ -11,6 +11,25 @@ describe("haversine", () => {
     const d = haversine(0, 0, 1, 0);
     expect(d).toBeGreaterThan(111_000);
     expect(d).toBeLessThan(111_400);
+  });
+});
+
+describe("destinationPoint", () => {
+  it("moving due north increases latitude and leaves longitude unchanged", () => {
+    const { lat, lon } = destinationPoint(0, 0, 0, 111_000);
+    expect(lat).toBeCloseTo(1, 1);
+    expect(lon).toBeCloseTo(0, 6);
+  });
+
+  it("moving due east increases longitude and leaves latitude unchanged (at the equator)", () => {
+    const { lat, lon } = destinationPoint(0, 0, 90, 111_000);
+    expect(lon).toBeCloseTo(1, 1);
+    expect(lat).toBeCloseTo(0, 6);
+  });
+
+  it("round-trips with haversine - the distance to the computed destination matches the input", () => {
+    const dest = destinationPoint(50, 30, 137, 5_000);
+    expect(haversine(50, 30, dest.lat, dest.lon)).toBeCloseTo(5_000, 0);
   });
 });
 
