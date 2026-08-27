@@ -14,7 +14,7 @@ import {
 import "cesium/Build/Cesium/Widgets/widgets.css";
 import { useEffect, useRef } from "react";
 import type { MissionItemEntry } from "../../stores/mavlinkMissionStore/types";
-import { pickLatLon } from "./cesiumPicking";
+import { pickLatLon } from "../../utils/cesiumPicking/cesiumPicking";
 
 export type MissionMapPathStyle = "sequence" | "closedPolygon" | "none";
 
