@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 test.describe("Offline log analysis - Logs", () => {
   test("loading the sample .bin lands on a real Logs table", async ({ page }) => {
     await page.goto("/");
+    await page.getByTestId("home-card").click();
     await page.getByRole("button", { name: "Приклад .bin" }).click();
 
     await expect(page.getByRole("heading", { name: "Дані з логів" })).toBeVisible();
@@ -14,6 +15,7 @@ test.describe("Offline log analysis - Logs", () => {
 
   test("loading the sample .skylog shows multiple boards", async ({ page }) => {
     await page.goto("/");
+    await page.getByTestId("home-card").click();
     await page.getByRole("button", { name: "Приклад .skylog" }).click();
 
     await expect(page.getByText(/У лозі кілька бортів/)).toBeVisible();
@@ -21,6 +23,7 @@ test.describe("Offline log analysis - Logs", () => {
 
   test("board filter narrows the table live", async ({ page }) => {
     await page.goto("/");
+    await page.getByTestId("home-card").click();
     await page.getByRole("button", { name: "Приклад .skylog" }).click();
     // The bundled sample .skylog has two real boards, 3570 and 3526 (confirmed via the
     // multi-board alert's own text rather than assumed).
