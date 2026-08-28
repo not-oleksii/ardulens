@@ -5,9 +5,11 @@ import {
   ColorMaterialProperty,
   ConstantPositionProperty,
   ConstantProperty,
+  ImageMaterialProperty,
   Ion,
   Math as CesiumMath,
   PolygonHierarchy,
+  Rectangle,
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
   sampleTerrainMostDetailed,
@@ -16,9 +18,11 @@ import {
   type Entity,
 } from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { destinationPoint } from "../../utils/geo/geo";
 import { pickLatLon } from "../../utils/cesiumPicking/cesiumPicking";
 import type { SiteDevice, SiteHome } from "../../stores/groundStationSitesStore/types";
+import { computeCoverageRaster, type CoverageLevel, type CoverageRaster } from "./coverageRaster";
 import { lobeOutline } from "./lobeGeometry";
 
 // Identical arrow/house icon convention to LiveMapSection's own vehicle/home markers - a house
@@ -47,6 +51,15 @@ const ANTENNA_COLOR = Color.fromCssColorString("#3b82f6");
 // LiveMapSection's FOLLOW_HEIGHT_M, just for a one-time reveal instead of a per-tick follow.
 const HOME_REVEAL_HEIGHT_M = 800;
 
+// Standard good/warning/critical semantic colors, matching the plan's own "green/yellow/red"
+// wording - separate from the purple/blue identity colors above, which mark WHOSE lobe this is,
+// not how well it covers.
+const COVERAGE_COLORS: Record<CoverageLevel, [number, number, number]> = {
+  clear: [34, 197, 94],
+  marginal: [234, 179, 8],
+  blocked: [239, 68, 68],
+};
+
 interface UseGroundStationMapViewerOptions {
   token: string;
   home: SiteHome | null;
@@ -61,14 +74,20 @@ interface UseGroundStationMapViewerOptions {
    *  popup convention. The component owns the resulting context-menu UI and decides what (if
    *  anything) to place there; this hook only reports where the click landed. */
   onMapRightClick: (screenX: number, screenY: number, lat: number, lon: number) => void;
+  /** Which devices' line-of-sight coverage raster should currently be drawn - a per-device view
+   *  toggle (see the Devices panel), not persisted site data, since it's just "what am I looking
+   *  at right now." */
+  coverageDeviceIds: ReadonlySet<string>;
 }
 
 /**
  * The Cesium viewer lifecycle for Ground Station's planning map: camera locked to a top-down
  * view (tilt disabled - this is a planning tool, not a flight-review 3D view), a "Set Home"
- * click-to-place mode, a right-click hook for placing beacons/antennas, and the home/device
- * marker + coverage-lobe lifecycle. The coverage-gradient overlay (line-of-sight over terrain)
- * is a later phase - this hook only draws each device's own top-down lobe outline for now.
+ * click-to-place mode, a right-click hook for placing beacons/antennas, the home/device marker
+ * + coverage-lobe lifecycle, and a per-device line-of-sight coverage raster (computeCoverageRaster
+ * in coverageRaster.ts) drawn as ONE ground-draped image per toggled device - deliberately not
+ * one Cesium entity per grid cell, which is the standard way this kind of overlay becomes a real
+ * rendering-performance problem; see the Ground Station plan's own flagged risk for this phase.
  */
 export function useGroundStationMapViewer({
   token,
@@ -78,11 +97,14 @@ export function useGroundStationMapViewer({
   devices,
   selectedDeviceId,
   onMapRightClick,
+  coverageDeviceIds,
 }: UseGroundStationMapViewerOptions) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
   const homeMarkerRef = useRef<Entity | null>(null);
   const deviceEntitiesRef = useRef(new Map<string, { marker: Entity; lobe: Entity }>());
+  const coverageEntitiesRef = useRef(new Map<string, { entity: Entity; deviceKey: string }>());
+  const [coverageLoadingIds, setCoverageLoadingIds] = useState<ReadonlySet<string>>(new Set());
   // Mirrors the latest placingHome/onPlaceHome/onMapRightClick for the click handlers' closures
   // below, which are set up once per Cesium viewer lifetime (see the token-keyed effect), not
   // per render - same pattern LiveMapSection/useMissionMapViewer already use for their own
@@ -148,12 +170,14 @@ export function useGroundStationMapViewer({
     // initial value, only its contents do) so the cleanup below reads a value React's linter
     // can prove hasn't been reassigned out from under it, rather than `.current` at cleanup time.
     const deviceEntities = deviceEntitiesRef.current;
+    const coverageEntities = coverageEntitiesRef.current;
     return () => {
       handler.destroy();
       viewer.destroy();
       viewerRef.current = null;
       homeMarkerRef.current = null;
       deviceEntities.clear();
+      coverageEntities.clear();
     };
   }, [token]);
 
@@ -228,6 +252,52 @@ export function useGroundStationMapViewer({
     }
   }, [devices, selectedDeviceId]);
 
+  // Computes (or re-computes, if the device's own coverage-relevant fields changed since the
+  // last draw) and draws a line-of-sight coverage raster for every device currently toggled on,
+  // and removes any raster that got toggled off or whose device no longer exists. Each device's
+  // raster is ONE ground-draped image entity, not one entity per grid cell - see this hook's own
+  // doc comment for why that matters.
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer) return;
+
+    for (const [deviceId, { entity }] of coverageEntitiesRef.current) {
+      if (coverageDeviceIds.has(deviceId) && devices.some((d) => d.id === deviceId)) continue;
+      viewer.entities.remove(entity);
+      coverageEntitiesRef.current.delete(deviceId);
+    }
+
+    for (const deviceId of coverageDeviceIds) {
+      const device = devices.find((d) => d.id === deviceId);
+      if (!device) continue;
+      const key = coverageDeviceKey(device);
+      const existing = coverageEntitiesRef.current.get(deviceId);
+      if (existing?.deviceKey === key) continue;
+
+      setCoverageLoadingIds((prev) => new Set(prev).add(deviceId));
+      void computeCoverageRaster({ device, sampleTerrain: (points) => sampleTerrainBatch(viewer, points) }).then((raster) => {
+        // Same stale-async guard as Set-Home/sampleAltitude above, plus two more ways this
+        // specific result can now be outdated: the device was toggled back off, or its fields
+        // (range, pattern, ...) changed again while this batch was still in flight.
+        setCoverageLoadingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(deviceId);
+          return next;
+        });
+        if (viewer.isDestroyed() || !coverageDeviceIds.has(deviceId)) return;
+        const currentDevice = devices.find((d) => d.id === deviceId);
+        if (!currentDevice || coverageDeviceKey(currentDevice) !== key) return;
+
+        const previous = coverageEntitiesRef.current.get(deviceId);
+        if (previous) viewer.entities.remove(previous.entity);
+        const entity = viewer.entities.add({
+          rectangle: { coordinates: coverageBounds(device), material: new ImageMaterialProperty({ image: rasterToCanvas(raster) }) },
+        });
+        coverageEntitiesRef.current.set(deviceId, { entity, deviceKey: key });
+      });
+    }
+  }, [devices, coverageDeviceIds]);
+
   // Samples the real terrain height at a clicked point, for the caller to build a new device
   // from - same terrain-sampling technique as the Set-Home flow above, just returned to the
   // caller (the context menu's "Add beacon/antenna here" click) instead of firing a callback
@@ -239,5 +309,54 @@ export function useGroundStationMapViewer({
     return sample?.height ?? 0;
   }
 
-  return { containerRef, sampleAltitude };
+  return { containerRef, sampleAltitude, coverageLoadingIds };
+}
+
+/** Every field a coverage raster's shape/classification actually depends on - used to tell "the
+ *  device moved/changed" apart from "an unrelated field (name, presetId) changed," so editing a
+ *  device's name doesn't trigger a full terrain re-sample. */
+function coverageDeviceKey(device: SiteDevice): string {
+  return [device.lat, device.lon, device.altitudeM, device.pattern, device.rangeM, device.bearingDeg, device.beamwidthDeg].join("|");
+}
+
+async function sampleTerrainBatch(viewer: Viewer, points: { lat: number; lon: number }[]): Promise<number[]> {
+  const cartographics = points.map((p) => Cartographic.fromDegrees(p.lon, p.lat));
+  const samples = await sampleTerrainMostDetailed(viewer.terrainProvider, cartographics);
+  return samples.map((s) => s?.height ?? 0);
+}
+
+/** The square area a device's raster was sampled over - the same `rangeM` offset in every
+ *  cardinal direction the raster's own grid spans (see coverageRaster.ts's cell-placement math),
+ *  so the drawn image lines up exactly with the cells it was built from. */
+function coverageBounds(device: Pick<SiteDevice, "lat" | "lon" | "rangeM">): Rectangle {
+  const north = destinationPoint(device.lat, device.lon, 0, device.rangeM);
+  const east = destinationPoint(device.lat, device.lon, 90, device.rangeM);
+  const south = destinationPoint(device.lat, device.lon, 180, device.rangeM);
+  const west = destinationPoint(device.lat, device.lon, 270, device.rangeM);
+  return Rectangle.fromDegrees(west.lon, south.lat, east.lon, north.lat);
+}
+
+// Translucent, matching the device lobe outline's own alpha convention - this is a coverage
+// overlay drawn ON TOP of that lobe, not a replacement for it.
+const COVERAGE_ALPHA = 140;
+
+function rasterToCanvas(raster: CoverageRaster): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.width = raster.gridResolution;
+  canvas.height = raster.gridResolution;
+  const ctx = canvas.getContext("2d")!;
+  const image = ctx.createImageData(raster.gridResolution, raster.gridResolution);
+  for (const cell of raster.cells) {
+    const [r, g, b] = COVERAGE_COLORS[cell.level];
+    // Image data's row 0 is the top of the canvas; coverageRaster's row 0 is the south edge -
+    // flipped here so the drawn image isn't mirrored north-to-south once draped on the map.
+    const imageRow = raster.gridResolution - 1 - cell.row;
+    const idx = (imageRow * raster.gridResolution + cell.col) * 4;
+    image.data[idx] = r;
+    image.data[idx + 1] = g;
+    image.data[idx + 2] = b;
+    image.data[idx + 3] = COVERAGE_ALPHA;
+  }
+  ctx.putImageData(image, 0, 0);
+  return canvas;
 }

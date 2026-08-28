@@ -189,9 +189,10 @@ interface SiteMapProps {
   site: Site;
   selectedDeviceId: string | null;
   onSelectDevice: (id: string | null) => void;
+  coverageDeviceIds: ReadonlySet<string>;
 }
 
-function SiteMap({ site, selectedDeviceId, onSelectDevice }: SiteMapProps) {
+function SiteMap({ site, selectedDeviceId, onSelectDevice, coverageDeviceIds }: SiteMapProps) {
   const { t } = useTranslation();
   const [token, setToken] = useState(() => localStorage.getItem(CESIUM_TOKEN_STORAGE_KEY) ?? "");
   const [tokenInput, setTokenInput] = useState("");
@@ -201,7 +202,7 @@ function SiteMap({ site, selectedDeviceId, onSelectDevice }: SiteMapProps) {
   const setHome = useGroundStationSitesStore((s) => s.setHome);
   const addDevice = useGroundStationSitesStore((s) => s.addDevice);
 
-  const { containerRef, sampleAltitude } = useGroundStationMapViewer({
+  const { containerRef, sampleAltitude, coverageLoadingIds } = useGroundStationMapViewer({
     token,
     home: site.home,
     placingHome,
@@ -212,6 +213,7 @@ function SiteMap({ site, selectedDeviceId, onSelectDevice }: SiteMapProps) {
     devices: site.devices,
     selectedDeviceId,
     onMapRightClick: (x, y, lat, lon) => setContextMenu({ x, y, lat, lon }),
+    coverageDeviceIds,
   });
 
   // Closes the context menu on Escape or a click anywhere else - a right-click that opens a NEW
@@ -302,6 +304,9 @@ function SiteMap({ site, selectedDeviceId, onSelectDevice }: SiteMapProps) {
           {placingHome && <p className="text-xs text-muted-foreground">{t("groundStation.map.settingHomeHint")}</p>}
           {!site.home && !placingHome && <p className="text-xs text-muted-foreground">{t("groundStation.map.noHome")}</p>}
           <p className="text-xs text-muted-foreground">{t("groundStation.map.rightClickHint")}</p>
+          {coverageLoadingIds.size > 0 && (
+            <p className="text-xs text-muted-foreground">{t("groundStation.devices.computingCoverage")}</p>
+          )}
         </div>
         {site.home && (
           <div className="flex flex-wrap items-center gap-2 font-mono text-xs text-muted-foreground">
@@ -356,9 +361,11 @@ function SiteMap({ site, selectedDeviceId, onSelectDevice }: SiteMapProps) {
 interface DevicePropertiesProps {
   siteId: string;
   device: SiteDevice;
+  showingCoverage: boolean;
+  onToggleCoverage: () => void;
 }
 
-function DeviceProperties({ siteId, device }: DevicePropertiesProps) {
+function DeviceProperties({ siteId, device, showingCoverage, onToggleCoverage }: DevicePropertiesProps) {
   const { t } = useTranslation();
   const updateDevice = useGroundStationSitesStore((s) => s.updateDevice);
   const presets = presetsFor(device.kind);
@@ -437,6 +444,9 @@ function DeviceProperties({ siteId, device }: DevicePropertiesProps) {
           className="h-6 w-20 font-mono text-xs"
         />
       </label>
+      <Button type="button" size="sm" variant={showingCoverage ? "secondary" : "outline"} onClick={onToggleCoverage}>
+        {showingCoverage ? t("groundStation.devices.hideCoverage") : t("groundStation.devices.showCoverage")}
+      </Button>
     </div>
   );
 }
@@ -445,9 +455,11 @@ interface DevicesPanelProps {
   site: Site;
   selectedDeviceId: string | null;
   onSelectDevice: (id: string | null) => void;
+  coverageDeviceIds: ReadonlySet<string>;
+  onToggleCoverage: (id: string) => void;
 }
 
-function DevicesPanel({ site, selectedDeviceId, onSelectDevice }: DevicesPanelProps) {
+function DevicesPanel({ site, selectedDeviceId, onSelectDevice, coverageDeviceIds, onToggleCoverage }: DevicesPanelProps) {
   const { t } = useTranslation();
   const renameDevice = useGroundStationSitesStore((s) => s.updateDevice);
   const removeDevice = useGroundStationSitesStore((s) => s.removeDevice);
@@ -536,7 +548,14 @@ function DevicesPanel({ site, selectedDeviceId, onSelectDevice }: DevicesPanelPr
                   </Button>
                 </div>
               )}
-              {selectedDevice?.id === device.id && <DeviceProperties siteId={site.id} device={device} />}
+              {selectedDevice?.id === device.id && (
+                <DeviceProperties
+                  siteId={site.id}
+                  device={device}
+                  showingCoverage={coverageDeviceIds.has(device.id)}
+                  onToggleCoverage={() => onToggleCoverage(device.id)}
+                />
+              )}
             </li>
           ))}
         </ul>
@@ -561,6 +580,7 @@ function DevicesPanel({ site, selectedDeviceId, onSelectDevice }: DevicesPanelPr
                 if (confirmDeleteDevice) {
                   removeDevice(site.id, confirmDeleteDevice.id);
                   if (selectedDeviceId === confirmDeleteDevice.id) onSelectDevice(null);
+                  if (coverageDeviceIds.has(confirmDeleteDevice.id)) onToggleCoverage(confirmDeleteDevice.id);
                 }
                 setConfirmDeleteDevice(null);
               }}
@@ -577,9 +597,9 @@ function DevicesPanel({ site, selectedDeviceId, onSelectDevice }: DevicesPanelPr
 /**
  * Pre-flight site planning: place a home position plus beacons/antennas on a real terrain
  * map, save the layout, and preview line-of-sight coverage - see the "Ground Station" plan.
- * Phase 2: beacon/antenna placement (right-click, mirroring LiveMapSection's own popup), preset
- * selection, and a per-site device list with a property panel. The coverage-gradient overlay
- * itself is a later phase - this only draws each device's own top-down lobe outline for now.
+ * Phase 3: a per-device line-of-sight coverage raster (green/yellow/red), toggled on from the
+ * property panel and drawn as one ground-draped image per visible device - see
+ * useGroundStationMapViewer's own doc comment for why it's one image, not one entity per cell.
  */
 export function GroundStationView() {
   const { t } = useTranslation();
@@ -587,14 +607,25 @@ export function GroundStationView() {
   const activeSiteId = useGroundStationSitesStore((s) => s.activeSiteId);
   const activeSite = sites.find((s) => s.id === activeSiteId) ?? null;
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
-  // A device selected in one site is meaningless once a different site becomes active (or none
-  // does) - reset during render (React's own "adjusting state when a prop changes" pattern,
-  // https://react.dev/learn/you-might-not-need-an-effect) rather than an effect that would
-  // otherwise briefly render one extra frame with the stale selection still applied.
+  const [coverageDeviceIds, setCoverageDeviceIds] = useState<ReadonlySet<string>>(new Set());
+  // A device selected/showing coverage in one site is meaningless once a different site becomes
+  // active (or none does) - reset during render (React's own "adjusting state when a prop
+  // changes" pattern, https://react.dev/learn/you-might-not-need-an-effect) rather than an
+  // effect that would otherwise briefly render one extra frame with the stale selection applied.
   const [prevActiveSiteId, setPrevActiveSiteId] = useState(activeSiteId);
   if (activeSiteId !== prevActiveSiteId) {
     setPrevActiveSiteId(activeSiteId);
     setSelectedDeviceId(null);
+    setCoverageDeviceIds(new Set());
+  }
+
+  function toggleCoverage(deviceId: string) {
+    setCoverageDeviceIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(deviceId)) next.delete(deviceId);
+      else next.add(deviceId);
+      return next;
+    });
   }
 
   return (
@@ -612,8 +643,20 @@ export function GroundStationView() {
         <main className="flex flex-1 overflow-hidden">
           {activeSite ? (
             <>
-              <SiteMap key={activeSite.id} site={activeSite} selectedDeviceId={selectedDeviceId} onSelectDevice={setSelectedDeviceId} />
-              <DevicesPanel site={activeSite} selectedDeviceId={selectedDeviceId} onSelectDevice={setSelectedDeviceId} />
+              <SiteMap
+                key={activeSite.id}
+                site={activeSite}
+                selectedDeviceId={selectedDeviceId}
+                onSelectDevice={setSelectedDeviceId}
+                coverageDeviceIds={coverageDeviceIds}
+              />
+              <DevicesPanel
+                site={activeSite}
+                selectedDeviceId={selectedDeviceId}
+                onSelectDevice={setSelectedDeviceId}
+                coverageDeviceIds={coverageDeviceIds}
+                onToggleCoverage={toggleCoverage}
+              />
             </>
           ) : (
             <div className="flex flex-1 items-center justify-center p-6">

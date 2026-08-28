@@ -1276,7 +1276,10 @@
         "antennaOmni": "Omnidirectional antenna",
         "antennaDipole": "Dipole antenna",
         "antennaDirectional": "Directional antenna (Yagi)"
-      }
+      },
+      "showCoverage": "Show coverage",
+      "hideCoverage": "Hide coverage",
+      "computingCoverage": "Computing coverage..."
     }
   }
 }

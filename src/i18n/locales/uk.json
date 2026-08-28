@@ -1276,7 +1276,10 @@
         "antennaOmni": "Всенаправлена антена",
         "antennaDipole": "Дипольна антена",
         "antennaDirectional": "Спрямована антена (Yagi)"
-      }
+      },
+      "showCoverage": "Показати покриття",
+      "hideCoverage": "Приховати покриття",
+      "computingCoverage": "Обчислення покриття..."
     }
   }
 }
