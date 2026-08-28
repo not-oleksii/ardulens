@@ -1281,7 +1281,10 @@
       "hideCoverage": "Приховати покриття",
       "showCombinedCoverage": "Показати сумарне покриття",
       "hideCombinedCoverage": "Приховати сумарне покриття",
-      "computingCoverage": "Обчислення покриття..."
+      "computingCoverage": "Обчислення покриття...",
+      "lock": "Заблокувати",
+      "unlock": "Розблокувати",
+      "locked": "Заблоковано"
     }
   }
 }

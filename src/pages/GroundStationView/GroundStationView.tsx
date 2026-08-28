@@ -1,4 +1,18 @@
-import { ArrowLeft, Check, ChevronsLeft, ChevronsRight, MapPin, Pencil, Plus, Radio, RadioTower, Trash2, X } from "lucide-react";
+import {
+  ArrowLeft,
+  Check,
+  ChevronsLeft,
+  ChevronsRight,
+  Lock,
+  MapPin,
+  Pencil,
+  Plus,
+  Radio,
+  RadioTower,
+  Trash2,
+  Unlock,
+  X,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
@@ -250,6 +264,9 @@ function SiteMap({ site, selectedDeviceId, onSelectDevice, coverageDeviceIds }: 
     selectedDeviceId,
     onSelectDevice,
     onDeviceMoved: (id, lat, lon, altitudeM) => updateDevice(site.id, id, { lat, lon, altitudeM }),
+    // Same "any hand-edit clears presetId back to custom" convention as the property panel's own
+    // patchField - dragging the rotation handle is just another way of hand-editing bearingDeg.
+    onDeviceRotated: (id, bearingDeg) => updateDevice(site.id, id, { bearingDeg, presetId: null }),
     onMapRightClick: ({ screenX, screenY, lat, lon }) => setContextMenu({ x: screenX, y: screenY, lat, lon }),
     coverageDeviceIds,
     showCombinedCoverage,
@@ -482,6 +499,15 @@ function DeviceProperties({ siteId, device, showingCoverage, onToggleCoverage }:
       <Button type="button" size="sm" variant={showingCoverage ? "secondary" : "outline"} onClick={onToggleCoverage}>
         {showingCoverage ? t("groundStation.devices.hideCoverage") : t("groundStation.devices.showCoverage")}
       </Button>
+      <Button
+        type="button"
+        size="sm"
+        variant={device.locked ? "secondary" : "outline"}
+        onClick={() => updateDevice(siteId, device.id, { locked: !device.locked })}
+      >
+        {device.locked ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5" />}
+        {device.locked ? t("groundStation.devices.unlock") : t("groundStation.devices.lock")}
+      </Button>
     </div>
   );
 }
@@ -581,6 +607,9 @@ function DevicesPanel({ site, selectedDeviceId, onSelectDevice, coverageDeviceId
                       <RadioTower className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     )}
                     {!collapsed && <span className="truncate">{device.name}</span>}
+                    {!collapsed && device.locked && (
+                      <Lock className="h-3 w-3 shrink-0 text-muted-foreground" aria-label={t("groundStation.devices.locked")} />
+                    )}
                   </button>
                   {!collapsed && (
                     <>

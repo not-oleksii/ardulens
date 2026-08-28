@@ -18,8 +18,10 @@ const { MockMap, MockMarker, mapInstances } = vi.hoisted(() => {
     lngLat = { lat: 0, lng: 0 };
     dragHandler: (() => void) | null = null;
     removed = false;
-    constructor(opts: { element: HTMLElement }) {
+    draggable: boolean;
+    constructor(opts: { element: HTMLElement; draggable?: boolean }) {
       this.element = opts.element;
+      this.draggable = opts.draggable ?? false;
       MockMarker.instances.push(this);
     }
     setLngLat([lng, lat]: [number, number]) {
@@ -34,6 +36,10 @@ const { MockMap, MockMarker, mapInstances } = vi.hoisted(() => {
     }
     on(event: string, cb: () => void) {
       if (event === "dragend") this.dragHandler = cb;
+      return this;
+    }
+    setDraggable(draggable: boolean) {
+      this.draggable = draggable;
       return this;
     }
     remove() {
@@ -373,6 +379,56 @@ describe("GroundStationView", () => {
     const device = useGroundStationSitesStore.getState().sites[0]!.devices[0]!;
     expect(device.lat).toBe(51.5);
     expect(device.lon).toBe(31.5);
+  });
+
+  it("locking a device makes its marker non-draggable, and unlocking restores it", async () => {
+    const { createSite, simulateMapRightClick, user } = getView();
+    await createSite("Home field");
+    simulateMapRightClick(50.1, 30.1);
+    await user.click(screen.getByRole("button", { name: "Додати маячок тут" }));
+    await screen.findByText("Маячок 1");
+    const marker = MockMarker.instances.at(-1)!;
+    expect(marker.draggable).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "Заблокувати" }));
+
+    expect(useGroundStationSitesStore.getState().sites[0]!.devices[0]!.locked).toBe(true);
+    expect(marker.draggable).toBe(false);
+    expect(await screen.findByRole("button", { name: "Розблокувати" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Розблокувати" }));
+
+    expect(useGroundStationSitesStore.getState().sites[0]!.devices[0]!.locked).toBe(false);
+    expect(marker.draggable).toBe(true);
+  });
+
+  it("dragging a directional device's rotation handle updates its bearing", async () => {
+    const { createSite, simulateMapRightClick, user } = getView();
+    await createSite("Home field");
+    simulateMapRightClick(50.1, 30.1);
+    await user.click(screen.getByRole("button", { name: "Додати маячок тут" }));
+    await screen.findByText("Маячок 1");
+    // "omni" (the beacon default) gets no rotation handle at all - switch to a bearing-sensitive
+    // pattern directly via the store, the same way this suite already exercises store writes that
+    // aren't worth driving through the Preset <Select> (a Radix portal component).
+    const siteId = useGroundStationSitesStore.getState().sites[0]!.id;
+    const deviceId = useGroundStationSitesStore.getState().sites[0]!.devices[0]!.id;
+    const markersBefore = MockMarker.instances.length;
+    act(() => {
+      useGroundStationSitesStore.getState().updateDevice(siteId, deviceId, { pattern: "directional", bearingDeg: 0, rangeM: 500 });
+    });
+
+    expect(MockMarker.instances.length).toBe(markersBefore + 1); // the new rotation-handle marker
+    const handle = MockMarker.instances.at(-1)!;
+
+    act(() => {
+      handle.setLngLat([30.2, 50.1]); // due east of the device (50.1, 30.1)
+      handle.dragHandler?.();
+    });
+
+    const bearingDeg = useGroundStationSitesStore.getState().sites[0]!.devices[0]!.bearingDeg;
+    expect(bearingDeg).toBeGreaterThan(45);
+    expect(bearingDeg).toBeLessThan(135);
   });
 
   it("clicking a device marker on the map selects it", async () => {
