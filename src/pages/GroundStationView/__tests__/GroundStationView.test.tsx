@@ -322,4 +322,38 @@ describe("GroundStationView", () => {
 
     expect(await screen.findByDisplayValue("300")).toBeInTheDocument();
   });
+
+  it("collapsing the Saved sites panel hides names but keeps sites clickable by icon", async () => {
+    const { createSite, user } = getView();
+    await createSite("Home field");
+    expect(screen.getByText("Home field")).toBeInTheDocument();
+
+    // Both panels share the same generic collapse/expand labels (matching this app's existing
+    // Sidebar.tsx convention) - Saved sites renders first, so its own toggle is always index 0.
+    await user.click(screen.getAllByRole("button", { name: "Згорнути бічну панель" })[0]!);
+
+    expect(screen.queryByText("Home field")).not.toBeInTheDocument();
+    const collapsedSiteButton = screen.getByRole("button", { name: "Home field" });
+    expect(collapsedSiteButton).toBeInTheDocument();
+
+    await user.click(screen.getAllByRole("button", { name: "Розгорнути бічну панель" })[0]!);
+    expect(screen.getByText("Home field")).toBeInTheDocument();
+  });
+
+  it("collapsing the Devices panel hides device names and the property panel", async () => {
+    const { createSite, simulateMapRightClick, user } = getView();
+    await createSite("Home field");
+    simulateMapRightClick(50.1, 30.1);
+    await user.click(screen.getByRole("button", { name: "Додати маячок тут" }));
+    await screen.findByDisplayValue("300");
+
+    await user.click(screen.getAllByRole("button", { name: "Згорнути бічну панель" })[1]!);
+
+    expect(screen.queryByText("Маячок 1")).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue("300")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Маячок 1" })).toBeInTheDocument();
+
+    await user.click(screen.getAllByRole("button", { name: "Розгорнути бічну панель" })[1]!);
+    expect(screen.getByText("Маячок 1")).toBeInTheDocument();
+  });
 });

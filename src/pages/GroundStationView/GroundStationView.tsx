@@ -1,4 +1,4 @@
-import { ArrowLeft, Check, MapPin, Pencil, Plus, Radio, RadioTower, Trash2, X } from "lucide-react";
+import { ArrowLeft, Check, ChevronsLeft, ChevronsRight, MapPin, Pencil, Plus, Radio, RadioTower, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 import { DEVICE_PRESETS, defaultPresetFor, presetsFor } from "../../stores/groundStationSitesStore/presets";
 import { useGroundStationSitesStore } from "../../stores/groundStationSitesStore/groundStationSitesStore";
 import type { DeviceKind, Site, SiteDevice } from "../../stores/groundStationSitesStore/types";
@@ -32,6 +33,7 @@ function SitesPanel() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [confirmDeleteSite, setConfirmDeleteSite] = useState<Site | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
 
   function openNewSiteDialog() {
     setNewSiteName("");
@@ -57,22 +59,49 @@ function SitesPanel() {
   }
 
   return (
-    <div className="flex w-64 shrink-0 flex-col gap-3 border-r border-border p-3">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-xs font-bold tracking-wide uppercase">{t("groundStation.sites.heading")}</h2>
-        <Button type="button" size="sm" variant="outline" onClick={openNewSiteDialog}>
-          <Plus className="h-4 w-4" />
-          {t("groundStation.sites.new")}
+    <div
+      className={cn(
+        "flex shrink-0 flex-col gap-3 border-r border-border p-3 transition-[width]",
+        collapsed ? "w-12 items-center px-2" : "w-64",
+      )}
+    >
+      <div className={cn("flex items-center gap-2", collapsed ? "flex-col" : "justify-between")}>
+        {!collapsed && <h2 className="text-xs font-bold tracking-wide uppercase">{t("groundStation.sites.heading")}</h2>}
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          aria-label={t(collapsed ? "sidebar.expand" : "sidebar.collapse")}
+          onClick={() => setCollapsed((v) => !v)}
+        >
+          {collapsed ? <ChevronsRight className="h-4 w-4" /> : <ChevronsLeft className="h-4 w-4" />}
         </Button>
+        {collapsed ? (
+          <Button
+            type="button"
+            size="icon"
+            variant="outline"
+            title={t("groundStation.sites.new")}
+            aria-label={t("groundStation.sites.new")}
+            onClick={openNewSiteDialog}
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
+        ) : (
+          <Button type="button" size="sm" variant="outline" onClick={openNewSiteDialog}>
+            <Plus className="h-4 w-4" />
+            {t("groundStation.sites.new")}
+          </Button>
+        )}
       </div>
 
       {sites.length === 0 ? (
-        <p className="text-xs text-muted-foreground">{t("groundStation.sites.empty")}</p>
+        !collapsed && <p className="text-xs text-muted-foreground">{t("groundStation.sites.empty")}</p>
       ) : (
-        <ul className="flex flex-col gap-1">
+        <ul className="flex w-full flex-col gap-1">
           {sites.map((site) => (
             <li key={site.id}>
-              {editingId === site.id ? (
+              {editingId === site.id && !collapsed ? (
                 <div className="flex items-center gap-1 rounded-md border border-border p-1">
                   <Input
                     autoFocus
@@ -93,36 +122,44 @@ function SitesPanel() {
                 </div>
               ) : (
                 <div
-                  className={`group flex items-center gap-1 rounded-md p-1 ${site.id === activeSiteId ? "bg-accent" : "hover:bg-accent/50"}`}
+                  className={cn(
+                    "group flex items-center gap-1 rounded-md p-1",
+                    site.id === activeSiteId ? "bg-accent" : "hover:bg-accent/50",
+                  )}
                 >
                   <button
                     type="button"
                     onClick={() => setActiveSite(site.id)}
-                    className="flex flex-1 items-center gap-1.5 truncate text-left text-sm"
+                    title={collapsed ? site.name : undefined}
+                    className={cn("flex flex-1 items-center gap-1.5 truncate text-left text-sm", collapsed && "justify-center")}
                   >
                     <MapPin className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    <span className="truncate">{site.name}</span>
+                    {!collapsed && <span className="truncate">{site.name}</span>}
                   </button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 w-6 shrink-0 p-0 opacity-0 group-hover:opacity-100"
-                    onClick={() => startRename(site)}
-                    aria-label={t("groundStation.sites.rename")}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 w-6 shrink-0 p-0 opacity-0 group-hover:opacity-100"
-                    onClick={() => setConfirmDeleteSite(site)}
-                    aria-label={t("groundStation.sites.delete")}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  {!collapsed && (
+                    <>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 w-6 shrink-0 p-0 opacity-0 group-hover:opacity-100"
+                        onClick={() => startRename(site)}
+                        aria-label={t("groundStation.sites.rename")}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 w-6 shrink-0 p-0 opacity-0 group-hover:opacity-100"
+                        onClick={() => setConfirmDeleteSite(site)}
+                        aria-label={t("groundStation.sites.delete")}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </>
+                  )}
                 </div>
               )}
             </li>
@@ -445,6 +482,7 @@ function DevicesPanel({ site, selectedDeviceId, onSelectDevice, coverageDeviceId
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [confirmDeleteDevice, setConfirmDeleteDevice] = useState<SiteDevice | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
 
   const selectedDevice = site.devices.find((d) => d.id === selectedDeviceId) ?? null;
 
@@ -460,16 +498,32 @@ function DevicesPanel({ site, selectedDeviceId, onSelectDevice, coverageDeviceId
   }
 
   return (
-    <div className="flex w-72 shrink-0 flex-col gap-3 overflow-y-auto border-l border-border p-3">
-      <h2 className="text-xs font-bold tracking-wide uppercase">{t("groundStation.devices.heading")}</h2>
+    <div
+      className={cn(
+        "flex shrink-0 flex-col gap-3 overflow-y-auto border-l border-border p-3 transition-[width]",
+        collapsed ? "w-12 items-center px-2" : "w-72",
+      )}
+    >
+      <div className={cn("flex items-center gap-2", collapsed ? "flex-col" : "justify-between")}>
+        {!collapsed && <h2 className="text-xs font-bold tracking-wide uppercase">{t("groundStation.devices.heading")}</h2>}
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          aria-label={t(collapsed ? "sidebar.expand" : "sidebar.collapse")}
+          onClick={() => setCollapsed((v) => !v)}
+        >
+          {collapsed ? <ChevronsLeft className="h-4 w-4" /> : <ChevronsRight className="h-4 w-4" />}
+        </Button>
+      </div>
 
       {site.devices.length === 0 ? (
-        <p className="text-xs text-muted-foreground">{t("groundStation.devices.empty")}</p>
+        !collapsed && <p className="text-xs text-muted-foreground">{t("groundStation.devices.empty")}</p>
       ) : (
-        <ul className="flex flex-col gap-1">
+        <ul className="flex w-full flex-col gap-1">
           {site.devices.map((device) => (
             <li key={device.id}>
-              {editingId === device.id ? (
+              {editingId === device.id && !collapsed ? (
                 <div className="flex items-center gap-1 rounded-md border border-border p-1">
                   <Input
                     autoFocus
@@ -490,43 +544,51 @@ function DevicesPanel({ site, selectedDeviceId, onSelectDevice, coverageDeviceId
                 </div>
               ) : (
                 <div
-                  className={`group flex items-center gap-1 rounded-md p-1 ${device.id === selectedDeviceId ? "bg-accent" : "hover:bg-accent/50"}`}
+                  className={cn(
+                    "group flex items-center gap-1 rounded-md p-1",
+                    device.id === selectedDeviceId ? "bg-accent" : "hover:bg-accent/50",
+                  )}
                 >
                   <button
                     type="button"
                     onClick={() => onSelectDevice(device.id === selectedDeviceId ? null : device.id)}
-                    className="flex flex-1 items-center gap-1.5 truncate text-left text-sm"
+                    title={collapsed ? device.name : undefined}
+                    className={cn("flex flex-1 items-center gap-1.5 truncate text-left text-sm", collapsed && "justify-center")}
                   >
                     {device.kind === "beacon" ? (
                       <Radio className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     ) : (
                       <RadioTower className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     )}
-                    <span className="truncate">{device.name}</span>
+                    {!collapsed && <span className="truncate">{device.name}</span>}
                   </button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 w-6 shrink-0 p-0 opacity-0 group-hover:opacity-100"
-                    onClick={() => startRename(device)}
-                    aria-label={t("groundStation.devices.rename")}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 w-6 shrink-0 p-0 opacity-0 group-hover:opacity-100"
-                    onClick={() => setConfirmDeleteDevice(device)}
-                    aria-label={t("groundStation.devices.delete")}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  {!collapsed && (
+                    <>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 w-6 shrink-0 p-0 opacity-0 group-hover:opacity-100"
+                        onClick={() => startRename(device)}
+                        aria-label={t("groundStation.devices.rename")}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 w-6 shrink-0 p-0 opacity-0 group-hover:opacity-100"
+                        onClick={() => setConfirmDeleteDevice(device)}
+                        aria-label={t("groundStation.devices.delete")}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </>
+                  )}
                 </div>
               )}
-              {selectedDevice?.id === device.id && (
+              {!collapsed && selectedDevice?.id === device.id && (
                 <DeviceProperties
                   siteId={site.id}
                   device={device}
