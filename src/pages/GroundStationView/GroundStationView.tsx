@@ -259,7 +259,14 @@ function SiteMap({ site, selectedDeviceId, onSelectDevice, coverageDeviceIds }: 
     // here" popup instead of the browser's native context menu - same convention as
     // LiveMapSection's own right-click popup.
     <div className="relative flex-1" onContextMenu={(e) => e.preventDefault()}>
-      <div ref={containerRef} className="absolute inset-0" />
+      {/* h-full/w-full, not absolute+inset-0: MapLibre's own bundled CSS sets
+          `.maplibregl-map { position: relative; }` on this div (unlayered, so it beats any
+          Tailwind utility class regardless of specificity per CSS Cascade Layers rules) -
+          fighting that with `absolute` left `inset-0` a no-op, collapsing this div to 0 height
+          (width still filled, since a normal block element defaults to 100% of its parent's
+          width regardless of position). Percentage sizing doesn't care which position value
+          wins, so it works either way. */}
+      <div ref={containerRef} className="h-full w-full" />
       <div className="absolute inset-x-0 top-0 z-10 flex flex-wrap items-center justify-between gap-2 rounded-t-lg bg-card/90 px-3 py-2 shadow-sm backdrop-blur-sm">
         <div className="flex flex-wrap items-center gap-2">
           <Button type="button" size="sm" variant={placingHome ? "secondary" : "outline"} onClick={() => setPlacingHome((v) => !v)}>
