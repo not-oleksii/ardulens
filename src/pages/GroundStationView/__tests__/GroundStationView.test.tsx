@@ -94,6 +94,16 @@ vi.mock("maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url", () => ({ default: 
 // this file only needs to verify the UI wires the result through correctly.
 vi.mock("../terrainElevation", () => ({ sampleTerrainElevations: vi.fn((points: unknown[]) => Promise.resolve(points.map(() => 123))) }));
 
+// jsdom doesn't implement a real Canvas 2D context (no `canvas` native module in this project) -
+// the coverage raster's rasterToCanvas() only needs createImageData/putImageData to not throw,
+// not to actually rasterize anything, so a minimal stand-in is enough here.
+beforeEach(() => {
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+    createImageData: (w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4) }),
+    putImageData: vi.fn(),
+  } as unknown as CanvasRenderingContext2D);
+});
+
 function getView() {
   const user = userEvent.setup();
   render(
