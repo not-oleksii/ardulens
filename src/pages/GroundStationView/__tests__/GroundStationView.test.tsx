@@ -94,16 +94,6 @@ vi.mock("maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url", () => ({ default: 
 // this file only needs to verify the UI wires the result through correctly.
 vi.mock("../terrainElevation", () => ({ sampleTerrainElevations: vi.fn((points: unknown[]) => Promise.resolve(points.map(() => 123))) }));
 
-// jsdom doesn't implement a real Canvas 2D context (no `canvas` native module in this project) -
-// the coverage raster's rasterToCanvas() only needs createImageData/putImageData to not throw,
-// not to actually rasterize anything, so a minimal stand-in is enough here.
-beforeEach(() => {
-  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
-    createImageData: (w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4) }),
-    putImageData: vi.fn(),
-  } as unknown as CanvasRenderingContext2D);
-});
-
 function getView() {
   const user = userEvent.setup();
   render(
@@ -298,6 +288,27 @@ describe("GroundStationView", () => {
     expect(coverageLayers).toHaveLength(0);
   });
 
+  it("the combined coverage toggle is disabled with no devices, and draws a merged overlay once one exists", async () => {
+    const { createSite, simulateMapRightClick, user, getLastMap } = getView();
+    await createSite("Home field");
+
+    expect(screen.getByRole("button", { name: "Показати сумарне покриття" })).toBeDisabled();
+
+    simulateMapRightClick(50.1, 30.1);
+    await user.click(screen.getByRole("button", { name: "Додати маячок тут" }));
+    await screen.findByText("Маячок 1");
+
+    const toggle = screen.getByRole("button", { name: "Показати сумарне покриття" });
+    expect(toggle).toBeEnabled();
+    await act(async () => {
+      await user.click(toggle);
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByRole("button", { name: "Приховати сумарне покриття" })).toBeInTheDocument();
+    expect(getLastMap().layers.has("combined-coverage-layer")).toBe(true);
+  });
+
   it("dragging a device marker moves it to the dropped position, re-sampling altitude", async () => {
     const { createSite, simulateMapRightClick, user } = getView();
     await createSite("Home field");
@@ -314,6 +325,54 @@ describe("GroundStationView", () => {
 
     const device = useGroundStationSitesStore.getState().sites[0]!.devices[0]!;
     expect(device).toMatchObject({ lat: 51.5, lon: 31.5, altitudeM: 123 });
+  });
+
+  it("dragging a device marker applies the new position immediately, not just after the terrain re-sample resolves", async () => {
+    const { createSite, simulateMapRightClick, user } = getView();
+    await createSite("Home field");
+    simulateMapRightClick(50.1, 30.1);
+    await user.click(screen.getByRole("button", { name: "Додати маячок тут" }));
+    await screen.findByText("Маячок 1");
+    const marker = MockMarker.instances.at(-1)!;
+
+    // No `await`/microtask flush here, unlike the test above - a regression back to updating
+    // position only inside sampleTerrainElevations().then() would still show the pre-drag
+    // position at this point, since a .then() callback never runs synchronously.
+    act(() => {
+      marker.setLngLat([31.5, 51.5]);
+      marker.dragHandler?.();
+    });
+
+    const device = useGroundStationSitesStore.getState().sites[0]!.devices[0]!;
+    expect(device.lat).toBe(51.5);
+    expect(device.lon).toBe(31.5);
+  });
+
+  it("dragging a device then immediately changing another of its fields does not snap it back to the pre-drag position", async () => {
+    const { createSite, simulateMapRightClick, user } = getView();
+    await createSite("Home field");
+    simulateMapRightClick(50.1, 30.1);
+    await user.click(screen.getByRole("button", { name: "Додати маячок тут" }));
+    await screen.findByText("Маячок 1");
+    const marker = MockMarker.instances.at(-1)!;
+    const siteId = useGroundStationSitesStore.getState().sites[0]!.id;
+    const deviceId = useGroundStationSitesStore.getState().sites[0]!.devices[0]!.id;
+
+    act(() => {
+      marker.setLngLat([31.5, 51.5]);
+      marker.dragHandler?.();
+    });
+    // Any other store write for this device (e.g. applying a different preset) re-runs the
+    // devices-drawing effect before the drag's own terrain re-sample has resolved - this used to
+    // re-sync the marker (and its coverage lobe) back to the stale pre-drag position still sitting
+    // in the store, visibly "teleporting" it back.
+    act(() => {
+      useGroundStationSitesStore.getState().updateDevice(siteId, deviceId, { rangeM: 750 });
+    });
+
+    const device = useGroundStationSitesStore.getState().sites[0]!.devices[0]!;
+    expect(device.lat).toBe(51.5);
+    expect(device.lon).toBe(31.5);
   });
 
   it("clicking a device marker on the map selects it", async () => {

@@ -15,6 +15,19 @@ export function haversine(lat1: number, lon1: number, lat2: number, lon2: number
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(x)));
 }
 
+/** The compass bearing (degrees, 0-360, clockwise from north) from one point to another - the
+ *  standard initial-bearing formula, paired with `destinationPoint` below (which needs a bearing
+ *  as an input rather than solving for one). */
+export function bearingBetween(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const rad = Math.PI / 180;
+  const p1 = lat1 * rad;
+  const p2 = lat2 * rad;
+  const dl = (lon2 - lon1) * rad;
+  const y = Math.sin(dl) * Math.cos(p2);
+  const x = Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl);
+  return ((Math.atan2(y, x) / rad) % 360 + 360) % 360;
+}
+
 /** The point a given bearing (degrees, compass, clockwise from north) and distance (meters) from
  *  a start point - the standard spherical-Earth destination formula, the reverse of `haversine`
  *  above (which solves "how far apart" rather than "where is X meters away"). */

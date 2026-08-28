@@ -231,11 +231,15 @@ function SiteMap({ site, selectedDeviceId, onSelectDevice, coverageDeviceIds }: 
   const { t } = useTranslation();
   const [placingHome, setPlacingHome] = useState(false);
   const [contextMenu, setContextMenu] = useState<DeviceContextMenuState | null>(null);
+  // Local, not lifted to GroundStationView - this component is remounted per site (`key=` in
+  // the parent) already, so it naturally resets when switching sites without needing to be
+  // told to, same as this file's other local per-site view state.
+  const [showCombinedCoverage, setShowCombinedCoverage] = useState(false);
   const setHome = useGroundStationSitesStore((s) => s.setHome);
   const addDevice = useGroundStationSitesStore((s) => s.addDevice);
   const updateDevice = useGroundStationSitesStore((s) => s.updateDevice);
 
-  const { containerRef, sampleAltitude, coverageLoadingIds } = useGroundStationMapViewer({
+  const { containerRef, sampleAltitude, coverageLoadingIds, combinedCoverageLoading } = useGroundStationMapViewer({
     home: site.home,
     placingHome,
     onPlaceHome: (home) => {
@@ -248,6 +252,7 @@ function SiteMap({ site, selectedDeviceId, onSelectDevice, coverageDeviceIds }: 
     onDeviceMoved: (id, lat, lon, altitudeM) => updateDevice(site.id, id, { lat, lon, altitudeM }),
     onMapRightClick: ({ screenX, screenY, lat, lon }) => setContextMenu({ x: screenX, y: screenY, lat, lon }),
     coverageDeviceIds,
+    showCombinedCoverage,
   });
 
   // Closes the context menu on Escape or a click anywhere else - a right-click that opens a NEW
@@ -275,7 +280,12 @@ function SiteMap({ site, selectedDeviceId, onSelectDevice, coverageDeviceIds }: 
     setContextMenu(null);
     const altitudeM = await sampleAltitude(lat, lon);
     const preset = defaultPresetFor(kind);
-    const index = site.devices.filter((d) => d.kind === kind).length + 1;
+    // Reads the store directly rather than the `site` prop, which reflects the render this
+    // closure was created from - placing two devices within the same terrain-sample round trip
+    // (a real, not just theoretical, timing window) would otherwise have BOTH calls see the same
+    // stale (pre-first-device) count and name themselves the same "Beacon 1"/"Antenna 1".
+    const currentDevices = useGroundStationSitesStore.getState().sites.find((s) => s.id === site.id)?.devices ?? [];
+    const index = currentDevices.filter((d) => d.kind === kind).length + 1;
     const id = addDevice(site.id, {
       kind,
       name: t(`groundStation.devices.defaultName.${kind}`, { index }),
@@ -309,10 +319,20 @@ function SiteMap({ site, selectedDeviceId, onSelectDevice, coverageDeviceIds }: 
           <Button type="button" size="sm" variant={placingHome ? "secondary" : "outline"} onClick={() => setPlacingHome((v) => !v)}>
             {t("groundStation.map.setHome")}
           </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={showCombinedCoverage ? "secondary" : "outline"}
+            disabled={site.devices.length === 0}
+            title={site.devices.length === 0 ? t("groundStation.devices.empty") : undefined}
+            onClick={() => setShowCombinedCoverage((v) => !v)}
+          >
+            {showCombinedCoverage ? t("groundStation.devices.hideCombinedCoverage") : t("groundStation.devices.showCombinedCoverage")}
+          </Button>
           {placingHome && <p className="text-xs text-muted-foreground">{t("groundStation.map.settingHomeHint")}</p>}
           {!site.home && !placingHome && <p className="text-xs text-muted-foreground">{t("groundStation.map.noHome")}</p>}
           <p className="text-xs text-muted-foreground">{t("groundStation.map.rightClickHint")}</p>
-          {coverageLoadingIds.size > 0 && (
+          {(coverageLoadingIds.size > 0 || combinedCoverageLoading) && (
             <p className="text-xs text-muted-foreground">{t("groundStation.devices.computingCoverage")}</p>
           )}
         </div>

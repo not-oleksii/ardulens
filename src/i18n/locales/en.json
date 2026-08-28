@@ -1279,6 +1279,8 @@
       },
       "showCoverage": "Show coverage",
       "hideCoverage": "Hide coverage",
+      "showCombinedCoverage": "Show combined coverage",
+      "hideCombinedCoverage": "Hide combined coverage",
       "computingCoverage": "Computing coverage..."
     }
   }

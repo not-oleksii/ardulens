@@ -13,7 +13,7 @@ import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&ur
 import type { Feature, Polygon } from "geojson";
 import { useEffect, useRef, useState } from "react";
 import type { SiteDevice, SiteHome } from "../../stores/groundStationSitesStore/types";
-import { computeCoverageRaster, type CoverageLevel, type CoverageRaster } from "./coverageRaster";
+import { computeCombinedCoverageRaster, computeCoverageRaster, type CoverageCell, type CoverageLevel } from "./coverageRaster";
 import { lobeOutline } from "./lobeGeometry";
 import { sampleTerrainElevations } from "./terrainElevation";
 
@@ -91,6 +91,9 @@ interface UseGroundStationMapViewerOptions {
   /** Which devices' line-of-sight coverage raster should currently be drawn - a per-device view
    *  toggle (see the Devices panel), not persisted site data. */
   coverageDeviceIds: ReadonlySet<string>;
+  /** True to draw ONE combined raster across every device in the site at once (best coverage
+   *  wins per cell) instead of - or alongside - the independent per-device overlays above. */
+  showCombinedCoverage: boolean;
 }
 
 function lobeGeoJson(device: SiteDevice): Feature<Polygon> {
@@ -120,6 +123,7 @@ export function useGroundStationMapViewer({
   onDeviceMoved,
   onMapRightClick,
   coverageDeviceIds,
+  showCombinedCoverage,
 }: UseGroundStationMapViewerOptions) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -133,6 +137,8 @@ export function useGroundStationMapViewer({
   const deviceMarkersRef = useRef(new Map<string, Marker>());
   const coverageLayersRef = useRef(new Map<string, { deviceKey: string }>());
   const [coverageLoadingIds, setCoverageLoadingIds] = useState<ReadonlySet<string>>(new Set());
+  const combinedCoverageKeyRef = useRef<string | null>(null);
+  const [combinedCoverageLoading, setCombinedCoverageLoading] = useState(false);
 
   // Mirrors the latest callback/mode props for closures set up once per map lifetime (the
   // load-once effect below), not per render - same pattern this hook's Cesium predecessor used.
@@ -141,13 +147,20 @@ export function useGroundStationMapViewer({
   const onMapRightClickRef = useRef(onMapRightClick);
   const onSelectDeviceRef = useRef(onSelectDevice);
   const onDeviceMovedRef = useRef(onDeviceMoved);
+  // Read at drag time (not captured once when a marker's dragend handler is created, which can
+  // be long before a given drag happens) so an optimistic position update - see dragend below -
+  // preserves whatever altitude is CURRENTLY stored, not a stale one from marker-creation time.
+  const homeRef = useRef(home);
+  const devicesRef = useRef(devices);
   useEffect(() => {
     placingHomeRef.current = placingHome;
     onPlaceHomeRef.current = onPlaceHome;
     onMapRightClickRef.current = onMapRightClick;
     onSelectDeviceRef.current = onSelectDevice;
     onDeviceMovedRef.current = onDeviceMoved;
-  }, [placingHome, onPlaceHome, onMapRightClick, onSelectDevice, onDeviceMoved]);
+    homeRef.current = home;
+    devicesRef.current = devices;
+  }, [placingHome, onPlaceHome, onMapRightClick, onSelectDevice, onDeviceMoved, home, devices]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -209,6 +222,7 @@ export function useGroundStationMapViewer({
       homeMarkerRef.current = null;
       deviceMarkers.clear();
       coverageLayers.clear();
+      combinedCoverageKeyRef.current = null;
       setStyleLoaded(false);
     };
   }, []);
@@ -230,6 +244,14 @@ export function useGroundStationMapViewer({
       const marker = new Marker({ element: markerElement(HOME_SVG, 28), draggable: true, anchor: "center" }).setLngLat(lngLat).addTo(map);
       marker.on("dragend", () => {
         const { lng, lat } = marker.getLngLat();
+        // Apply the new position immediately (keeping the current altitude) rather than waiting
+        // on the terrain sample below - otherwise any OTHER store update that happens to land
+        // first (anything at all that re-runs this hook's home-drawing effect) re-syncs this
+        // marker back to the pre-drag position still sitting in the store, visibly snapping it
+        // backward for as long as the network round-trip takes. Altitude then corrects itself
+        // once the real sample resolves, invisibly (it doesn't affect the marker's position or
+        // any other visible element).
+        onPlaceHomeRef.current({ lat, lon: lng, altitudeM: homeRef.current?.altitudeM ?? 0 });
         void sampleTerrainElevations([{ lat, lon: lng }]).then(([height]) => {
           if (removedRef.current) return;
           onPlaceHomeRef.current({ lat, lon: lng, altitudeM: height ?? 0 });
@@ -294,6 +316,16 @@ export function useGroundStationMapViewer({
         const marker = new Marker({ element, draggable: true, anchor: "center" }).setLngLat(lngLat).addTo(map);
         marker.on("dragend", () => {
           const { lng, lat } = marker.getLngLat();
+          // Same "apply position immediately, correct altitude afterward" reasoning as the home
+          // marker's own dragend handler above - without this, any OTHER store update landing
+          // before this terrain sample resolves (a preset change, editing a different field,
+          // even another device's own drag) re-runs this effect and calls existingMarker.
+          // setLngLat() with the pre-drag position still sitting in the store, visibly snapping
+          // this marker (and its lobe, computed from the same stale device object) backward for
+          // as long as the network round-trip takes - confirmed live as "dragging then changing
+          // the preset teleports it back."
+          const currentAltitude = devicesRef.current.find((d) => d.id === device.id)?.altitudeM ?? device.altitudeM;
+          onDeviceMovedRef.current(device.id, lat, lng, currentAltitude);
           void sampleTerrainElevations([{ lat, lon: lng }]).then(([height]) => {
             if (removedRef.current) return;
             onDeviceMovedRef.current(device.id, lat, lng, height ?? 0);
@@ -341,7 +373,7 @@ export function useGroundStationMapViewer({
         if (!currentDevice || coverageDeviceKey(currentDevice) !== key) return;
 
         removeCoverageLayer(map, deviceId);
-        const canvas = rasterToCanvas(raster);
+        const canvas = cellsToCanvas(raster.cells, raster.gridResolution, raster.gridResolution);
         map.addSource(coverageSourceId(deviceId), { type: "image", url: canvas.toDataURL(), coordinates: coverageCorners(device) });
         map.addLayer({ id: coverageLayerId(deviceId), type: "raster", source: coverageSourceId(deviceId), paint: { "raster-opacity": 1 } });
         coverageLayersRef.current.set(deviceId, { deviceKey: key });
@@ -349,12 +381,45 @@ export function useGroundStationMapViewer({
     }
   }, [devices, coverageDeviceIds, styleLoaded]);
 
+  // Computes (or re-computes, if any device's own coverage-relevant fields changed) ONE combined
+  // best-coverage-wins raster across every device in the site - see computeCombinedCoverageRaster
+  // in coverageRaster.ts for why this needs its own bounding box/grid rather than reusing the
+  // per-device raster above.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleLoaded) return;
+
+    if (!showCombinedCoverage || devices.length === 0) {
+      removeCombinedCoverageLayer(map);
+      combinedCoverageKeyRef.current = null;
+      return;
+    }
+
+    const key = devices.map(coverageDeviceKey).join(";");
+    if (combinedCoverageKeyRef.current === key) return;
+
+    setCombinedCoverageLoading(true);
+    void computeCombinedCoverageRaster({ devices, sampleTerrain: sampleTerrainElevations }).then((raster) => {
+      setCombinedCoverageLoading(false);
+      // Same stale-async guard family as the per-device coverage effect above.
+      if (removedRef.current || !showCombinedCoverage) return;
+      if (devices.map(coverageDeviceKey).join(";") !== key) return;
+
+      removeCombinedCoverageLayer(map);
+      if (raster.cells.length === 0) return;
+      const canvas = cellsToCanvas(raster.cells, raster.rows, raster.cols);
+      map.addSource(COMBINED_COVERAGE_SOURCE_ID, { type: "image", url: canvas.toDataURL(), coordinates: raster.corners });
+      map.addLayer({ id: COMBINED_COVERAGE_LAYER_ID, type: "raster", source: COMBINED_COVERAGE_SOURCE_ID, paint: { "raster-opacity": 1 } });
+      combinedCoverageKeyRef.current = key;
+    });
+  }, [devices, showCombinedCoverage, styleLoaded]);
+
   async function sampleAltitude(lat: number, lon: number): Promise<number> {
     const [height] = await sampleTerrainElevations([{ lat, lon }]);
     return height ?? 0;
   }
 
-  return { containerRef, sampleAltitude, coverageLoadingIds };
+  return { containerRef, sampleAltitude, coverageLoadingIds, combinedCoverageLoading };
 }
 
 function lobeSourceId(deviceId: string) {
@@ -372,6 +437,8 @@ function coverageSourceId(deviceId: string) {
 function coverageLayerId(deviceId: string) {
   return `device-coverage-layer-${deviceId}`;
 }
+const COMBINED_COVERAGE_SOURCE_ID = "combined-coverage";
+const COMBINED_COVERAGE_LAYER_ID = "combined-coverage-layer";
 
 function removeLobeLayers(map: MapLibreMap, deviceId: string) {
   if (map.getLayer(lobeFillLayerId(deviceId))) map.removeLayer(lobeFillLayerId(deviceId));
@@ -382,6 +449,11 @@ function removeLobeLayers(map: MapLibreMap, deviceId: string) {
 function removeCoverageLayer(map: MapLibreMap, deviceId: string) {
   if (map.getLayer(coverageLayerId(deviceId))) map.removeLayer(coverageLayerId(deviceId));
   if (map.getSource(coverageSourceId(deviceId))) map.removeSource(coverageSourceId(deviceId));
+}
+
+function removeCombinedCoverageLayer(map: MapLibreMap) {
+  if (map.getLayer(COMBINED_COVERAGE_LAYER_ID)) map.removeLayer(COMBINED_COVERAGE_LAYER_ID);
+  if (map.getSource(COMBINED_COVERAGE_SOURCE_ID)) map.removeSource(COMBINED_COVERAGE_SOURCE_ID);
 }
 
 /** Every field a coverage raster's shape/classification actually depends on - used to tell "the
@@ -414,18 +486,22 @@ function coverageCorners(
   ];
 }
 
-function rasterToCanvas(raster: CoverageRaster): HTMLCanvasElement {
+/** Rasterizes a set of classified cells into a canvas image, one pixel per cell - shared by the
+ *  single-device raster (a square `gridResolution x gridResolution` grid) and the combined
+ *  multi-device raster (a `rows x cols` grid that isn't necessarily square), since both produce
+ *  the same `CoverageCell` shape and only differ in grid dimensions. */
+function cellsToCanvas(cells: CoverageCell[], rows: number, cols: number): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
-  canvas.width = raster.gridResolution;
-  canvas.height = raster.gridResolution;
+  canvas.width = cols;
+  canvas.height = rows;
   const ctx = canvas.getContext("2d")!;
-  const image = ctx.createImageData(raster.gridResolution, raster.gridResolution);
-  for (const cell of raster.cells) {
+  const image = ctx.createImageData(cols, rows);
+  for (const cell of cells) {
     const [r, g, b] = COVERAGE_COLORS[cell.level];
     // Image data's row 0 is the top of the canvas; coverageRaster's row 0 is the south edge -
     // flipped here so the drawn image isn't mirrored north-to-south once placed on the map.
-    const imageRow = raster.gridResolution - 1 - cell.row;
-    const idx = (imageRow * raster.gridResolution + cell.col) * 4;
+    const imageRow = rows - 1 - cell.row;
+    const idx = (imageRow * cols + cell.col) * 4;
     image.data[idx] = r;
     image.data[idx + 1] = g;
     image.data[idx + 2] = b;

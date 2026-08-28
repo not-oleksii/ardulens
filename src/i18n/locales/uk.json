@@ -1279,6 +1279,8 @@
       },
       "showCoverage": "Показати покриття",
       "hideCoverage": "Приховати покриття",
+      "showCombinedCoverage": "Показати сумарне покриття",
+      "hideCombinedCoverage": "Приховати сумарне покриття",
       "computingCoverage": "Обчислення покриття..."
     }
   }
