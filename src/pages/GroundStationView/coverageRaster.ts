@@ -1,4 +1,4 @@
-import { destinationPoint } from "../../utils/geo/geo";
+import { bearingBetween, destinationPoint, haversine } from "../../utils/geo/geo";
 import type { SiteDevice } from "../../stores/groundStationSitesStore/types";
 import { lobeRadiusAt } from "./lobeGeometry";
 
@@ -129,28 +129,198 @@ export async function computeCoverageRaster({
 
   const cells: CoverageCell[] = candidates.map((candidate) => {
     const cellGroundHeight = heights[candidate.cellSampleIndex] ?? 0;
-    const targetHeight = cellGroundHeight + receiverHeightM;
-
-    // A straight line from the device's own (already-absolute) altitude down to the target -
-    // any intermediate terrain sample poking above this line blocks the shot.
-    let blocked = false;
-    for (let i = 0; i < candidate.losSampleIndices.length; i++) {
-      const fraction = (i + 1) / (losSamples + 1);
-      const sightlineHeight = device.altitudeM + (targetHeight - device.altitudeM) * fraction;
-      const terrainHeight = heights[candidate.losSampleIndices[i]!] ?? 0;
-      if (terrainHeight > sightlineHeight) {
-        blocked = true;
-        break;
-      }
-    }
-
-    const level: CoverageLevel = blocked
-      ? "blocked"
-      : candidate.distanceM <= candidate.maxRangeM * marginalFraction
-        ? "clear"
-        : "marginal";
+    const level = classifyLevel({
+      deviceAltitudeM: device.altitudeM,
+      targetHeight: cellGroundHeight + receiverHeightM,
+      distanceM: candidate.distanceM,
+      maxRangeM: candidate.maxRangeM,
+      losSampleHeights: candidate.losSampleIndices.map((i) => heights[i] ?? 0),
+      losSamples,
+      marginalFraction,
+    });
     return { lat: candidate.lat, lon: candidate.lon, row: candidate.row, col: candidate.col, level };
   });
 
   return { cells, cellSizeM, gridResolution };
+}
+
+/** Classifies one device/cell pair's line of sight - shared by the single-device raster above
+ *  and the combined multi-device raster below, which otherwise duplicate this exact check once
+ *  per device per cell. */
+function classifyLevel({
+  deviceAltitudeM,
+  targetHeight,
+  distanceM,
+  maxRangeM,
+  losSampleHeights,
+  losSamples,
+  marginalFraction,
+}: {
+  deviceAltitudeM: number;
+  targetHeight: number;
+  distanceM: number;
+  maxRangeM: number;
+  losSampleHeights: number[];
+  losSamples: number;
+  marginalFraction: number;
+}): CoverageLevel {
+  // A straight line from the device's own (already-absolute) altitude down to the target - any
+  // intermediate terrain sample poking above this line blocks the shot.
+  for (let i = 0; i < losSampleHeights.length; i++) {
+    const fraction = (i + 1) / (losSamples + 1);
+    const sightlineHeight = deviceAltitudeM + (targetHeight - deviceAltitudeM) * fraction;
+    if (losSampleHeights[i]! > sightlineHeight) return "blocked";
+  }
+  return distanceM <= maxRangeM * marginalFraction ? "clear" : "marginal";
+}
+
+const LEVEL_RANK: Record<CoverageLevel, number> = { blocked: 0, marginal: 1, clear: 2 };
+const DEFAULT_COMBINED_GRID_RESOLUTION = 40;
+
+interface ComputeCombinedCoverageOptions {
+  devices: PatternFields[];
+  sampleTerrain: (points: { lat: number; lon: number }[]) => Promise<number[]>;
+  /** Cells along the LARGER of the combined area's two dimensions - the other dimension gets
+   *  proportionally fewer/more cells so each cell stays roughly square in meters, rather than
+   *  forcing a square grid onto a non-square combined bounding box. */
+  gridResolution?: number;
+  losSamples?: number;
+  receiverHeightM?: number;
+  marginalFraction?: number;
+}
+
+export interface CombinedCoverageRaster {
+  cells: CoverageCell[];
+  rows: number;
+  cols: number;
+  /** The combined grid's corners, in [lon, lat] pairs, top-left/top-right/bottom-right/
+   *  bottom-left order (MapLibre's own image-source coordinate order) - unlike the single-device
+   *  raster, this grid isn't centered on any one device, so a renderer needs the actual bounds
+   *  rather than being able to re-derive them from a single device's own lat/lon/rangeM. */
+  corners: [[number, number], [number, number], [number, number], [number, number]];
+}
+
+/**
+ * A combined line-of-sight coverage raster across MULTIPLE devices at once: for every cell in
+ * one shared grid spanning all the devices' own coverage areas, takes the BEST classification
+ * any single device provides there (clear beats marginal beats blocked) - "where is safe to fly,
+ * given everything currently placed," rather than requiring a viewer to mentally combine several
+ * independent per-device overlays whose blended colors don't actually mean anything on their own.
+ *
+ * Still one batched `sampleTerrain` call for the whole computation, regardless of device count or
+ * resolution - each cell's own ground height is looked up once and shared across every device
+ * that might cover it; only the line-of-sight path samples (which start from each device's own
+ * position) are necessarily per-device.
+ */
+export async function computeCombinedCoverageRaster({
+  devices,
+  sampleTerrain,
+  gridResolution = DEFAULT_COMBINED_GRID_RESOLUTION,
+  losSamples = DEFAULT_LOS_SAMPLES,
+  receiverHeightM = DEFAULT_RECEIVER_HEIGHT_M,
+  marginalFraction = DEFAULT_MARGINAL_FRACTION,
+}: ComputeCombinedCoverageOptions): Promise<CombinedCoverageRaster> {
+  if (devices.length === 0) {
+    return { cells: [], rows: 0, cols: 0, corners: [[0, 0], [0, 0], [0, 0], [0, 0]] };
+  }
+
+  let minLat = Infinity;
+  let maxLat = -Infinity;
+  let minLon = Infinity;
+  let maxLon = -Infinity;
+  for (const device of devices) {
+    const north = destinationPoint(device.lat, device.lon, 0, device.rangeM);
+    const south = destinationPoint(device.lat, device.lon, 180, device.rangeM);
+    const east = destinationPoint(device.lat, device.lon, 90, device.rangeM);
+    const west = destinationPoint(device.lat, device.lon, 270, device.rangeM);
+    minLat = Math.min(minLat, south.lat);
+    maxLat = Math.max(maxLat, north.lat);
+    minLon = Math.min(minLon, west.lon);
+    maxLon = Math.max(maxLon, east.lon);
+  }
+
+  const centerLat = (minLat + maxLat) / 2;
+  const metersPerDegLat = 111_320;
+  const metersPerDegLon = 111_320 * Math.cos((centerLat * Math.PI) / 180);
+  const latSpanM = (maxLat - minLat) * metersPerDegLat;
+  const lonSpanM = (maxLon - minLon) * metersPerDegLon;
+  const cellSizeM = Math.max(latSpanM, lonSpanM, 1) / gridResolution;
+  const rows = Math.max(1, Math.round(latSpanM / cellSizeM));
+  const cols = Math.max(1, Math.round(lonSpanM / cellSizeM));
+
+  const points: { lat: number; lon: number }[] = [];
+  interface CellCandidate {
+    lat: number;
+    lon: number;
+    row: number;
+    col: number;
+    groundSampleIndex: number;
+    deviceCandidates: { device: PatternFields; distanceM: number; maxRangeM: number; losSampleIndices: number[] }[];
+  }
+  const cellCandidates: CellCandidate[] = [];
+
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const lat = minLat + ((row + 0.5) / rows) * (maxLat - minLat);
+      const lon = minLon + ((col + 0.5) / cols) * (maxLon - minLon);
+
+      const deviceCandidates: CellCandidate["deviceCandidates"] = [];
+      for (const device of devices) {
+        const distanceM = haversine(device.lat, device.lon, lat, lon);
+        const bearingDeg = bearingBetween(device.lat, device.lon, lat, lon);
+        const maxRangeM = lobeRadiusAt(device, bearingDeg);
+        if (distanceM > maxRangeM) continue; // outside THIS device's lobe - it doesn't cover this cell.
+
+        const losSampleIndices: number[] = [];
+        for (let s = 1; s <= losSamples; s++) {
+          const fraction = s / (losSamples + 1);
+          losSampleIndices.push(points.length);
+          points.push(destinationPoint(device.lat, device.lon, bearingDeg, distanceM * fraction));
+        }
+        deviceCandidates.push({ device, distanceM, maxRangeM, losSampleIndices });
+      }
+      if (deviceCandidates.length === 0) continue; // no device covers this cell at all.
+
+      const groundSampleIndex = points.length;
+      points.push({ lat, lon });
+      cellCandidates.push({ lat, lon, row, col, groundSampleIndex, deviceCandidates });
+    }
+  }
+
+  const heights = points.length > 0 ? await sampleTerrain(points) : [];
+
+  const cells: CoverageCell[] = cellCandidates.map((candidate) => {
+    const targetHeight = (heights[candidate.groundSampleIndex] ?? 0) + receiverHeightM;
+    let best: CoverageLevel = "blocked";
+    for (const dc of candidate.deviceCandidates) {
+      const level = classifyLevel({
+        deviceAltitudeM: dc.device.altitudeM,
+        targetHeight,
+        distanceM: dc.distanceM,
+        maxRangeM: dc.maxRangeM,
+        losSampleHeights: dc.losSampleIndices.map((i) => heights[i] ?? 0),
+        losSamples,
+        marginalFraction,
+      });
+      if (LEVEL_RANK[level] > LEVEL_RANK[best]) best = level;
+      if (best === "clear") break; // can't do better than clear - no need to check remaining devices.
+    }
+    return { lat: candidate.lat, lon: candidate.lon, row: candidate.row, col: candidate.col, level: best };
+  });
+
+  const north = maxLat;
+  const south = minLat;
+  const west = minLon;
+  const east = maxLon;
+  return {
+    cells,
+    rows,
+    cols,
+    corners: [
+      [west, north],
+      [east, north],
+      [east, south],
+      [west, south],
+    ],
+  };
 }

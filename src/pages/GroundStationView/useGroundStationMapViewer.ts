@@ -1,315 +1,459 @@
-import {
-  Cartesian3,
-  Cartographic,
-  Color,
-  ColorMaterialProperty,
-  ConstantPositionProperty,
-  ConstantProperty,
-  ImageMaterialProperty,
-  Ion,
-  Math as CesiumMath,
-  PolygonHierarchy,
-  Rectangle,
-  ScreenSpaceEventHandler,
-  ScreenSpaceEventType,
-  sampleTerrainMostDetailed,
-  Terrain,
-  Viewer,
-  type Entity,
-} from "cesium";
-import "cesium/Build/Cesium/Widgets/widgets.css";
+import { Map as MapLibreMap, Marker, setWorkerUrl, type GeoJSONSource, type LngLatLike, type MapMouseEvent } from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
+// MapLibre resolves its own tile-parsing Web Worker via `new URL(..., import.meta.url)`, which
+// doesn't survive Rolldown's bundling into a working same-origin path (confirmed: the request
+// for it 404s and falls back to index.html's own HTML, since this is a client-routed SPA). A
+// plain `?url` import isn't enough either - the worker's own .mjs imports a sibling
+// maplibre-gl-shared.mjs chunk, which `?url` doesn't bundle (it just copies the file verbatim),
+// so the worker fails on ITS OWN first import once served raw. `?worker&url` routes it through
+// Vite's worker pipeline instead, producing a self-contained chunk with that dependency inlined.
+// `setWorkerUrl` (called once, at module load, before any Map is constructed) points MapLibre at
+// this real built path rather than relying on its own broken auto-resolution.
+import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
+import type { Feature, Polygon } from "geojson";
 import { useEffect, useRef, useState } from "react";
-import { destinationPoint } from "../../utils/geo/geo";
-import { pickLatLon } from "../../utils/cesiumPicking/cesiumPicking";
 import type { SiteDevice, SiteHome } from "../../stores/groundStationSitesStore/types";
-import { computeCoverageRaster, type CoverageLevel, type CoverageRaster } from "./coverageRaster";
+import { computeCombinedCoverageRaster, computeCoverageRaster, type CoverageCell, type CoverageLevel } from "./coverageRaster";
 import { lobeOutline } from "./lobeGeometry";
+import { sampleTerrainElevations } from "./terrainElevation";
 
-// Identical arrow/house icon convention to LiveMapSection's own vehicle/home markers - a house
-// icon reads as "home" the same way across every map in this app.
+setWorkerUrl(maplibreWorkerUrl);
+
+// OpenFreeMap's public instance: free, unlimited, no API key or signup (unlike Cesium ion, which
+// this page used through Phase 3) - see https://openfreemap.org. Attribution is added
+// automatically by MapLibre's own AttributionControl.
+const STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
+const TERRAIN_TILE_URL = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png";
+const DEFAULT_CENTER: LngLatLike = [0, 20];
+const DEFAULT_ZOOM = 2;
+const HOME_REVEAL_ZOOM = 15;
+
 const HOME_SVG = encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 26 26">' +
     '<path d="M13 3 L23 12 H19 V23 H7 V12 H3 Z" fill="#22c55e" stroke="black" stroke-width="1.5" stroke-linejoin="round"/>' +
     "</svg>",
 );
-const HOME_ICON = `data:image/svg+xml,${HOME_SVG}`;
 const BEACON_SVG = encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22">' +
     '<circle cx="11" cy="11" r="8" fill="#a855f7" stroke="black" stroke-width="1.5"/>' +
     "</svg>",
 );
-const BEACON_ICON = `data:image/svg+xml,${BEACON_SVG}`;
 const ANTENNA_SVG = encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22">' +
     '<path d="M11 2 L16 20 H6 Z" fill="#3b82f6" stroke="black" stroke-width="1.5" stroke-linejoin="round"/>' +
     "</svg>",
 );
-const ANTENNA_ICON = `data:image/svg+xml,${ANTENNA_SVG}`;
-const BEACON_COLOR = Color.fromCssColorString("#a855f7");
-const ANTENNA_COLOR = Color.fromCssColorString("#3b82f6");
-// Camera height above the placed home the first time it's set, in meters - same purpose as
-// LiveMapSection's FOLLOW_HEIGHT_M, just for a one-time reveal instead of a per-tick follow.
-const HOME_REVEAL_HEIGHT_M = 800;
-
-// Standard good/warning/critical semantic colors, matching the plan's own "green/yellow/red"
-// wording - separate from the purple/blue identity colors above, which mark WHOSE lobe this is,
-// not how well it covers.
+const BEACON_COLOR = "#a855f7";
+const ANTENNA_COLOR = "#3b82f6";
 const COVERAGE_COLORS: Record<CoverageLevel, [number, number, number]> = {
   clear: [34, 197, 94],
   marginal: [234, 179, 8],
   blocked: [239, 68, 68],
 };
+const COVERAGE_ALPHA = 140;
+
+function markerElement(svgDataUri: string, sizePx: number): HTMLDivElement {
+  const el = document.createElement("div");
+  el.style.width = `${sizePx}px`;
+  el.style.height = `${sizePx}px`;
+  el.style.backgroundImage = `url(data:image/svg+xml,${svgDataUri})`;
+  el.style.backgroundSize = "contain";
+  el.style.backgroundRepeat = "no-repeat";
+  el.style.cursor = "pointer";
+  return el;
+}
+
+interface DeviceContextMenuLocation {
+  screenX: number;
+  screenY: number;
+  lat: number;
+  lon: number;
+}
 
 interface UseGroundStationMapViewerOptions {
-  token: string;
   home: SiteHome | null;
-  /** True while "Set Home" is the active click mode - a plain left-click otherwise just pans/
-   *  rotates the map (Cesium's own default), same "explicit mode, not every click does
-   *  something" convention as this app's other map-click interactions. */
+  /** True while "Set Home" is the active click mode - a plain left-click otherwise just pans the
+   *  map, same "explicit mode, not every click does something" convention as this app's other
+   *  map-click interactions. */
   placingHome: boolean;
   onPlaceHome: (home: SiteHome) => void;
   devices: SiteDevice[];
   selectedDeviceId: string | null;
-  /** Fired on a right-click anywhere on the map - mirrors LiveMapSection's own right-click
-   *  popup convention. The component owns the resulting context-menu UI and decides what (if
-   *  anything) to place there; this hook only reports where the click landed. */
-  onMapRightClick: (screenX: number, screenY: number, lat: number, lon: number) => void;
+  onSelectDevice: (id: string) => void;
+  /** Fired after a marker (home, beacon, or antenna) is dragged to a new spot - already
+   *  terrain-sampled for altitude, same as a fresh placement, since dropping something
+   *  somewhere new is conceptually the same action as placing it there in the first place. */
+  onDeviceMoved: (id: string, lat: number, lon: number, altitudeM: number) => void;
+  /** Fired on a right-click anywhere on the map - the component owns the resulting context-menu
+   *  UI and decides what (if anything) to place there; this hook only reports where the click
+   *  landed, in both screen pixels (for menu positioning) and lat/lon. */
+  onMapRightClick: (location: DeviceContextMenuLocation) => void;
   /** Which devices' line-of-sight coverage raster should currently be drawn - a per-device view
-   *  toggle (see the Devices panel), not persisted site data, since it's just "what am I looking
-   *  at right now." */
+   *  toggle (see the Devices panel), not persisted site data. */
   coverageDeviceIds: ReadonlySet<string>;
+  /** True to draw ONE combined raster across every device in the site at once (best coverage
+   *  wins per cell) instead of - or alongside - the independent per-device overlays above. */
+  showCombinedCoverage: boolean;
+}
+
+function lobeGeoJson(device: SiteDevice): Feature<Polygon> {
+  return { type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [lobeOutline(device)] } };
 }
 
 /**
- * The Cesium viewer lifecycle for Ground Station's planning map: camera locked to a top-down
- * view (tilt disabled - this is a planning tool, not a flight-review 3D view), a "Set Home"
- * click-to-place mode, a right-click hook for placing beacons/antennas, the home/device marker
- * + coverage-lobe lifecycle, and a per-device line-of-sight coverage raster (computeCoverageRaster
- * in coverageRaster.ts) drawn as ONE ground-draped image per toggled device - deliberately not
- * one Cesium entity per grid cell, which is the standard way this kind of overlay becomes a real
- * rendering-performance problem; see the Ground Station plan's own flagged risk for this phase.
+ * The MapLibre viewer lifecycle for Ground Station's planning map: a plain 2D top-down view
+ * (MapLibre has no tilt to lock in the first place, unlike the Cesium 3D globe this replaced),
+ * OpenFreeMap for the base layer and AWS's public Terrarium tiles for terrain elevation - both
+ * free with no API key, removing the token-entry step this page needed through Phase 3.
+ *
+ * Every marker (home, beacon, antenna) is draggable and clickable - dragging re-samples terrain
+ * for the new position (see onDeviceMoved), clicking selects a device. A right-click anywhere
+ * opens the beacon/antenna placement popup the component renders. Each device's coverage raster
+ * (computeCoverageRaster in coverageRaster.ts) is drawn as ONE MapLibre image source per toggled
+ * device, not one feature per grid cell - deliberately avoided for the same rendering-cost reason
+ * the Cesium version avoided one-entity-per-cell.
  */
 export function useGroundStationMapViewer({
-  token,
   home,
   placingHome,
   onPlaceHome,
   devices,
   selectedDeviceId,
+  onSelectDevice,
+  onDeviceMoved,
   onMapRightClick,
   coverageDeviceIds,
+  showCombinedCoverage,
 }: UseGroundStationMapViewerOptions) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const viewerRef = useRef<Viewer | null>(null);
-  const homeMarkerRef = useRef<Entity | null>(null);
-  const deviceEntitiesRef = useRef(new Map<string, { marker: Entity; lobe: Entity }>());
-  const coverageEntitiesRef = useRef(new Map<string, { entity: Entity; deviceKey: string }>());
+  const mapRef = useRef<MapLibreMap | null>(null);
+  // MapLibre's Map has no public "was this instance removed" query (unlike Cesium's own
+  // isDestroyed()) - tracked ourselves instead of reaching for the underscore-prefixed internal
+  // `map._removed` field, so an in-flight terrain sample from a since-unmounted map doesn't call
+  // back into stale state.
+  const removedRef = useRef(false);
+  const [styleLoaded, setStyleLoaded] = useState(false);
+  const homeMarkerRef = useRef<Marker | null>(null);
+  const deviceMarkersRef = useRef(new Map<string, Marker>());
+  const coverageLayersRef = useRef(new Map<string, { deviceKey: string }>());
   const [coverageLoadingIds, setCoverageLoadingIds] = useState<ReadonlySet<string>>(new Set());
-  // Mirrors the latest placingHome/onPlaceHome/onMapRightClick for the click handlers' closures
-  // below, which are set up once per Cesium viewer lifetime (see the token-keyed effect), not
-  // per render - same pattern LiveMapSection/useMissionMapViewer already use for their own
-  // map-click handlers.
+  const combinedCoverageKeyRef = useRef<string | null>(null);
+  const [combinedCoverageLoading, setCombinedCoverageLoading] = useState(false);
+
+  // Mirrors the latest callback/mode props for closures set up once per map lifetime (the
+  // load-once effect below), not per render - same pattern this hook's Cesium predecessor used.
   const placingHomeRef = useRef(placingHome);
   const onPlaceHomeRef = useRef(onPlaceHome);
   const onMapRightClickRef = useRef(onMapRightClick);
+  const onSelectDeviceRef = useRef(onSelectDevice);
+  const onDeviceMovedRef = useRef(onDeviceMoved);
+  // Read at drag time (not captured once when a marker's dragend handler is created, which can
+  // be long before a given drag happens) so an optimistic position update - see dragend below -
+  // preserves whatever altitude is CURRENTLY stored, not a stale one from marker-creation time.
+  const homeRef = useRef(home);
+  const devicesRef = useRef(devices);
   useEffect(() => {
     placingHomeRef.current = placingHome;
     onPlaceHomeRef.current = onPlaceHome;
     onMapRightClickRef.current = onMapRightClick;
-  }, [placingHome, onPlaceHome, onMapRightClick]);
+    onSelectDeviceRef.current = onSelectDevice;
+    onDeviceMovedRef.current = onDeviceMoved;
+    homeRef.current = home;
+    devicesRef.current = devices;
+  }, [placingHome, onPlaceHome, onMapRightClick, onSelectDevice, onDeviceMoved, home, devices]);
 
   useEffect(() => {
-    if (token) Ion.defaultAccessToken = token;
-  }, [token]);
-
-  useEffect(() => {
-    if (!token || !containerRef.current) return;
-    const viewer = new Viewer(containerRef.current, {
-      terrain: Terrain.fromWorldTerrain(),
-      timeline: false,
-      animation: false,
-      baseLayerPicker: false,
-      geocoder: false,
-      homeButton: false,
-      sceneModePicker: false,
-      navigationHelpButton: false,
-      fullscreenButton: false,
+    if (!containerRef.current) return;
+    const map = new MapLibreMap({
+      container: containerRef.current,
+      style: STYLE_URL,
+      center: DEFAULT_CENTER,
+      zoom: DEFAULT_ZOOM,
+      // A planning tool wants precise top-down placement, not 3D navigation - maxPitch: 0 makes
+      // tilting impossible outright, rather than resetting it after the fact.
+      maxPitch: 0,
+      attributionControl: { compact: true },
     });
-    viewerRef.current = viewer;
+    map.dragRotate.disable();
+    map.touchZoomRotate.disableRotation();
+    mapRef.current = map;
 
-    // Locks the view to straight-down (a planning task wants precise placement, not 3D
-    // navigation) - disabling tilt keeps every future pan/zoom gesture from ever leaving this
-    // orientation, rather than just setting it once and letting the user tilt away again.
-    viewer.scene.screenSpaceCameraController.enableTilt = false;
-    viewer.camera.setView({ orientation: { heading: 0, pitch: CesiumMath.toRadians(-90), roll: 0 } });
+    // The container is positioned via `absolute inset-0` inside a flex layout - if its parent
+    // hasn't finished sizing itself yet at the exact moment this effect runs (a real, commonly
+    // hit MapLibre/Mapbox GL timing issue), the map can construct against a 0x0 (or otherwise
+    // stale) container size and never repaint correctly afterward without an explicit resize().
+    // A ResizeObserver catches both that initial case and any later layout change (sidebar
+    // width changing, window resize) uniformly.
+    const resizeObserver = new ResizeObserver(() => map.resize());
+    resizeObserver.observe(containerRef.current);
 
-    const handler = new ScreenSpaceEventHandler(viewer.scene.canvas);
-    handler.setInputAction((movement: ScreenSpaceEventHandler.PositionedEvent) => {
+    map.on("load", () => {
+      map.addSource("terrain-dem", { type: "raster-dem", tiles: [TERRAIN_TILE_URL], tileSize: 256, encoding: "terrarium" });
+      map.addLayer({ id: "hillshade", type: "hillshade", source: "terrain-dem", paint: { "hillshade-exaggeration": 0.3 } });
+      setStyleLoaded(true);
+    });
+
+    map.on("click", (e: MapMouseEvent) => {
       if (!placingHomeRef.current) return;
-      const picked = pickLatLon(viewer, movement.position);
-      if (!picked) return;
-      void sampleTerrainMostDetailed(viewer.terrainProvider, [Cartographic.fromDegrees(picked.lon, picked.lat)]).then(([sample]) => {
-        // The viewer this closure captured may have been destroyed (token cleared, or this
-        // whole map unmounted) while the terrain sample was still in flight - see the fixed
-        // bug in LiveMapSection.tsx for why this check matters.
-        if (viewer.isDestroyed()) return;
-        onPlaceHomeRef.current({ lat: picked.lat, lon: picked.lon, altitudeM: sample?.height ?? 0 });
+      const { lng, lat } = e.lngLat;
+      void sampleTerrainElevations([{ lat, lon: lng }]).then(([height]) => {
+        // The map this closure captured may have been removed (unmount) while the terrain
+        // sample was still in flight.
+        if (removedRef.current) return;
+        onPlaceHomeRef.current({ lat, lon: lng, altitudeM: height ?? 0 });
       });
-    }, ScreenSpaceEventType.LEFT_CLICK);
+    });
 
-    // Right-click always opens the beacon/antenna popup, independent of "Set Home" mode - the
-    // same interaction LiveMapSection's own Fly-to/Set-home-here menu uses, rather than a
-    // second explicit toggle button.
-    handler.setInputAction((movement: ScreenSpaceEventHandler.PositionedEvent) => {
-      const picked = pickLatLon(viewer, movement.position);
-      if (!picked) return;
-      onMapRightClickRef.current(movement.position.x, movement.position.y, picked.lat, picked.lon);
-    }, ScreenSpaceEventType.RIGHT_CLICK);
+    map.on("contextmenu", (e: MapMouseEvent) => {
+      e.preventDefault();
+      onMapRightClickRef.current({ screenX: e.point.x, screenY: e.point.y, lat: e.lngLat.lat, lon: e.lngLat.lng });
+    });
 
-    // Captured once per effect run (the ref's own Map identity never changes after useRef's
-    // initial value, only its contents do) so the cleanup below reads a value React's linter
-    // can prove hasn't been reassigned out from under it, rather than `.current` at cleanup time.
-    const deviceEntities = deviceEntitiesRef.current;
-    const coverageEntities = coverageEntitiesRef.current;
+    // Captured once per effect run (the refs' own Map identities never change after useRef's
+    // initial value, only their contents do) so the cleanup below reads values React's linter
+    // can prove haven't been reassigned out from under it, rather than `.current` at cleanup time.
+    const deviceMarkers = deviceMarkersRef.current;
+    const coverageLayers = coverageLayersRef.current;
     return () => {
-      handler.destroy();
-      viewer.destroy();
-      viewerRef.current = null;
+      removedRef.current = true;
+      resizeObserver.disconnect();
+      map.remove();
+      mapRef.current = null;
       homeMarkerRef.current = null;
-      deviceEntities.clear();
-      coverageEntities.clear();
+      deviceMarkers.clear();
+      coverageLayers.clear();
+      combinedCoverageKeyRef.current = null;
+      setStyleLoaded(false);
     };
-  }, [token]);
+  }, []);
 
   // Draws/updates the home marker - flies the camera there only the first time a marker is
-  // created (a brand new site starts at Cesium's own default world view, which is nowhere near
-  // the real site), not on every later edit (re-placing home, or just tweaking the altitude
-  // override), which would otherwise yank the camera away from wherever the user is looking.
+  // created (a brand new site starts at a neutral world view, nowhere near the real site), not
+  // on every later edit (re-placing home, or a drag), which would otherwise yank the camera away
+  // from wherever the user is looking.
   useEffect(() => {
-    const viewer = viewerRef.current;
-    if (!viewer) return;
+    const map = mapRef.current;
+    if (!map || !styleLoaded) return;
     if (!home) {
-      if (homeMarkerRef.current) {
-        viewer.entities.remove(homeMarkerRef.current);
-        homeMarkerRef.current = null;
-      }
+      homeMarkerRef.current?.remove();
+      homeMarkerRef.current = null;
       return;
     }
-    const position = Cartesian3.fromDegrees(home.lon, home.lat, home.altitudeM);
+    const lngLat: LngLatLike = [home.lon, home.lat];
     if (!homeMarkerRef.current) {
-      homeMarkerRef.current = viewer.entities.add({
-        position,
-        billboard: { image: HOME_ICON, width: 28, height: 28 },
+      const marker = new Marker({ element: markerElement(HOME_SVG, 28), draggable: true, anchor: "center" }).setLngLat(lngLat).addTo(map);
+      marker.on("dragend", () => {
+        const { lng, lat } = marker.getLngLat();
+        // Apply the new position immediately (keeping the current altitude) rather than waiting
+        // on the terrain sample below - otherwise any OTHER store update that happens to land
+        // first (anything at all that re-runs this hook's home-drawing effect) re-syncs this
+        // marker back to the pre-drag position still sitting in the store, visibly snapping it
+        // backward for as long as the network round-trip takes. Altitude then corrects itself
+        // once the real sample resolves, invisibly (it doesn't affect the marker's position or
+        // any other visible element).
+        onPlaceHomeRef.current({ lat, lon: lng, altitudeM: homeRef.current?.altitudeM ?? 0 });
+        void sampleTerrainElevations([{ lat, lon: lng }]).then(([height]) => {
+          if (removedRef.current) return;
+          onPlaceHomeRef.current({ lat, lon: lng, altitudeM: height ?? 0 });
+        });
       });
-      viewer.camera.flyTo({ destination: Cartesian3.fromDegrees(home.lon, home.lat, home.altitudeM + HOME_REVEAL_HEIGHT_M) });
+      homeMarkerRef.current = marker;
+      map.flyTo({ center: lngLat, zoom: HOME_REVEAL_ZOOM });
     } else {
-      homeMarkerRef.current.position = new ConstantPositionProperty(position);
+      homeMarkerRef.current.setLngLat(lngLat);
     }
-  }, [home]);
+  }, [home, styleLoaded]);
 
   // Redraws every device's marker + coverage-lobe outline from scratch's worth of data on every
-  // devices/selection change - these lists are small (tens of devices, not thousands), so
-  // there's no real cost to this over hand-rolled diffing (matches useMissionMapViewer's own
-  // reasoning for its marker/path redraw).
+  // devices/selection change - small lists (tens of devices, not thousands), so no real cost
+  // over hand-rolled diffing.
   useEffect(() => {
-    const viewer = viewerRef.current;
-    if (!viewer) return;
+    const map = mapRef.current;
+    if (!map || !styleLoaded) return;
 
     const seen = new Set(devices.map((d) => d.id));
-    for (const [id, entities] of deviceEntitiesRef.current) {
+    for (const [id, marker] of deviceMarkersRef.current) {
       if (seen.has(id)) continue;
-      viewer.entities.remove(entities.marker);
-      viewer.entities.remove(entities.lobe);
-      deviceEntitiesRef.current.delete(id);
+      marker.remove();
+      deviceMarkersRef.current.delete(id);
+      removeLobeLayers(map, id);
     }
 
     for (const device of devices) {
-      const baseColor = device.kind === "beacon" ? BEACON_COLOR : ANTENNA_COLOR;
       const isSelected = device.id === selectedDeviceId;
-      const position = Cartesian3.fromDegrees(device.lon, device.lat, device.altitudeM);
-      const hierarchy = new PolygonHierarchy(Cartesian3.fromDegreesArray(lobeOutline(device).flat()));
-      const fill = baseColor.withAlpha(isSelected ? 0.45 : 0.22);
-      const outlineColor = isSelected ? Color.WHITE : baseColor;
+      const baseColor = device.kind === "beacon" ? BEACON_COLOR : ANTENNA_COLOR;
+      const lngLat: LngLatLike = [device.lon, device.lat];
+      const geoJson = lobeGeoJson(device);
 
-      const existing = deviceEntitiesRef.current.get(device.id);
-      if (!existing) {
-        const marker = viewer.entities.add({
-          position,
-          billboard: { image: device.kind === "beacon" ? BEACON_ICON : ANTENNA_ICON, width: 22, height: 22 },
+      const source = map.getSource<GeoJSONSource>(lobeSourceId(device.id));
+      if (!source) {
+        map.addSource(lobeSourceId(device.id), { type: "geojson", data: geoJson });
+        map.addLayer({
+          id: lobeFillLayerId(device.id),
+          type: "fill",
+          source: lobeSourceId(device.id),
+          paint: { "fill-color": baseColor, "fill-opacity": isSelected ? 0.45 : 0.22 },
         });
-        const lobe = viewer.entities.add({
-          polygon: { hierarchy, material: new ColorMaterialProperty(fill), outline: true, outlineColor },
+        map.addLayer({
+          id: lobeLineLayerId(device.id),
+          type: "line",
+          source: lobeSourceId(device.id),
+          paint: { "line-color": isSelected ? "#ffffff" : baseColor, "line-width": 2 },
         });
-        deviceEntitiesRef.current.set(device.id, { marker, lobe });
       } else {
-        existing.marker.position = new ConstantPositionProperty(position);
-        if (existing.lobe.polygon) {
-          existing.lobe.polygon.hierarchy = new ConstantProperty(hierarchy);
-          existing.lobe.polygon.material = new ColorMaterialProperty(fill);
-          existing.lobe.polygon.outlineColor = new ConstantProperty(outlineColor);
-        }
+        void source.setData(geoJson);
+        map.setPaintProperty(lobeFillLayerId(device.id), "fill-opacity", isSelected ? 0.45 : 0.22);
+        map.setPaintProperty(lobeLineLayerId(device.id), "line-color", isSelected ? "#ffffff" : baseColor);
+      }
+
+      const existingMarker = deviceMarkersRef.current.get(device.id);
+      if (!existingMarker) {
+        const element = markerElement(device.kind === "beacon" ? BEACON_SVG : ANTENNA_SVG, 22);
+        element.addEventListener("click", (e) => {
+          e.stopPropagation();
+          onSelectDeviceRef.current(device.id);
+        });
+        const marker = new Marker({ element, draggable: true, anchor: "center" }).setLngLat(lngLat).addTo(map);
+        marker.on("dragend", () => {
+          const { lng, lat } = marker.getLngLat();
+          // Same "apply position immediately, correct altitude afterward" reasoning as the home
+          // marker's own dragend handler above - without this, any OTHER store update landing
+          // before this terrain sample resolves (a preset change, editing a different field,
+          // even another device's own drag) re-runs this effect and calls existingMarker.
+          // setLngLat() with the pre-drag position still sitting in the store, visibly snapping
+          // this marker (and its lobe, computed from the same stale device object) backward for
+          // as long as the network round-trip takes - confirmed live as "dragging then changing
+          // the preset teleports it back."
+          const currentAltitude = devicesRef.current.find((d) => d.id === device.id)?.altitudeM ?? device.altitudeM;
+          onDeviceMovedRef.current(device.id, lat, lng, currentAltitude);
+          void sampleTerrainElevations([{ lat, lon: lng }]).then(([height]) => {
+            if (removedRef.current) return;
+            onDeviceMovedRef.current(device.id, lat, lng, height ?? 0);
+          });
+        });
+        deviceMarkersRef.current.set(device.id, marker);
+      } else {
+        existingMarker.setLngLat(lngLat);
       }
     }
-  }, [devices, selectedDeviceId]);
+  }, [devices, selectedDeviceId, styleLoaded]);
 
   // Computes (or re-computes, if the device's own coverage-relevant fields changed since the
   // last draw) and draws a line-of-sight coverage raster for every device currently toggled on,
-  // and removes any raster that got toggled off or whose device no longer exists. Each device's
-  // raster is ONE ground-draped image entity, not one entity per grid cell - see this hook's own
-  // doc comment for why that matters.
+  // and removes any raster that got toggled off or whose device no longer exists.
   useEffect(() => {
-    const viewer = viewerRef.current;
-    if (!viewer) return;
+    const map = mapRef.current;
+    if (!map || !styleLoaded) return;
 
-    for (const [deviceId, { entity }] of coverageEntitiesRef.current) {
+    for (const [deviceId] of coverageLayersRef.current) {
       if (coverageDeviceIds.has(deviceId) && devices.some((d) => d.id === deviceId)) continue;
-      viewer.entities.remove(entity);
-      coverageEntitiesRef.current.delete(deviceId);
+      removeCoverageLayer(map, deviceId);
+      coverageLayersRef.current.delete(deviceId);
     }
 
     for (const deviceId of coverageDeviceIds) {
       const device = devices.find((d) => d.id === deviceId);
       if (!device) continue;
       const key = coverageDeviceKey(device);
-      const existing = coverageEntitiesRef.current.get(deviceId);
+      const existing = coverageLayersRef.current.get(deviceId);
       if (existing?.deviceKey === key) continue;
 
       setCoverageLoadingIds((prev) => new Set(prev).add(deviceId));
-      void computeCoverageRaster({ device, sampleTerrain: (points) => sampleTerrainBatch(viewer, points) }).then((raster) => {
-        // Same stale-async guard as Set-Home/sampleAltitude above, plus two more ways this
-        // specific result can now be outdated: the device was toggled back off, or its fields
-        // (range, pattern, ...) changed again while this batch was still in flight.
+      void computeCoverageRaster({ device, sampleTerrain: sampleTerrainElevations }).then((raster) => {
         setCoverageLoadingIds((prev) => {
           const next = new Set(prev);
           next.delete(deviceId);
           return next;
         });
-        if (viewer.isDestroyed() || !coverageDeviceIds.has(deviceId)) return;
+        // Same stale-async guard family as elsewhere in this hook, plus two more ways this
+        // specific result can now be outdated: toggled back off, or the device's fields changed
+        // again while this batch was still in flight.
+        if (removedRef.current || !coverageDeviceIds.has(deviceId)) return;
         const currentDevice = devices.find((d) => d.id === deviceId);
         if (!currentDevice || coverageDeviceKey(currentDevice) !== key) return;
 
-        const previous = coverageEntitiesRef.current.get(deviceId);
-        if (previous) viewer.entities.remove(previous.entity);
-        const entity = viewer.entities.add({
-          rectangle: { coordinates: coverageBounds(device), material: new ImageMaterialProperty({ image: rasterToCanvas(raster) }) },
-        });
-        coverageEntitiesRef.current.set(deviceId, { entity, deviceKey: key });
+        removeCoverageLayer(map, deviceId);
+        const canvas = cellsToCanvas(raster.cells, raster.gridResolution, raster.gridResolution);
+        map.addSource(coverageSourceId(deviceId), { type: "image", url: canvas.toDataURL(), coordinates: coverageCorners(device) });
+        map.addLayer({ id: coverageLayerId(deviceId), type: "raster", source: coverageSourceId(deviceId), paint: { "raster-opacity": 1 } });
+        coverageLayersRef.current.set(deviceId, { deviceKey: key });
       });
     }
-  }, [devices, coverageDeviceIds]);
+  }, [devices, coverageDeviceIds, styleLoaded]);
 
-  // Samples the real terrain height at a clicked point, for the caller to build a new device
-  // from - same terrain-sampling technique as the Set-Home flow above, just returned to the
-  // caller (the context menu's "Add beacon/antenna here" click) instead of firing a callback
-  // directly, since device placement also needs to pick a kind and a default preset.
+  // Computes (or re-computes, if any device's own coverage-relevant fields changed) ONE combined
+  // best-coverage-wins raster across every device in the site - see computeCombinedCoverageRaster
+  // in coverageRaster.ts for why this needs its own bounding box/grid rather than reusing the
+  // per-device raster above.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleLoaded) return;
+
+    if (!showCombinedCoverage || devices.length === 0) {
+      removeCombinedCoverageLayer(map);
+      combinedCoverageKeyRef.current = null;
+      return;
+    }
+
+    const key = devices.map(coverageDeviceKey).join(";");
+    if (combinedCoverageKeyRef.current === key) return;
+
+    setCombinedCoverageLoading(true);
+    void computeCombinedCoverageRaster({ devices, sampleTerrain: sampleTerrainElevations }).then((raster) => {
+      setCombinedCoverageLoading(false);
+      // Same stale-async guard family as the per-device coverage effect above.
+      if (removedRef.current || !showCombinedCoverage) return;
+      if (devices.map(coverageDeviceKey).join(";") !== key) return;
+
+      removeCombinedCoverageLayer(map);
+      if (raster.cells.length === 0) return;
+      const canvas = cellsToCanvas(raster.cells, raster.rows, raster.cols);
+      map.addSource(COMBINED_COVERAGE_SOURCE_ID, { type: "image", url: canvas.toDataURL(), coordinates: raster.corners });
+      map.addLayer({ id: COMBINED_COVERAGE_LAYER_ID, type: "raster", source: COMBINED_COVERAGE_SOURCE_ID, paint: { "raster-opacity": 1 } });
+      combinedCoverageKeyRef.current = key;
+    });
+  }, [devices, showCombinedCoverage, styleLoaded]);
+
   async function sampleAltitude(lat: number, lon: number): Promise<number> {
-    const viewer = viewerRef.current;
-    if (!viewer) return 0;
-    const [sample] = await sampleTerrainMostDetailed(viewer.terrainProvider, [Cartographic.fromDegrees(lon, lat)]);
-    return sample?.height ?? 0;
+    const [height] = await sampleTerrainElevations([{ lat, lon }]);
+    return height ?? 0;
   }
 
-  return { containerRef, sampleAltitude, coverageLoadingIds };
+  return { containerRef, sampleAltitude, coverageLoadingIds, combinedCoverageLoading };
+}
+
+function lobeSourceId(deviceId: string) {
+  return `device-lobe-${deviceId}`;
+}
+function lobeFillLayerId(deviceId: string) {
+  return `device-lobe-fill-${deviceId}`;
+}
+function lobeLineLayerId(deviceId: string) {
+  return `device-lobe-line-${deviceId}`;
+}
+function coverageSourceId(deviceId: string) {
+  return `device-coverage-${deviceId}`;
+}
+function coverageLayerId(deviceId: string) {
+  return `device-coverage-layer-${deviceId}`;
+}
+const COMBINED_COVERAGE_SOURCE_ID = "combined-coverage";
+const COMBINED_COVERAGE_LAYER_ID = "combined-coverage-layer";
+
+function removeLobeLayers(map: MapLibreMap, deviceId: string) {
+  if (map.getLayer(lobeFillLayerId(deviceId))) map.removeLayer(lobeFillLayerId(deviceId));
+  if (map.getLayer(lobeLineLayerId(deviceId))) map.removeLayer(lobeLineLayerId(deviceId));
+  if (map.getSource(lobeSourceId(deviceId))) map.removeSource(lobeSourceId(deviceId));
+}
+
+function removeCoverageLayer(map: MapLibreMap, deviceId: string) {
+  if (map.getLayer(coverageLayerId(deviceId))) map.removeLayer(coverageLayerId(deviceId));
+  if (map.getSource(coverageSourceId(deviceId))) map.removeSource(coverageSourceId(deviceId));
+}
+
+function removeCombinedCoverageLayer(map: MapLibreMap) {
+  if (map.getLayer(COMBINED_COVERAGE_LAYER_ID)) map.removeLayer(COMBINED_COVERAGE_LAYER_ID);
+  if (map.getSource(COMBINED_COVERAGE_SOURCE_ID)) map.removeSource(COMBINED_COVERAGE_SOURCE_ID);
 }
 
 /** Every field a coverage raster's shape/classification actually depends on - used to tell "the
@@ -319,39 +463,45 @@ function coverageDeviceKey(device: SiteDevice): string {
   return [device.lat, device.lon, device.altitudeM, device.pattern, device.rangeM, device.bearingDeg, device.beamwidthDeg].join("|");
 }
 
-async function sampleTerrainBatch(viewer: Viewer, points: { lat: number; lon: number }[]): Promise<number[]> {
-  const cartographics = points.map((p) => Cartographic.fromDegrees(p.lon, p.lat));
-  const samples = await sampleTerrainMostDetailed(viewer.terrainProvider, cartographics);
-  return samples.map((s) => s?.height ?? 0);
+/** The four corners of a device's raster in MapLibre's own image-source order (top-left,
+ *  top-right, bottom-right, bottom-left) - the same square area (rangeM in every cardinal
+ *  direction) the raster's own grid was sampled over, so the drawn image lines up with the
+ *  cells it was built from. */
+function coverageCorners(
+  device: Pick<SiteDevice, "lat" | "lon" | "rangeM">,
+): [[number, number], [number, number], [number, number], [number, number]] {
+  const metersPerDegLat = 111_320;
+  const metersPerDegLon = 111_320 * Math.cos((device.lat * Math.PI) / 180);
+  const dLat = device.rangeM / metersPerDegLat;
+  const dLon = device.rangeM / metersPerDegLon;
+  const north = device.lat + dLat;
+  const south = device.lat - dLat;
+  const west = device.lon - dLon;
+  const east = device.lon + dLon;
+  return [
+    [west, north],
+    [east, north],
+    [east, south],
+    [west, south],
+  ];
 }
 
-/** The square area a device's raster was sampled over - the same `rangeM` offset in every
- *  cardinal direction the raster's own grid spans (see coverageRaster.ts's cell-placement math),
- *  so the drawn image lines up exactly with the cells it was built from. */
-function coverageBounds(device: Pick<SiteDevice, "lat" | "lon" | "rangeM">): Rectangle {
-  const north = destinationPoint(device.lat, device.lon, 0, device.rangeM);
-  const east = destinationPoint(device.lat, device.lon, 90, device.rangeM);
-  const south = destinationPoint(device.lat, device.lon, 180, device.rangeM);
-  const west = destinationPoint(device.lat, device.lon, 270, device.rangeM);
-  return Rectangle.fromDegrees(west.lon, south.lat, east.lon, north.lat);
-}
-
-// Translucent, matching the device lobe outline's own alpha convention - this is a coverage
-// overlay drawn ON TOP of that lobe, not a replacement for it.
-const COVERAGE_ALPHA = 140;
-
-function rasterToCanvas(raster: CoverageRaster): HTMLCanvasElement {
+/** Rasterizes a set of classified cells into a canvas image, one pixel per cell - shared by the
+ *  single-device raster (a square `gridResolution x gridResolution` grid) and the combined
+ *  multi-device raster (a `rows x cols` grid that isn't necessarily square), since both produce
+ *  the same `CoverageCell` shape and only differ in grid dimensions. */
+function cellsToCanvas(cells: CoverageCell[], rows: number, cols: number): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
-  canvas.width = raster.gridResolution;
-  canvas.height = raster.gridResolution;
+  canvas.width = cols;
+  canvas.height = rows;
   const ctx = canvas.getContext("2d")!;
-  const image = ctx.createImageData(raster.gridResolution, raster.gridResolution);
-  for (const cell of raster.cells) {
+  const image = ctx.createImageData(cols, rows);
+  for (const cell of cells) {
     const [r, g, b] = COVERAGE_COLORS[cell.level];
     // Image data's row 0 is the top of the canvas; coverageRaster's row 0 is the south edge -
-    // flipped here so the drawn image isn't mirrored north-to-south once draped on the map.
-    const imageRow = raster.gridResolution - 1 - cell.row;
-    const idx = (imageRow * raster.gridResolution + cell.col) * 4;
+    // flipped here so the drawn image isn't mirrored north-to-south once placed on the map.
+    const imageRow = rows - 1 - cell.row;
+    const idx = (imageRow * cols + cell.col) * 4;
     image.data[idx] = r;
     image.data[idx + 1] = g;
     image.data[idx + 2] = b;

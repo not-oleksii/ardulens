@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanTrack, destinationPoint, haversine, median, trackStats } from "../geo";
+import { bearingBetween, cleanTrack, destinationPoint, haversine, median, trackStats } from "../geo";
 import type { Flight } from "../../../types";
 
 describe("haversine", () => {
@@ -30,6 +30,21 @@ describe("destinationPoint", () => {
   it("round-trips with haversine - the distance to the computed destination matches the input", () => {
     const dest = destinationPoint(50, 30, 137, 5_000);
     expect(haversine(50, 30, dest.lat, dest.lon)).toBeCloseTo(5_000, 0);
+  });
+});
+
+describe("bearingBetween", () => {
+  it("a point due north reads as bearing 0", () => {
+    expect(bearingBetween(0, 0, 1, 0)).toBeCloseTo(0, 1);
+  });
+
+  it("a point due east reads as bearing 90", () => {
+    expect(bearingBetween(0, 0, 0, 1)).toBeCloseTo(90, 1);
+  });
+
+  it("round-trips with destinationPoint - the bearing to a computed destination matches the input", () => {
+    const dest = destinationPoint(50, 30, 210, 5_000);
+    expect(bearingBetween(50, 30, dest.lat, dest.lon)).toBeCloseTo(210, 0);
   });
 });
 

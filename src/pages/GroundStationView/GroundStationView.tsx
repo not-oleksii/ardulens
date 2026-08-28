@@ -1,13 +1,12 @@
-import { ArrowLeft, Check, MapPin, Pencil, Plus, Radio, RadioTower, Trash2, X } from "lucide-react";
+import { ArrowLeft, Check, ChevronsLeft, ChevronsRight, MapPin, Pencil, Plus, Radio, RadioTower, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { CESIUM_TOKEN_STORAGE_KEY } from "../../constants";
+import { cn } from "@/lib/utils";
 import { DEVICE_PRESETS, defaultPresetFor, presetsFor } from "../../stores/groundStationSitesStore/presets";
 import { useGroundStationSitesStore } from "../../stores/groundStationSitesStore/groundStationSitesStore";
 import type { DeviceKind, Site, SiteDevice } from "../../stores/groundStationSitesStore/types";
@@ -34,6 +33,7 @@ function SitesPanel() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [confirmDeleteSite, setConfirmDeleteSite] = useState<Site | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
 
   function openNewSiteDialog() {
     setNewSiteName("");
@@ -59,22 +59,49 @@ function SitesPanel() {
   }
 
   return (
-    <div className="flex w-64 shrink-0 flex-col gap-3 border-r border-border p-3">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-xs font-bold tracking-wide uppercase">{t("groundStation.sites.heading")}</h2>
-        <Button type="button" size="sm" variant="outline" onClick={openNewSiteDialog}>
-          <Plus className="h-4 w-4" />
-          {t("groundStation.sites.new")}
+    <div
+      className={cn(
+        "flex shrink-0 flex-col gap-3 border-r border-border p-3 transition-[width]",
+        collapsed ? "w-12 items-center px-2" : "w-64",
+      )}
+    >
+      <div className={cn("flex items-center gap-2", collapsed ? "flex-col" : "justify-between")}>
+        {!collapsed && <h2 className="text-xs font-bold tracking-wide uppercase">{t("groundStation.sites.heading")}</h2>}
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          aria-label={t(collapsed ? "sidebar.expand" : "sidebar.collapse")}
+          onClick={() => setCollapsed((v) => !v)}
+        >
+          {collapsed ? <ChevronsRight className="h-4 w-4" /> : <ChevronsLeft className="h-4 w-4" />}
         </Button>
+        {collapsed ? (
+          <Button
+            type="button"
+            size="icon"
+            variant="outline"
+            title={t("groundStation.sites.new")}
+            aria-label={t("groundStation.sites.new")}
+            onClick={openNewSiteDialog}
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
+        ) : (
+          <Button type="button" size="sm" variant="outline" onClick={openNewSiteDialog}>
+            <Plus className="h-4 w-4" />
+            {t("groundStation.sites.new")}
+          </Button>
+        )}
       </div>
 
       {sites.length === 0 ? (
-        <p className="text-xs text-muted-foreground">{t("groundStation.sites.empty")}</p>
+        !collapsed && <p className="text-xs text-muted-foreground">{t("groundStation.sites.empty")}</p>
       ) : (
-        <ul className="flex flex-col gap-1">
+        <ul className="flex w-full flex-col gap-1">
           {sites.map((site) => (
             <li key={site.id}>
-              {editingId === site.id ? (
+              {editingId === site.id && !collapsed ? (
                 <div className="flex items-center gap-1 rounded-md border border-border p-1">
                   <Input
                     autoFocus
@@ -95,36 +122,44 @@ function SitesPanel() {
                 </div>
               ) : (
                 <div
-                  className={`group flex items-center gap-1 rounded-md p-1 ${site.id === activeSiteId ? "bg-accent" : "hover:bg-accent/50"}`}
+                  className={cn(
+                    "group flex items-center gap-1 rounded-md p-1",
+                    site.id === activeSiteId ? "bg-accent" : "hover:bg-accent/50",
+                  )}
                 >
                   <button
                     type="button"
                     onClick={() => setActiveSite(site.id)}
-                    className="flex flex-1 items-center gap-1.5 truncate text-left text-sm"
+                    title={collapsed ? site.name : undefined}
+                    className={cn("flex flex-1 items-center gap-1.5 truncate text-left text-sm", collapsed && "justify-center")}
                   >
                     <MapPin className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    <span className="truncate">{site.name}</span>
+                    {!collapsed && <span className="truncate">{site.name}</span>}
                   </button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 w-6 shrink-0 p-0 opacity-0 group-hover:opacity-100"
-                    onClick={() => startRename(site)}
-                    aria-label={t("groundStation.sites.rename")}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 w-6 shrink-0 p-0 opacity-0 group-hover:opacity-100"
-                    onClick={() => setConfirmDeleteSite(site)}
-                    aria-label={t("groundStation.sites.delete")}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  {!collapsed && (
+                    <>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 w-6 shrink-0 p-0 opacity-0 group-hover:opacity-100"
+                        onClick={() => startRename(site)}
+                        aria-label={t("groundStation.sites.rename")}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 w-6 shrink-0 p-0 opacity-0 group-hover:opacity-100"
+                        onClick={() => setConfirmDeleteSite(site)}
+                        aria-label={t("groundStation.sites.delete")}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </>
+                  )}
                 </div>
               )}
             </li>
@@ -194,16 +229,17 @@ interface SiteMapProps {
 
 function SiteMap({ site, selectedDeviceId, onSelectDevice, coverageDeviceIds }: SiteMapProps) {
   const { t } = useTranslation();
-  const [token, setToken] = useState(() => localStorage.getItem(CESIUM_TOKEN_STORAGE_KEY) ?? "");
-  const [tokenInput, setTokenInput] = useState("");
   const [placingHome, setPlacingHome] = useState(false);
-  const [altitudeInput, setAltitudeInput] = useState("");
   const [contextMenu, setContextMenu] = useState<DeviceContextMenuState | null>(null);
+  // Local, not lifted to GroundStationView - this component is remounted per site (`key=` in
+  // the parent) already, so it naturally resets when switching sites without needing to be
+  // told to, same as this file's other local per-site view state.
+  const [showCombinedCoverage, setShowCombinedCoverage] = useState(false);
   const setHome = useGroundStationSitesStore((s) => s.setHome);
   const addDevice = useGroundStationSitesStore((s) => s.addDevice);
+  const updateDevice = useGroundStationSitesStore((s) => s.updateDevice);
 
-  const { containerRef, sampleAltitude, coverageLoadingIds } = useGroundStationMapViewer({
-    token,
+  const { containerRef, sampleAltitude, coverageLoadingIds, combinedCoverageLoading } = useGroundStationMapViewer({
     home: site.home,
     placingHome,
     onPlaceHome: (home) => {
@@ -212,8 +248,11 @@ function SiteMap({ site, selectedDeviceId, onSelectDevice, coverageDeviceIds }: 
     },
     devices: site.devices,
     selectedDeviceId,
-    onMapRightClick: (x, y, lat, lon) => setContextMenu({ x, y, lat, lon }),
+    onSelectDevice,
+    onDeviceMoved: (id, lat, lon, altitudeM) => updateDevice(site.id, id, { lat, lon, altitudeM }),
+    onMapRightClick: ({ screenX, screenY, lat, lon }) => setContextMenu({ x: screenX, y: screenY, lat, lon }),
     coverageDeviceIds,
+    showCombinedCoverage,
   });
 
   // Closes the context menu on Escape or a click anywhere else - a right-click that opens a NEW
@@ -235,26 +274,18 @@ function SiteMap({ site, selectedDeviceId, onSelectDevice, coverageDeviceIds }: 
     };
   }, [contextMenu]);
 
-  function saveToken() {
-    const trimmed = tokenInput.trim();
-    if (!trimmed) return;
-    localStorage.setItem(CESIUM_TOKEN_STORAGE_KEY, trimmed);
-    setToken(trimmed);
-  }
-
-  function commitAltitude() {
-    const parsed = Number(altitudeInput);
-    if (!site.home || !Number.isFinite(parsed)) return;
-    setHome(site.id, { ...site.home, altitudeM: parsed });
-  }
-
   async function handleAddDevice(kind: DeviceKind) {
     if (!contextMenu) return;
     const { lat, lon } = contextMenu;
     setContextMenu(null);
     const altitudeM = await sampleAltitude(lat, lon);
     const preset = defaultPresetFor(kind);
-    const index = site.devices.filter((d) => d.kind === kind).length + 1;
+    // Reads the store directly rather than the `site` prop, which reflects the render this
+    // closure was created from - placing two devices within the same terrain-sample round trip
+    // (a real, not just theoretical, timing window) would otherwise have BOTH calls see the same
+    // stale (pre-first-device) count and name themselves the same "Beacon 1"/"Antenna 1".
+    const currentDevices = useGroundStationSitesStore.getState().sites.find((s) => s.id === site.id)?.devices ?? [];
+    const index = currentDevices.filter((d) => d.kind === kind).length + 1;
     const id = addDevice(site.id, {
       kind,
       name: t(`groundStation.devices.defaultName.${kind}`, { index }),
@@ -270,41 +301,38 @@ function SiteMap({ site, selectedDeviceId, onSelectDevice, coverageDeviceIds }: 
     onSelectDevice(id);
   }
 
-  if (!token) {
-    return (
-      <div className="flex flex-1 flex-col gap-4 p-4">
-        <Alert variant="info">
-          <AlertDescription>
-            {t("map.token.intro")}{" "}
-            <a href="https://ion.cesium.com/tokens" target="_blank" rel="noreferrer" className="underline">
-              ion.cesium.com/tokens
-            </a>
-            . {t("map.token.instructions")}
-          </AlertDescription>
-        </Alert>
-        <div className="flex max-w-md gap-2">
-          <Input value={tokenInput} onChange={(e) => setTokenInput(e.target.value)} placeholder={t("map.token.placeholder")} />
-          <Button onClick={saveToken}>{t("map.token.save")}</Button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     // onContextMenu is suppressed so a right-click opens this page's own "Add beacon/antenna
     // here" popup instead of the browser's native context menu - same convention as
     // LiveMapSection's own right-click popup.
     <div className="relative flex-1" onContextMenu={(e) => e.preventDefault()}>
-      <div ref={containerRef} className="absolute inset-0" />
+      {/* h-full/w-full, not absolute+inset-0: MapLibre's own bundled CSS sets
+          `.maplibregl-map { position: relative; }` on this div (unlayered, so it beats any
+          Tailwind utility class regardless of specificity per CSS Cascade Layers rules) -
+          fighting that with `absolute` left `inset-0` a no-op, collapsing this div to 0 height
+          (width still filled, since a normal block element defaults to 100% of its parent's
+          width regardless of position). Percentage sizing doesn't care which position value
+          wins, so it works either way. */}
+      <div ref={containerRef} className="h-full w-full" />
       <div className="absolute inset-x-0 top-0 z-10 flex flex-wrap items-center justify-between gap-2 rounded-t-lg bg-card/90 px-3 py-2 shadow-sm backdrop-blur-sm">
         <div className="flex flex-wrap items-center gap-2">
           <Button type="button" size="sm" variant={placingHome ? "secondary" : "outline"} onClick={() => setPlacingHome((v) => !v)}>
             {t("groundStation.map.setHome")}
           </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={showCombinedCoverage ? "secondary" : "outline"}
+            disabled={site.devices.length === 0}
+            title={site.devices.length === 0 ? t("groundStation.devices.empty") : undefined}
+            onClick={() => setShowCombinedCoverage((v) => !v)}
+          >
+            {showCombinedCoverage ? t("groundStation.devices.hideCombinedCoverage") : t("groundStation.devices.showCombinedCoverage")}
+          </Button>
           {placingHome && <p className="text-xs text-muted-foreground">{t("groundStation.map.settingHomeHint")}</p>}
           {!site.home && !placingHome && <p className="text-xs text-muted-foreground">{t("groundStation.map.noHome")}</p>}
           <p className="text-xs text-muted-foreground">{t("groundStation.map.rightClickHint")}</p>
-          {coverageLoadingIds.size > 0 && (
+          {(coverageLoadingIds.size > 0 || combinedCoverageLoading) && (
             <p className="text-xs text-muted-foreground">{t("groundStation.devices.computingCoverage")}</p>
           )}
         </div>
@@ -313,21 +341,11 @@ function SiteMap({ site, selectedDeviceId, onSelectDevice, coverageDeviceIds }: 
             <span>
               {site.home.lat.toFixed(6)}, {site.home.lon.toFixed(6)}
             </span>
-            <label className="flex items-center gap-1">
-              {t("groundStation.map.homeAltitude")}
-              <Input
-                type="number"
-                value={altitudeInput || Math.round(site.home.altitudeM)}
-                onFocus={(e) => setAltitudeInput(e.target.value)}
-                onChange={(e) => setAltitudeInput(e.target.value)}
-                onBlur={() => {
-                  commitAltitude();
-                  setAltitudeInput("");
-                }}
-                onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-                className="h-6 w-20 font-mono text-xs"
-              />
-            </label>
+            <NumberField
+              label={t("groundStation.map.homeAltitude")}
+              displayValue={Math.round(site.home.altitudeM)}
+              onCommit={(v) => setHome(site.id, { ...site.home!, altitudeM: v })}
+            />
           </div>
         )}
       </div>
@@ -355,6 +373,43 @@ function SiteMap({ site, selectedDeviceId, onSelectDevice, coverageDeviceIds }: 
         </div>
       )}
     </div>
+  );
+}
+
+interface NumberFieldProps {
+  label: string;
+  displayValue: number;
+  onCommit: (value: number) => void;
+}
+
+/** A numeric field that commits on blur/Enter, not on every keystroke - unlike a plain
+ *  controlled input wired straight to the store, this doesn't re-trigger this device's coverage
+ *  raster (a real terrain-sampling batch, not free) after every single digit typed. Mirrors the
+ *  Set-Home altitude field's own local-draft-then-commit pattern above. */
+function NumberField({ label, displayValue, onCommit }: NumberFieldProps) {
+  // null (not "") means "not currently editing, show the real value" - an empty STRING is a
+  // real, valid mid-edit state (the user cleared the field to retype it from scratch), and
+  // falling back to displayValue for that case - what `draft || displayValue` used to do - made
+  // a cleared field immediately snap back to its old value, so the next keystroke appended onto
+  // it instead of replacing it.
+  const [draft, setDraft] = useState<string | null>(null);
+  return (
+    <label className="flex items-center justify-between gap-2 text-xs">
+      {label}
+      <Input
+        type="number"
+        value={draft ?? displayValue}
+        onFocus={(e) => setDraft(e.target.value)}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          const parsed = Number(draft);
+          if (draft !== null && draft !== "" && Number.isFinite(parsed)) onCommit(parsed);
+          setDraft(null);
+        }}
+        onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+        className="h-6 w-20 font-mono text-xs"
+      />
+    </label>
   );
 }
 
@@ -404,46 +459,26 @@ function DeviceProperties({ siteId, device, showingCoverage, onToggleCoverage }:
           </SelectContent>
         </Select>
       </label>
-      <label className="flex items-center justify-between gap-2 text-xs">
-        {t("groundStation.devices.range")}
-        <Input
-          type="number"
-          value={device.rangeM}
-          onChange={(e) => patchField({ rangeM: Number(e.target.value) || 0 })}
-          className="h-6 w-20 font-mono text-xs"
-        />
-      </label>
+      <NumberField label={t("groundStation.devices.range")} displayValue={device.rangeM} onCommit={(v) => patchField({ rangeM: v })} />
       {device.pattern !== "omni" && (
-        <label className="flex items-center justify-between gap-2 text-xs">
-          {t("groundStation.devices.bearing")}
-          <Input
-            type="number"
-            value={device.bearingDeg}
-            onChange={(e) => patchField({ bearingDeg: Number(e.target.value) || 0 })}
-            className="h-6 w-20 font-mono text-xs"
-          />
-        </label>
+        <NumberField
+          label={t("groundStation.devices.bearing")}
+          displayValue={device.bearingDeg}
+          onCommit={(v) => patchField({ bearingDeg: v })}
+        />
       )}
       {device.pattern === "directional" && (
-        <label className="flex items-center justify-between gap-2 text-xs">
-          {t("groundStation.devices.beamwidth")}
-          <Input
-            type="number"
-            value={device.beamwidthDeg}
-            onChange={(e) => patchField({ beamwidthDeg: Number(e.target.value) || 0 })}
-            className="h-6 w-20 font-mono text-xs"
-          />
-        </label>
-      )}
-      <label className="flex items-center justify-between gap-2 text-xs">
-        {t("groundStation.devices.altitude")}
-        <Input
-          type="number"
-          value={Math.round(device.altitudeM)}
-          onChange={(e) => patchField({ altitudeM: Number(e.target.value) || 0 })}
-          className="h-6 w-20 font-mono text-xs"
+        <NumberField
+          label={t("groundStation.devices.beamwidth")}
+          displayValue={device.beamwidthDeg}
+          onCommit={(v) => patchField({ beamwidthDeg: v })}
         />
-      </label>
+      )}
+      <NumberField
+        label={t("groundStation.devices.altitude")}
+        displayValue={Math.round(device.altitudeM)}
+        onCommit={(v) => patchField({ altitudeM: v })}
+      />
       <Button type="button" size="sm" variant={showingCoverage ? "secondary" : "outline"} onClick={onToggleCoverage}>
         {showingCoverage ? t("groundStation.devices.hideCoverage") : t("groundStation.devices.showCoverage")}
       </Button>
@@ -467,6 +502,7 @@ function DevicesPanel({ site, selectedDeviceId, onSelectDevice, coverageDeviceId
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [confirmDeleteDevice, setConfirmDeleteDevice] = useState<SiteDevice | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
 
   const selectedDevice = site.devices.find((d) => d.id === selectedDeviceId) ?? null;
 
@@ -482,16 +518,32 @@ function DevicesPanel({ site, selectedDeviceId, onSelectDevice, coverageDeviceId
   }
 
   return (
-    <div className="flex w-72 shrink-0 flex-col gap-3 overflow-y-auto border-l border-border p-3">
-      <h2 className="text-xs font-bold tracking-wide uppercase">{t("groundStation.devices.heading")}</h2>
+    <div
+      className={cn(
+        "flex shrink-0 flex-col gap-3 overflow-y-auto border-l border-border p-3 transition-[width]",
+        collapsed ? "w-12 items-center px-2" : "w-72",
+      )}
+    >
+      <div className={cn("flex items-center gap-2", collapsed ? "flex-col" : "justify-between")}>
+        {!collapsed && <h2 className="text-xs font-bold tracking-wide uppercase">{t("groundStation.devices.heading")}</h2>}
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          aria-label={t(collapsed ? "sidebar.expand" : "sidebar.collapse")}
+          onClick={() => setCollapsed((v) => !v)}
+        >
+          {collapsed ? <ChevronsLeft className="h-4 w-4" /> : <ChevronsRight className="h-4 w-4" />}
+        </Button>
+      </div>
 
       {site.devices.length === 0 ? (
-        <p className="text-xs text-muted-foreground">{t("groundStation.devices.empty")}</p>
+        !collapsed && <p className="text-xs text-muted-foreground">{t("groundStation.devices.empty")}</p>
       ) : (
-        <ul className="flex flex-col gap-1">
+        <ul className="flex w-full flex-col gap-1">
           {site.devices.map((device) => (
             <li key={device.id}>
-              {editingId === device.id ? (
+              {editingId === device.id && !collapsed ? (
                 <div className="flex items-center gap-1 rounded-md border border-border p-1">
                   <Input
                     autoFocus
@@ -512,43 +564,51 @@ function DevicesPanel({ site, selectedDeviceId, onSelectDevice, coverageDeviceId
                 </div>
               ) : (
                 <div
-                  className={`group flex items-center gap-1 rounded-md p-1 ${device.id === selectedDeviceId ? "bg-accent" : "hover:bg-accent/50"}`}
+                  className={cn(
+                    "group flex items-center gap-1 rounded-md p-1",
+                    device.id === selectedDeviceId ? "bg-accent" : "hover:bg-accent/50",
+                  )}
                 >
                   <button
                     type="button"
                     onClick={() => onSelectDevice(device.id === selectedDeviceId ? null : device.id)}
-                    className="flex flex-1 items-center gap-1.5 truncate text-left text-sm"
+                    title={collapsed ? device.name : undefined}
+                    className={cn("flex flex-1 items-center gap-1.5 truncate text-left text-sm", collapsed && "justify-center")}
                   >
                     {device.kind === "beacon" ? (
                       <Radio className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     ) : (
                       <RadioTower className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     )}
-                    <span className="truncate">{device.name}</span>
+                    {!collapsed && <span className="truncate">{device.name}</span>}
                   </button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 w-6 shrink-0 p-0 opacity-0 group-hover:opacity-100"
-                    onClick={() => startRename(device)}
-                    aria-label={t("groundStation.devices.rename")}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 w-6 shrink-0 p-0 opacity-0 group-hover:opacity-100"
-                    onClick={() => setConfirmDeleteDevice(device)}
-                    aria-label={t("groundStation.devices.delete")}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  {!collapsed && (
+                    <>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 w-6 shrink-0 p-0 opacity-0 group-hover:opacity-100"
+                        onClick={() => startRename(device)}
+                        aria-label={t("groundStation.devices.rename")}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 w-6 shrink-0 p-0 opacity-0 group-hover:opacity-100"
+                        onClick={() => setConfirmDeleteDevice(device)}
+                        aria-label={t("groundStation.devices.delete")}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </>
+                  )}
                 </div>
               )}
-              {selectedDevice?.id === device.id && (
+              {!collapsed && selectedDevice?.id === device.id && (
                 <DeviceProperties
                   siteId={site.id}
                   device={device}

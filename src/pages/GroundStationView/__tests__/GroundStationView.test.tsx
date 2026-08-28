@@ -1,73 +1,98 @@
 import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Cartesian3, ScreenSpaceEventType } from "cesium";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useGroundStationSitesStore } from "../../../stores/groundStationSitesStore/groundStationSitesStore";
 import { GroundStationView } from "../GroundStationView";
 
-// Same reasoning/mocking approach as LiveMapSection.test.tsx: Viewer/Terrain/
-// sampleTerrainMostDetailed/ScreenSpaceEventHandler do real WebGL/network/canvas work jsdom
-// can't provide, so only those are replaced.
-const { MockViewer, MockScreenSpaceEventHandler, viewerInstances, registeredHandlers } = vi.hoisted(() => {
-  class MockEntity {
-    position: unknown;
-    polygon?: Record<string, unknown>;
-    constructor(opts: Record<string, unknown>) {
-      Object.assign(this, opts);
+// maplibre-gl needs a real WebGL context jsdom can't provide, so the Map/Marker classes are
+// replaced with minimal stand-ins that track enough state (registered event handlers, added
+// sources/layers, marker positions) for these tests to drive and observe them - same reasoning
+// as this app's existing Cesium mocks (see LiveMapSection.test.tsx).
+const { MockMap, MockMarker, mapInstances } = vi.hoisted(() => {
+  type MapEventHandler = (e: { lngLat: { lat: number; lng: number }; point: { x: number; y: number }; preventDefault: () => void }) => void;
+
+  class MockMarker {
+    static instances: MockMarker[] = [];
+    element: HTMLElement;
+    lngLat = { lat: 0, lng: 0 };
+    dragHandler: (() => void) | null = null;
+    removed = false;
+    constructor(opts: { element: HTMLElement }) {
+      this.element = opts.element;
+      MockMarker.instances.push(this);
+    }
+    setLngLat([lng, lat]: [number, number]) {
+      this.lngLat = { lat, lng };
+      return this;
+    }
+    getLngLat() {
+      return this.lngLat;
+    }
+    addTo() {
+      return this;
+    }
+    on(event: string, cb: () => void) {
+      if (event === "dragend") this.dragHandler = cb;
+      return this;
+    }
+    remove() {
+      this.removed = true;
+      return this;
     }
   }
-  const viewerInstances: MockViewer[] = [];
-  // Keyed by ScreenSpaceEventType (LEFT_CLICK for Set Home, RIGHT_CLICK for the beacon/antenna
-  // popup) rather than a flat array - this hook registers both on the same handler instance, so
-  // "the last registered handler" no longer identifies which gesture a test means to simulate.
-  const registeredHandlers = new Map<number, (movement: { position: { x: number; y: number } }) => void>();
-  class MockViewer {
-    entities = {
-      add: vi.fn((opts: Record<string, unknown>) => new MockEntity(opts)),
-      remove: vi.fn(),
-    };
-    camera = { flyTo: vi.fn(), setView: vi.fn(), pickEllipsoid: vi.fn(), getPickRay: vi.fn() };
-    scene = { canvas: {}, globe: { ellipsoid: {}, pick: vi.fn() }, screenSpaceCameraController: { enableTilt: true } };
-    terrainProvider = {};
-    #destroyed = false;
-    destroy = vi.fn(() => {
-      this.#destroyed = true;
-    });
-    isDestroyed = vi.fn(() => this.#destroyed);
+
+  const mapInstances: MockMap[] = [];
+  class MockMap {
+    handlers = new Map<string, MapEventHandler>();
+    sources = new Map<string, { setData: ReturnType<typeof vi.fn> }>();
+    layers = new Set<string>();
+    dragRotate = { disable: vi.fn() };
+    touchZoomRotate = { disableRotation: vi.fn() };
+    flyTo = vi.fn();
+    remove = vi.fn();
+    setPaintProperty = vi.fn();
     constructor() {
-      viewerInstances.push(this);
+      mapInstances.push(this);
+    }
+    on(event: string, cb: MapEventHandler | (() => void)) {
+      if (event === "load") {
+        (cb as () => void)();
+        return;
+      }
+      this.handlers.set(event, cb);
+    }
+    addSource(id: string) {
+      this.sources.set(id, { setData: vi.fn(() => Promise.resolve()) });
+    }
+    getSource(id: string) {
+      return this.sources.get(id);
+    }
+    removeSource(id: string) {
+      this.sources.delete(id);
+    }
+    addLayer(opts: { id: string }) {
+      this.layers.add(opts.id);
+    }
+    getLayer(id: string) {
+      return this.layers.has(id) ? {} : undefined;
+    }
+    removeLayer(id: string) {
+      this.layers.delete(id);
     }
   }
-  class MockScreenSpaceEventHandler {
-    setInputAction(callback: (movement: { position: { x: number; y: number } }) => void, type: number) {
-      registeredHandlers.set(type, callback);
-    }
-    destroy = vi.fn();
-  }
-  return { MockViewer, MockScreenSpaceEventHandler, viewerInstances, registeredHandlers };
+  return { MockMap, MockMarker, mapInstances };
 });
 
-vi.mock("cesium", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("cesium")>();
-  return {
-    ...actual,
-    Viewer: MockViewer,
-    ScreenSpaceEventHandler: MockScreenSpaceEventHandler,
-    Terrain: { fromWorldTerrain: () => ({}) },
-    sampleTerrainMostDetailed: () => Promise.resolve([{ height: 123 }]),
-  };
-});
+vi.mock("maplibre-gl", () => ({ Map: MockMap, Marker: MockMarker, setWorkerUrl: vi.fn() }));
+// The hook's `?worker&url` import needs its own mock too - jsdom/Vitest doesn't run Vite's
+// asset-import pipeline, so this specifier would otherwise fail to resolve at all.
+vi.mock("maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url", () => ({ default: "mock-worker-url" }));
 
-// jsdom doesn't implement a real Canvas 2D context (no `canvas` native module in this project) -
-// the coverage raster's rasterToCanvas() only needs createImageData/putImageData to not throw,
-// not to actually rasterize anything, so a minimal stand-in is enough here.
-beforeEach(() => {
-  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
-    createImageData: (w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4) }),
-    putImageData: vi.fn(),
-  } as unknown as CanvasRenderingContext2D);
-});
+// Terrain sampling always returns a fixed 123m, regardless of how many points are asked for -
+// the tile-fetch/decode mechanics themselves are covered separately in terrainElevation.test.ts,
+// this file only needs to verify the UI wires the result through correctly.
+vi.mock("../terrainElevation", () => ({ sampleTerrainElevations: vi.fn((points: unknown[]) => Promise.resolve(points.map(() => 123))) }));
 
 function getView() {
   const user = userEvent.setup();
@@ -85,43 +110,37 @@ function getView() {
     await typeNewSiteName(name);
     await confirmNewSite();
   };
-  const typeToken = (text: string) => user.type(screen.getByPlaceholderText("Вставте сюди свій токен Cesium ion"), text);
-  const clickSaveToken = () => user.click(screen.getByRole("button", { name: "Зберегти" }));
   const clickSetHome = () => user.click(screen.getByRole("button", { name: "Встановити дім" }));
-  const getLastViewer = () => viewerInstances.at(-1)!;
+  const getLastMap = () => mapInstances.at(-1)!;
   const simulateMapClick = async (lat: number, lon: number) => {
-    getLastViewer().camera.pickEllipsoid.mockReturnValue(Cartesian3.fromDegrees(lon, lat, 0));
     await act(async () => {
-      registeredHandlers.get(ScreenSpaceEventType.LEFT_CLICK)?.({ position: { x: 10, y: 10 } });
-      // Flushes the mocked sampleTerrainMostDetailed() promise chain the click handler awaits.
+      getLastMap().handlers.get("click")?.({ lngLat: { lat, lng: lon }, point: { x: 10, y: 10 }, preventDefault: vi.fn() });
+      // Flushes the mocked sampleTerrainElevations() promise chain the click handler awaits.
       await Promise.resolve();
     });
   };
   const simulateMapRightClick = (lat: number, lon: number) => {
-    getLastViewer().camera.pickEllipsoid.mockReturnValue(Cartesian3.fromDegrees(lon, lat, 0));
-    // No promise chain to flush here (unlike the left-click/Set-Home handler above, this one
-    // only opens a synchronous context menu) - a plain sync `act` is enough.
     act(() => {
-      registeredHandlers.get(ScreenSpaceEventType.RIGHT_CLICK)?.({ position: { x: 10, y: 10 } });
+      getLastMap().handlers.get("contextmenu")?.({ lngLat: { lat, lng: lon }, point: { x: 10, y: 10 }, preventDefault: vi.fn() });
     });
   };
 
-  return {
-    user,
-    createSite,
-    typeToken,
-    clickSaveToken,
-    clickSetHome,
-    simulateMapClick,
-    simulateMapRightClick,
-  };
+  return { user, createSite, clickSetHome, simulateMapClick, simulateMapRightClick, getLastMap };
 }
 
 beforeEach(() => {
   localStorage.clear();
-  viewerInstances.length = 0;
-  registeredHandlers.clear();
+  mapInstances.length = 0;
+  MockMarker.instances.length = 0;
   useGroundStationSitesStore.setState({ sites: [], activeSiteId: null });
+  // jsdom doesn't implement a real Canvas 2D context (no `canvas` native module in this
+  // project) - the coverage raster's rasterToCanvas() only needs createImageData/putImageData/
+  // toDataURL to not throw, not to actually rasterize anything.
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+    createImageData: (w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4) }),
+    putImageData: vi.fn(),
+  } as unknown as CanvasRenderingContext2D);
+  vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue("data:image/png;base64,");
 });
 
 describe("GroundStationView", () => {
@@ -131,32 +150,19 @@ describe("GroundStationView", () => {
     expect(screen.getByText(/Виберіть або створіть майданчик/)).toBeInTheDocument();
   });
 
-  it("creating a site adds it to the list, makes it active, and shows the token gate", async () => {
+  it("creating a site adds it to the list, makes it active, and shows the map right away (no token step)", async () => {
     const { createSite } = getView();
 
     await createSite("Home field");
 
     expect(screen.getByText("Home field")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("Вставте сюди свій токен Cesium ion")).toBeInTheDocument();
-  });
-
-  it("entering a Cesium token reveals the map for the active site", async () => {
-    const { createSite, typeToken, clickSaveToken } = getView();
-    await createSite("Home field");
-
-    await typeToken("test-token");
-    await clickSaveToken();
-
-    expect(screen.queryByPlaceholderText("Вставте сюди свій токен Cesium ion")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Встановити дім" })).toBeInTheDocument();
     expect(screen.getByText("Дім ще не встановлено")).toBeInTheDocument();
   });
 
   it("clicking Set Home then the map places home at the sampled terrain altitude", async () => {
-    const { createSite, typeToken, clickSaveToken, clickSetHome, simulateMapClick } = getView();
+    const { createSite, clickSetHome, simulateMapClick } = getView();
     await createSite("Home field");
-    await typeToken("test-token");
-    await clickSaveToken();
 
     await clickSetHome();
     expect(screen.getByText(/Клацніть на карті/)).toBeInTheDocument();
@@ -193,10 +199,8 @@ describe("GroundStationView", () => {
   });
 
   it("right-clicking the map then 'Add beacon here' creates a beacon device at the clicked point", async () => {
-    const { createSite, typeToken, clickSaveToken, simulateMapRightClick, user } = getView();
+    const { createSite, simulateMapRightClick, user } = getView();
     await createSite("Home field");
-    await typeToken("test-token");
-    await clickSaveToken();
 
     simulateMapRightClick(50.1, 30.1);
     await user.click(screen.getByRole("button", { name: "Додати маячок тут" }));
@@ -205,10 +209,8 @@ describe("GroundStationView", () => {
   });
 
   it("creating a device auto-selects it, showing its property panel defaulted from the matching preset", async () => {
-    const { createSite, typeToken, clickSaveToken, simulateMapRightClick, user } = getView();
+    const { createSite, simulateMapRightClick, user } = getView();
     await createSite("Home field");
-    await typeToken("test-token");
-    await clickSaveToken();
     simulateMapRightClick(50.1, 30.1);
 
     await user.click(screen.getByRole("button", { name: "Додати антену тут" }));
@@ -218,10 +220,8 @@ describe("GroundStationView", () => {
   });
 
   it("clicking an already-selected device again deselects it, hiding the property panel", async () => {
-    const { createSite, typeToken, clickSaveToken, simulateMapRightClick, user } = getView();
+    const { createSite, simulateMapRightClick, user } = getView();
     await createSite("Home field");
-    await typeToken("test-token");
-    await clickSaveToken();
     simulateMapRightClick(50.1, 30.1);
     await user.click(screen.getByRole("button", { name: "Додати антену тут" }));
     await screen.findByDisplayValue("2000");
@@ -232,25 +232,22 @@ describe("GroundStationView", () => {
   });
 
   it("hand-editing a device's range clears its preset back to custom", async () => {
-    const { createSite, typeToken, clickSaveToken, simulateMapRightClick, user } = getView();
+    const { createSite, simulateMapRightClick, user } = getView();
     await createSite("Home field");
-    await typeToken("test-token");
-    await clickSaveToken();
     simulateMapRightClick(50.1, 30.1);
     await user.click(screen.getByRole("button", { name: "Додати антену тут" }));
     const rangeInput = await screen.findByDisplayValue("2000");
 
     await user.clear(rangeInput);
     await user.type(rangeInput, "500");
+    await user.tab(); // commits on blur, not per keystroke - see NumberField's own doc comment.
 
     expect(useGroundStationSitesStore.getState().sites[0]!.devices[0]).toMatchObject({ rangeM: 500, presetId: null });
   });
 
   it("deleting a device removes it after confirming", async () => {
-    const { createSite, typeToken, clickSaveToken, simulateMapRightClick, user } = getView();
+    const { createSite, simulateMapRightClick, user } = getView();
     await createSite("Home field");
-    await typeToken("test-token");
-    await clickSaveToken();
     simulateMapRightClick(50.1, 30.1);
     await user.click(screen.getByRole("button", { name: "Додати маячок тут" }));
     const row = (await screen.findByText("Маячок 1")).closest("li")!;
@@ -262,28 +259,23 @@ describe("GroundStationView", () => {
     expect(screen.queryByText("Маячок 1")).not.toBeInTheDocument();
   });
 
-  it("toggling Show coverage draws a coverage overlay and flips the button to Hide coverage", async () => {
-    const { createSite, typeToken, clickSaveToken, simulateMapRightClick, user } = getView();
+  it("toggling Show coverage draws a coverage overlay layer and flips the button to Hide coverage", async () => {
+    const { createSite, simulateMapRightClick, user, getLastMap } = getView();
     await createSite("Home field");
-    await typeToken("test-token");
-    await clickSaveToken();
     simulateMapRightClick(50.1, 30.1);
     await user.click(screen.getByRole("button", { name: "Додати маячок тут" }));
     await screen.findByText("Маячок 1");
-    const addCallsBefore = viewerInstances.at(-1)!.entities.add.mock.calls.length;
 
     await user.click(await screen.findByRole("button", { name: "Показати покриття" }));
 
     expect(await screen.findByRole("button", { name: "Приховати покриття" })).toBeInTheDocument();
-    const rectangleCalls = viewerInstances.at(-1)!.entities.add.mock.calls.slice(addCallsBefore).filter(([opts]) => "rectangle" in opts);
-    expect(rectangleCalls.length).toBe(1);
+    const coverageLayers = Array.from(getLastMap().layers).filter((id) => id.startsWith("device-coverage-layer-"));
+    expect(coverageLayers).toHaveLength(1);
   });
 
-  it("toggling coverage back off removes the overlay entity", async () => {
-    const { createSite, typeToken, clickSaveToken, simulateMapRightClick, user } = getView();
+  it("toggling coverage back off removes the overlay layer", async () => {
+    const { createSite, simulateMapRightClick, user, getLastMap } = getView();
     await createSite("Home field");
-    await typeToken("test-token");
-    await clickSaveToken();
     simulateMapRightClick(50.1, 30.1);
     await user.click(screen.getByRole("button", { name: "Додати маячок тут" }));
     await user.click(await screen.findByRole("button", { name: "Показати покриття" }));
@@ -292,6 +284,145 @@ describe("GroundStationView", () => {
     await user.click(screen.getByRole("button", { name: "Приховати покриття" }));
 
     expect(await screen.findByRole("button", { name: "Показати покриття" })).toBeInTheDocument();
-    expect(viewerInstances.at(-1)!.entities.remove).toHaveBeenCalled();
+    const coverageLayers = Array.from(getLastMap().layers).filter((id) => id.startsWith("device-coverage-layer-"));
+    expect(coverageLayers).toHaveLength(0);
+  });
+
+  it("the combined coverage toggle is disabled with no devices, and draws a merged overlay once one exists", async () => {
+    const { createSite, simulateMapRightClick, user, getLastMap } = getView();
+    await createSite("Home field");
+
+    expect(screen.getByRole("button", { name: "Показати сумарне покриття" })).toBeDisabled();
+
+    simulateMapRightClick(50.1, 30.1);
+    await user.click(screen.getByRole("button", { name: "Додати маячок тут" }));
+    await screen.findByText("Маячок 1");
+
+    const toggle = screen.getByRole("button", { name: "Показати сумарне покриття" });
+    expect(toggle).toBeEnabled();
+    await act(async () => {
+      await user.click(toggle);
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByRole("button", { name: "Приховати сумарне покриття" })).toBeInTheDocument();
+    expect(getLastMap().layers.has("combined-coverage-layer")).toBe(true);
+  });
+
+  it("dragging a device marker moves it to the dropped position, re-sampling altitude", async () => {
+    const { createSite, simulateMapRightClick, user } = getView();
+    await createSite("Home field");
+    simulateMapRightClick(50.1, 30.1);
+    await user.click(screen.getByRole("button", { name: "Додати маячок тут" }));
+    await screen.findByText("Маячок 1");
+    const marker = MockMarker.instances.at(-1)!;
+
+    await act(async () => {
+      marker.setLngLat([31.5, 51.5]);
+      marker.dragHandler?.();
+      await Promise.resolve();
+    });
+
+    const device = useGroundStationSitesStore.getState().sites[0]!.devices[0]!;
+    expect(device).toMatchObject({ lat: 51.5, lon: 31.5, altitudeM: 123 });
+  });
+
+  it("dragging a device marker applies the new position immediately, not just after the terrain re-sample resolves", async () => {
+    const { createSite, simulateMapRightClick, user } = getView();
+    await createSite("Home field");
+    simulateMapRightClick(50.1, 30.1);
+    await user.click(screen.getByRole("button", { name: "Додати маячок тут" }));
+    await screen.findByText("Маячок 1");
+    const marker = MockMarker.instances.at(-1)!;
+
+    // No `await`/microtask flush here, unlike the test above - a regression back to updating
+    // position only inside sampleTerrainElevations().then() would still show the pre-drag
+    // position at this point, since a .then() callback never runs synchronously.
+    act(() => {
+      marker.setLngLat([31.5, 51.5]);
+      marker.dragHandler?.();
+    });
+
+    const device = useGroundStationSitesStore.getState().sites[0]!.devices[0]!;
+    expect(device.lat).toBe(51.5);
+    expect(device.lon).toBe(31.5);
+  });
+
+  it("dragging a device then immediately changing another of its fields does not snap it back to the pre-drag position", async () => {
+    const { createSite, simulateMapRightClick, user } = getView();
+    await createSite("Home field");
+    simulateMapRightClick(50.1, 30.1);
+    await user.click(screen.getByRole("button", { name: "Додати маячок тут" }));
+    await screen.findByText("Маячок 1");
+    const marker = MockMarker.instances.at(-1)!;
+    const siteId = useGroundStationSitesStore.getState().sites[0]!.id;
+    const deviceId = useGroundStationSitesStore.getState().sites[0]!.devices[0]!.id;
+
+    act(() => {
+      marker.setLngLat([31.5, 51.5]);
+      marker.dragHandler?.();
+    });
+    // Any other store write for this device (e.g. applying a different preset) re-runs the
+    // devices-drawing effect before the drag's own terrain re-sample has resolved - this used to
+    // re-sync the marker (and its coverage lobe) back to the stale pre-drag position still sitting
+    // in the store, visibly "teleporting" it back.
+    act(() => {
+      useGroundStationSitesStore.getState().updateDevice(siteId, deviceId, { rangeM: 750 });
+    });
+
+    const device = useGroundStationSitesStore.getState().sites[0]!.devices[0]!;
+    expect(device.lat).toBe(51.5);
+    expect(device.lon).toBe(31.5);
+  });
+
+  it("clicking a device marker on the map selects it", async () => {
+    const { createSite, simulateMapRightClick, user } = getView();
+    await createSite("Home field");
+    simulateMapRightClick(50.1, 30.1);
+    await user.click(screen.getByRole("button", { name: "Додати маячок тут" }));
+    await screen.findByDisplayValue("300"); // beacon-standard's default range - auto-selected.
+    // Deselect first (clicking the list row toggles it off) so the marker click is what
+    // re-selects it, not a leftover selection from creation.
+    await user.click(screen.getByText("Маячок 1"));
+    expect(screen.queryByDisplayValue("300")).not.toBeInTheDocument();
+    const marker = MockMarker.instances.at(-1)!;
+
+    marker.element.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(await screen.findByDisplayValue("300")).toBeInTheDocument();
+  });
+
+  it("collapsing the Saved sites panel hides names but keeps sites clickable by icon", async () => {
+    const { createSite, user } = getView();
+    await createSite("Home field");
+    expect(screen.getByText("Home field")).toBeInTheDocument();
+
+    // Both panels share the same generic collapse/expand labels (matching this app's existing
+    // Sidebar.tsx convention) - Saved sites renders first, so its own toggle is always index 0.
+    await user.click(screen.getAllByRole("button", { name: "Згорнути бічну панель" })[0]!);
+
+    expect(screen.queryByText("Home field")).not.toBeInTheDocument();
+    const collapsedSiteButton = screen.getByRole("button", { name: "Home field" });
+    expect(collapsedSiteButton).toBeInTheDocument();
+
+    await user.click(screen.getAllByRole("button", { name: "Розгорнути бічну панель" })[0]!);
+    expect(screen.getByText("Home field")).toBeInTheDocument();
+  });
+
+  it("collapsing the Devices panel hides device names and the property panel", async () => {
+    const { createSite, simulateMapRightClick, user } = getView();
+    await createSite("Home field");
+    simulateMapRightClick(50.1, 30.1);
+    await user.click(screen.getByRole("button", { name: "Додати маячок тут" }));
+    await screen.findByDisplayValue("300");
+
+    await user.click(screen.getAllByRole("button", { name: "Згорнути бічну панель" })[1]!);
+
+    expect(screen.queryByText("Маячок 1")).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue("300")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Маячок 1" })).toBeInTheDocument();
+
+    await user.click(screen.getAllByRole("button", { name: "Розгорнути бічну панель" })[1]!);
+    expect(screen.getByText("Маячок 1")).toBeInTheDocument();
   });
 });
