@@ -13,6 +13,7 @@ import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&ur
 import type { Feature, Polygon } from "geojson";
 import { useEffect, useRef, useState } from "react";
 import type { SiteDevice, SiteHome } from "../../stores/groundStationSitesStore/types";
+import { bearingBetween, destinationPoint } from "../../utils/geo/geo";
 import { computeCombinedCoverageRaster, computeCoverageRaster, type CoverageCell, type CoverageLevel } from "./coverageRaster";
 import { lobeOutline } from "./lobeGeometry";
 import { sampleTerrainElevations } from "./terrainElevation";
@@ -41,6 +42,14 @@ const BEACON_SVG = encodeURIComponent(
 const ANTENNA_SVG = encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22">' +
     '<path d="M11 2 L16 20 H6 Z" fill="#3b82f6" stroke="black" stroke-width="1.5" stroke-linejoin="round"/>' +
+    "</svg>",
+);
+// A small drag handle for setting a directional/dipole device's facing - deliberately distinct
+// from both marker shapes above (a plain dot/wedge) so it doesn't get mistaken for another
+// device, and neutral-colored since it isn't itself a beacon or antenna.
+const ROTATE_HANDLE_SVG = encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">' +
+    '<circle cx="8" cy="8" r="6" fill="#ffffff" stroke="#1f2937" stroke-width="2"/>' +
     "</svg>",
 );
 const BEACON_COLOR = "#a855f7";
@@ -84,6 +93,10 @@ interface UseGroundStationMapViewerOptions {
    *  terrain-sampled for altitude, same as a fresh placement, since dropping something
    *  somewhere new is conceptually the same action as placing it there in the first place. */
   onDeviceMoved: (id: string, lat: number, lon: number, altitudeM: number) => void;
+  /** Fired when a directional/dipole device's facing is dragged via its rotation handle - see
+   *  the handle markers below. Not fired for "omni" devices, which have no handle at all since
+   *  bearing has no visible effect on their (circular) lobe. */
+  onDeviceRotated: (id: string, bearingDeg: number) => void;
   /** Fired on a right-click anywhere on the map - the component owns the resulting context-menu
    *  UI and decides what (if anything) to place there; this hook only reports where the click
    *  landed, in both screen pixels (for menu positioning) and lat/lon. */
@@ -121,6 +134,7 @@ export function useGroundStationMapViewer({
   selectedDeviceId,
   onSelectDevice,
   onDeviceMoved,
+  onDeviceRotated,
   onMapRightClick,
   coverageDeviceIds,
   showCombinedCoverage,
@@ -135,6 +149,7 @@ export function useGroundStationMapViewer({
   const [styleLoaded, setStyleLoaded] = useState(false);
   const homeMarkerRef = useRef<Marker | null>(null);
   const deviceMarkersRef = useRef(new Map<string, Marker>());
+  const rotationHandleMarkersRef = useRef(new Map<string, Marker>());
   const coverageLayersRef = useRef(new Map<string, { deviceKey: string }>());
   const [coverageLoadingIds, setCoverageLoadingIds] = useState<ReadonlySet<string>>(new Set());
   const combinedCoverageKeyRef = useRef<string | null>(null);
@@ -147,6 +162,7 @@ export function useGroundStationMapViewer({
   const onMapRightClickRef = useRef(onMapRightClick);
   const onSelectDeviceRef = useRef(onSelectDevice);
   const onDeviceMovedRef = useRef(onDeviceMoved);
+  const onDeviceRotatedRef = useRef(onDeviceRotated);
   // Read at drag time (not captured once when a marker's dragend handler is created, which can
   // be long before a given drag happens) so an optimistic position update - see dragend below -
   // preserves whatever altitude is CURRENTLY stored, not a stale one from marker-creation time.
@@ -158,9 +174,10 @@ export function useGroundStationMapViewer({
     onMapRightClickRef.current = onMapRightClick;
     onSelectDeviceRef.current = onSelectDevice;
     onDeviceMovedRef.current = onDeviceMoved;
+    onDeviceRotatedRef.current = onDeviceRotated;
     homeRef.current = home;
     devicesRef.current = devices;
-  }, [placingHome, onPlaceHome, onMapRightClick, onSelectDevice, onDeviceMoved, home, devices]);
+  }, [placingHome, onPlaceHome, onMapRightClick, onSelectDevice, onDeviceMoved, onDeviceRotated, home, devices]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -213,6 +230,7 @@ export function useGroundStationMapViewer({
     // initial value, only their contents do) so the cleanup below reads values React's linter
     // can prove haven't been reassigned out from under it, rather than `.current` at cleanup time.
     const deviceMarkers = deviceMarkersRef.current;
+    const rotationHandleMarkers = rotationHandleMarkersRef.current;
     const coverageLayers = coverageLayersRef.current;
     return () => {
       removedRef.current = true;
@@ -221,6 +239,7 @@ export function useGroundStationMapViewer({
       mapRef.current = null;
       homeMarkerRef.current = null;
       deviceMarkers.clear();
+      rotationHandleMarkers.clear();
       coverageLayers.clear();
       combinedCoverageKeyRef.current = null;
       setStyleLoaded(false);
@@ -277,6 +296,8 @@ export function useGroundStationMapViewer({
       marker.remove();
       deviceMarkersRef.current.delete(id);
       removeLobeLayers(map, id);
+      rotationHandleMarkersRef.current.get(id)?.remove();
+      rotationHandleMarkersRef.current.delete(id);
     }
 
     for (const device of devices) {
@@ -313,7 +334,7 @@ export function useGroundStationMapViewer({
           e.stopPropagation();
           onSelectDeviceRef.current(device.id);
         });
-        const marker = new Marker({ element, draggable: true, anchor: "center" }).setLngLat(lngLat).addTo(map);
+        const marker = new Marker({ element, draggable: !device.locked, anchor: "center" }).setLngLat(lngLat).addTo(map);
         marker.on("dragend", () => {
           const { lng, lat } = marker.getLngLat();
           // Same "apply position immediately, correct altitude afterward" reasoning as the home
@@ -334,6 +355,39 @@ export function useGroundStationMapViewer({
         deviceMarkersRef.current.set(device.id, marker);
       } else {
         existingMarker.setLngLat(lngLat);
+        existingMarker.setDraggable(!device.locked);
+      }
+
+      // A rotation handle only makes sense for a pattern whose lobe actually depends on bearing -
+      // "omni" is a circle no matter which way it "faces," so it gets no handle at all rather
+      // than one that would visibly do nothing.
+      const existingHandle = rotationHandleMarkersRef.current.get(device.id);
+      if (device.pattern === "omni") {
+        if (existingHandle) {
+          existingHandle.remove();
+          rotationHandleMarkersRef.current.delete(device.id);
+        }
+      } else {
+        const handlePoint = destinationPoint(device.lat, device.lon, device.bearingDeg, device.rangeM);
+        const handleLngLat: LngLatLike = [handlePoint.lon, handlePoint.lat];
+        if (!existingHandle) {
+          const handle = new Marker({ element: markerElement(ROTATE_HANDLE_SVG, 16), draggable: !device.locked, anchor: "center" })
+            .setLngLat(handleLngLat)
+            .addTo(map);
+          handle.on("dragend", () => {
+            const { lng, lat } = handle.getLngLat();
+            // Bearing only, not distance - dragend below snaps the handle back onto the circle
+            // at rangeM once the redraw effect re-runs with the new bearing, matching a "rotate
+            // around center" feel rather than letting the handle wander off at whatever distance
+            // it was dropped.
+            const bearingDeg = bearingBetween(device.lat, device.lon, lat, lng);
+            onDeviceRotatedRef.current(device.id, bearingDeg);
+          });
+          rotationHandleMarkersRef.current.set(device.id, handle);
+        } else {
+          existingHandle.setLngLat(handleLngLat);
+          existingHandle.setDraggable(!device.locked);
+        }
       }
     }
   }, [devices, selectedDeviceId, styleLoaded]);
@@ -399,19 +453,27 @@ export function useGroundStationMapViewer({
     if (combinedCoverageKeyRef.current === key) return;
 
     setCombinedCoverageLoading(true);
-    void computeCombinedCoverageRaster({ devices, sampleTerrain: sampleTerrainElevations }).then((raster) => {
-      setCombinedCoverageLoading(false);
-      // Same stale-async guard family as the per-device coverage effect above.
-      if (removedRef.current || !showCombinedCoverage) return;
-      if (devices.map(coverageDeviceKey).join(";") !== key) return;
+    void computeCombinedCoverageRaster({ devices, sampleTerrain: sampleTerrainElevations })
+      .then((raster) => {
+        setCombinedCoverageLoading(false);
+        // Same stale-async guard family as the per-device coverage effect above.
+        if (removedRef.current || !showCombinedCoverage) return;
+        if (devices.map(coverageDeviceKey).join(";") !== key) return;
 
-      removeCombinedCoverageLayer(map);
-      if (raster.cells.length === 0) return;
-      const canvas = cellsToCanvas(raster.cells, raster.rows, raster.cols);
-      map.addSource(COMBINED_COVERAGE_SOURCE_ID, { type: "image", url: canvas.toDataURL(), coordinates: raster.corners });
-      map.addLayer({ id: COMBINED_COVERAGE_LAYER_ID, type: "raster", source: COMBINED_COVERAGE_SOURCE_ID, paint: { "raster-opacity": 1 } });
-      combinedCoverageKeyRef.current = key;
-    });
+        removeCombinedCoverageLayer(map);
+        if (raster.cells.length === 0) return;
+        const canvas = cellsToCanvas(raster.cells, raster.rows, raster.cols);
+        map.addSource(COMBINED_COVERAGE_SOURCE_ID, { type: "image", url: canvas.toDataURL(), coordinates: raster.corners });
+        map.addLayer({ id: COMBINED_COVERAGE_LAYER_ID, type: "raster", source: COMBINED_COVERAGE_SOURCE_ID, paint: { "raster-opacity": 1 } });
+        combinedCoverageKeyRef.current = key;
+      })
+      .catch((err: unknown) => {
+        // A batched terrain fetch is a real network call (unlike the rest of this effect's pure
+        // math) - failing shouldn't leave the loading indicator spinning forever with no visible
+        // outcome, even though there's no dedicated error-toast UI for this yet.
+        setCombinedCoverageLoading(false);
+        console.error("Failed to compute combined coverage:", err);
+      });
   }, [devices, showCombinedCoverage, styleLoaded]);
 
   async function sampleAltitude(lat: number, lon: number): Promise<number> {

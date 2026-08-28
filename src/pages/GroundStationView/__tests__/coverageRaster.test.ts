@@ -84,6 +84,22 @@ describe("computeCombinedCoverageRaster", () => {
     expect(cells.some((c) => c.level === "clear" || c.level === "marginal")).toBe(true);
   });
 
+  it("resolves a small-range device densely even when it's spread far from the other devices", async () => {
+    // Devices ~5.5km apart with only a 300m range each (this app's own beacon-standard preset) -
+    // a fixed 40-cell grid across that whole 5.5km span would give each device only a cell or
+    // two, making its coverage effectively invisible once rendered. Each device's own circle
+    // should still get resolved into a real handful of cells, not just 1-2.
+    const small = { ...OMNI, lat: 0, lon: 0, rangeM: 300 };
+    const farSmall = { ...OMNI, lat: 0, lon: 0.05, rangeM: 300 };
+
+    const { cells } = await computeCombinedCoverageRaster({ devices: [small, farSmall], sampleTerrain: flatTerrain(0) });
+
+    const nearCells = cells.filter((c) => c.lon < 0.02);
+    const farCells = cells.filter((c) => c.lon > 0.03);
+    expect(nearCells.length).toBeGreaterThan(20);
+    expect(farCells.length).toBeGreaterThan(20);
+  });
+
   it("samples terrain in exactly one batched call regardless of device count", async () => {
     const sampleTerrain = vi.fn(flatTerrain(0));
     const devices = [

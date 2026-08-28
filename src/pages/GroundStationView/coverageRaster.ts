@@ -176,6 +176,8 @@ function classifyLevel({
 
 const LEVEL_RANK: Record<CoverageLevel, number> = { blocked: 0, marginal: 1, clear: 2 };
 const DEFAULT_COMBINED_GRID_RESOLUTION = 40;
+const MIN_CELLS_ACROSS_SMALLEST_DEVICE = 16;
+const MAX_COMBINED_GRID_CELLS = 160_000;
 
 interface ComputeCombinedCoverageOptions {
   devices: PatternFields[];
@@ -244,7 +246,20 @@ export async function computeCombinedCoverageRaster({
   const metersPerDegLon = 111_320 * Math.cos((centerLat * Math.PI) / 180);
   const latSpanM = (maxLat - minLat) * metersPerDegLat;
   const lonSpanM = (maxLon - minLon) * metersPerDegLon;
-  const cellSizeM = Math.max(latSpanM, lonSpanM, 1) / gridResolution;
+  // A fixed cell count across the WHOLE union bounding box under-samples any device whose own
+  // range is small relative to how spread out the devices are - e.g. three devices a few km
+  // apart with 300m ranges would get a ~150m cell size from `gridResolution` alone, leaving each
+  // device only a handful of cells (or none) and making its coverage all but invisible. Also
+  // resolving to at least MIN_CELLS_ACROSS_SMALLEST_DEVICE cells across the SMALLEST device's own
+  // diameter - whichever of the two produces the finer (smaller) cell - fixes that without
+  // penalizing the common case where devices' ranges are already comparable to their spread.
+  // Clamped to a total-cell budget so an extreme outlier (a tiny-range device far from everything
+  // else) can't blow up the grid to an unreasonable size.
+  const spanCellSizeM = Math.max(latSpanM, lonSpanM, 1) / gridResolution;
+  const minRangeM = Math.min(...devices.map((d) => d.rangeM));
+  const desiredCellSizeM = (2 * minRangeM) / MIN_CELLS_ACROSS_SMALLEST_DEVICE;
+  const budgetCellSizeM = Math.sqrt(Math.max(latSpanM * lonSpanM, 1) / MAX_COMBINED_GRID_CELLS);
+  const cellSizeM = Math.max(budgetCellSizeM, Math.min(spanCellSizeM, desiredCellSizeM));
   const rows = Math.max(1, Math.round(latSpanM / cellSizeM));
   const cols = Math.max(1, Math.round(lonSpanM / cellSizeM));
 

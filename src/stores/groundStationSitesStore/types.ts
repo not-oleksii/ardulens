@@ -41,6 +41,10 @@ export interface SiteDevice {
    *  cleared to null the moment the user edits any of those fields by hand, so the property
    *  panel can show whether a device is still "on preset" or has been custom-tuned. */
   presetId: string | null;
+  /** True to make this device's marker (and rotation handle) non-draggable on the map - guards
+   *  against accidentally nudging a confirmed placement while panning/clicking around it.
+   *  Optional/undefined on older persisted sites, treated the same as false. */
+  locked?: boolean;
 }
 
 /** One saved ground-station layout for a physical flying location. */
