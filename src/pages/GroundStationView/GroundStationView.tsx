@@ -2,12 +2,10 @@ import { ArrowLeft, Check, MapPin, Pencil, Plus, Radio, RadioTower, Trash2, X } 
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { CESIUM_TOKEN_STORAGE_KEY } from "../../constants";
 import { DEVICE_PRESETS, defaultPresetFor, presetsFor } from "../../stores/groundStationSitesStore/presets";
 import { useGroundStationSitesStore } from "../../stores/groundStationSitesStore/groundStationSitesStore";
 import type { DeviceKind, Site, SiteDevice } from "../../stores/groundStationSitesStore/types";
@@ -194,16 +192,13 @@ interface SiteMapProps {
 
 function SiteMap({ site, selectedDeviceId, onSelectDevice, coverageDeviceIds }: SiteMapProps) {
   const { t } = useTranslation();
-  const [token, setToken] = useState(() => localStorage.getItem(CESIUM_TOKEN_STORAGE_KEY) ?? "");
-  const [tokenInput, setTokenInput] = useState("");
   const [placingHome, setPlacingHome] = useState(false);
-  const [altitudeInput, setAltitudeInput] = useState("");
   const [contextMenu, setContextMenu] = useState<DeviceContextMenuState | null>(null);
   const setHome = useGroundStationSitesStore((s) => s.setHome);
   const addDevice = useGroundStationSitesStore((s) => s.addDevice);
+  const updateDevice = useGroundStationSitesStore((s) => s.updateDevice);
 
   const { containerRef, sampleAltitude, coverageLoadingIds } = useGroundStationMapViewer({
-    token,
     home: site.home,
     placingHome,
     onPlaceHome: (home) => {
@@ -212,7 +207,9 @@ function SiteMap({ site, selectedDeviceId, onSelectDevice, coverageDeviceIds }: 
     },
     devices: site.devices,
     selectedDeviceId,
-    onMapRightClick: (x, y, lat, lon) => setContextMenu({ x, y, lat, lon }),
+    onSelectDevice,
+    onDeviceMoved: (id, lat, lon, altitudeM) => updateDevice(site.id, id, { lat, lon, altitudeM }),
+    onMapRightClick: ({ screenX, screenY, lat, lon }) => setContextMenu({ x: screenX, y: screenY, lat, lon }),
     coverageDeviceIds,
   });
 
@@ -235,19 +232,6 @@ function SiteMap({ site, selectedDeviceId, onSelectDevice, coverageDeviceIds }: 
     };
   }, [contextMenu]);
 
-  function saveToken() {
-    const trimmed = tokenInput.trim();
-    if (!trimmed) return;
-    localStorage.setItem(CESIUM_TOKEN_STORAGE_KEY, trimmed);
-    setToken(trimmed);
-  }
-
-  function commitAltitude() {
-    const parsed = Number(altitudeInput);
-    if (!site.home || !Number.isFinite(parsed)) return;
-    setHome(site.id, { ...site.home, altitudeM: parsed });
-  }
-
   async function handleAddDevice(kind: DeviceKind) {
     if (!contextMenu) return;
     const { lat, lon } = contextMenu;
@@ -268,26 +252,6 @@ function SiteMap({ site, selectedDeviceId, onSelectDevice, coverageDeviceIds }: 
       presetId: preset.id,
     });
     onSelectDevice(id);
-  }
-
-  if (!token) {
-    return (
-      <div className="flex flex-1 flex-col gap-4 p-4">
-        <Alert variant="info">
-          <AlertDescription>
-            {t("map.token.intro")}{" "}
-            <a href="https://ion.cesium.com/tokens" target="_blank" rel="noreferrer" className="underline">
-              ion.cesium.com/tokens
-            </a>
-            . {t("map.token.instructions")}
-          </AlertDescription>
-        </Alert>
-        <div className="flex max-w-md gap-2">
-          <Input value={tokenInput} onChange={(e) => setTokenInput(e.target.value)} placeholder={t("map.token.placeholder")} />
-          <Button onClick={saveToken}>{t("map.token.save")}</Button>
-        </div>
-      </div>
-    );
   }
 
   return (
@@ -313,21 +277,11 @@ function SiteMap({ site, selectedDeviceId, onSelectDevice, coverageDeviceIds }: 
             <span>
               {site.home.lat.toFixed(6)}, {site.home.lon.toFixed(6)}
             </span>
-            <label className="flex items-center gap-1">
-              {t("groundStation.map.homeAltitude")}
-              <Input
-                type="number"
-                value={altitudeInput || Math.round(site.home.altitudeM)}
-                onFocus={(e) => setAltitudeInput(e.target.value)}
-                onChange={(e) => setAltitudeInput(e.target.value)}
-                onBlur={() => {
-                  commitAltitude();
-                  setAltitudeInput("");
-                }}
-                onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-                className="h-6 w-20 font-mono text-xs"
-              />
-            </label>
+            <NumberField
+              label={t("groundStation.map.homeAltitude")}
+              displayValue={Math.round(site.home.altitudeM)}
+              onCommit={(v) => setHome(site.id, { ...site.home!, altitudeM: v })}
+            />
           </div>
         )}
       </div>
@@ -355,6 +309,43 @@ function SiteMap({ site, selectedDeviceId, onSelectDevice, coverageDeviceIds }: 
         </div>
       )}
     </div>
+  );
+}
+
+interface NumberFieldProps {
+  label: string;
+  displayValue: number;
+  onCommit: (value: number) => void;
+}
+
+/** A numeric field that commits on blur/Enter, not on every keystroke - unlike a plain
+ *  controlled input wired straight to the store, this doesn't re-trigger this device's coverage
+ *  raster (a real terrain-sampling batch, not free) after every single digit typed. Mirrors the
+ *  Set-Home altitude field's own local-draft-then-commit pattern above. */
+function NumberField({ label, displayValue, onCommit }: NumberFieldProps) {
+  // null (not "") means "not currently editing, show the real value" - an empty STRING is a
+  // real, valid mid-edit state (the user cleared the field to retype it from scratch), and
+  // falling back to displayValue for that case - what `draft || displayValue` used to do - made
+  // a cleared field immediately snap back to its old value, so the next keystroke appended onto
+  // it instead of replacing it.
+  const [draft, setDraft] = useState<string | null>(null);
+  return (
+    <label className="flex items-center justify-between gap-2 text-xs">
+      {label}
+      <Input
+        type="number"
+        value={draft ?? displayValue}
+        onFocus={(e) => setDraft(e.target.value)}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          const parsed = Number(draft);
+          if (draft !== null && draft !== "" && Number.isFinite(parsed)) onCommit(parsed);
+          setDraft(null);
+        }}
+        onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+        className="h-6 w-20 font-mono text-xs"
+      />
+    </label>
   );
 }
 
@@ -404,46 +395,26 @@ function DeviceProperties({ siteId, device, showingCoverage, onToggleCoverage }:
           </SelectContent>
         </Select>
       </label>
-      <label className="flex items-center justify-between gap-2 text-xs">
-        {t("groundStation.devices.range")}
-        <Input
-          type="number"
-          value={device.rangeM}
-          onChange={(e) => patchField({ rangeM: Number(e.target.value) || 0 })}
-          className="h-6 w-20 font-mono text-xs"
-        />
-      </label>
+      <NumberField label={t("groundStation.devices.range")} displayValue={device.rangeM} onCommit={(v) => patchField({ rangeM: v })} />
       {device.pattern !== "omni" && (
-        <label className="flex items-center justify-between gap-2 text-xs">
-          {t("groundStation.devices.bearing")}
-          <Input
-            type="number"
-            value={device.bearingDeg}
-            onChange={(e) => patchField({ bearingDeg: Number(e.target.value) || 0 })}
-            className="h-6 w-20 font-mono text-xs"
-          />
-        </label>
+        <NumberField
+          label={t("groundStation.devices.bearing")}
+          displayValue={device.bearingDeg}
+          onCommit={(v) => patchField({ bearingDeg: v })}
+        />
       )}
       {device.pattern === "directional" && (
-        <label className="flex items-center justify-between gap-2 text-xs">
-          {t("groundStation.devices.beamwidth")}
-          <Input
-            type="number"
-            value={device.beamwidthDeg}
-            onChange={(e) => patchField({ beamwidthDeg: Number(e.target.value) || 0 })}
-            className="h-6 w-20 font-mono text-xs"
-          />
-        </label>
-      )}
-      <label className="flex items-center justify-between gap-2 text-xs">
-        {t("groundStation.devices.altitude")}
-        <Input
-          type="number"
-          value={Math.round(device.altitudeM)}
-          onChange={(e) => patchField({ altitudeM: Number(e.target.value) || 0 })}
-          className="h-6 w-20 font-mono text-xs"
+        <NumberField
+          label={t("groundStation.devices.beamwidth")}
+          displayValue={device.beamwidthDeg}
+          onCommit={(v) => patchField({ beamwidthDeg: v })}
         />
-      </label>
+      )}
+      <NumberField
+        label={t("groundStation.devices.altitude")}
+        displayValue={Math.round(device.altitudeM)}
+        onCommit={(v) => patchField({ altitudeM: v })}
+      />
       <Button type="button" size="sm" variant={showingCoverage ? "secondary" : "outline"} onClick={onToggleCoverage}>
         {showingCoverage ? t("groundStation.devices.hideCoverage") : t("groundStation.devices.showCoverage")}
       </Button>

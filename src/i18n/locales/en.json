@@ -1249,7 +1249,7 @@
       "settingHomeHint": "Click the map to place home",
       "noHome": "No home set yet",
       "homeAltitude": "Alt (m)",
-      "rightClickHint": "Right-click to add a beacon or antenna",
+      "rightClickHint": "Right-click to add a beacon or antenna. Click a marker to select it, or drag it to move.",
       "addBeaconHere": "Add beacon here",
       "addAntennaHere": "Add antenna here"
     },
